@@ -1,0 +1,9 @@
+{
+  "name": "Spark Lens",
+  "short_name": "Spark Lens",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b121d",
+  "theme_color": "#0b121d",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

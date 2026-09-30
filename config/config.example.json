@@ -1,0 +1,24 @@
+{
+  "server": { "host": "127.0.0.1", "port": 8686 },
+  "pollSeconds": 5,
+  "hosts": [
+    { "id": "dev", "label": "Dev machine", "kind": "workstation", "local": true },
+    { "id": "spark-1", "label": "DGX Spark 1", "kind": "spark", "ssh": "spark-1" },
+    { "id": "spark-2", "label": "DGX Spark 2", "kind": "spark", "ssh": "spark-2" }
+  ],
+  "llms": [
+    {
+      "id": "glm-5-3-flash",
+      "label": "GLM-5.3 Flash",
+      "baseUrl": "http://spark-1:8888",
+      "nodes": ["spark-1", "spark-2"],
+      "containers": ["glm53-exl3-head", "glm53-exl3-worker"]
+    }
+  ],
+  "subscriptions": [
+    { "type": "claude-code" },
+    { "type": "codex" },
+    { "type": "opencode-go" }
+  ],
+  "agents": { "processes": [] }
+}

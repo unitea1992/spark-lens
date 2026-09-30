@@ -1,0 +1,173 @@
+# Spark Lens
+
+自宅・小規模のローカル AI 環境を、ブラウザ 1 画面で見渡すためのダッシュボードです。
+
+- **マシン** — 開発機と DGX Spark の GPU・メモリ・CPU・温度・ストレージ・ネットワーク・コンテナ
+- **ローカル LLM** — vLLM など OpenAI 互換サーバーの稼働状態、生成速度、処理中の件数、今日のトークン数
+- **クラウド利用枠** — Claude Code・Codex・OpenCode Go の使用率とリセット時刻
+- **エージェント** — いま動いている coding agent と、その作業内容
+
+監視される側のマシンには何もインストールしません。Spark Lens は開発機で動き、Spark へは数秒おきに SSH で短いスクリプトを流すだけなので、Spark の GPU とメモリは推論のために空いたままです。
+
+## 必要なもの
+
+- Node.js 24 以上と pnpm（開発機）
+- 監視したいマシンへ、パスワードなしで入れる SSH（`ssh <ホスト名>` が通ること）
+- 手元の PC やスマートフォンから見る場合は Tailscale
+
+## 使い始める
+
+```bash
+git clone https://github.com/unitea1992/spark-lens.git
+cd spark-lens
+pnpm install
+
+mkdir -p ~/.config/spark-lens
+cp config/config.example.json ~/.config/spark-lens/config.json
+# ~/.config/spark-lens/config.json のホスト名を自分の環境に合わせて書き換える
+
+deploy/install.sh        # ビルドして systemd のユーザーサービスとして常駐させる
+```
+
+`http://127.0.0.1:8686` を開くと表示されます。設定を変えたら `systemctl --user restart spark-lens` で反映します。
+
+設定ファイルがなければ、そのマシン自身と 3 つのクラウド利用枠だけを表示します。
+
+### Tailscale 経由で見る
+
+Spark Lens 自体は開発機の内側（127.0.0.1）だけで待ち受けます。Tailscale に中継させると、同じ tailnet の端末からだけ HTTPS で開けるようになります。
+
+```bash
+tailscale serve --bg --https=8686 http://127.0.0.1:8686
+```
+
+表示された `https://<マシン名>.<tailnet>.ts.net:8686/` を PC やスマートフォンで開いてください。やめるときは `tailscale serve --https=8686 off` です。
+
+ログイン機能はありません。tailnet の外へ公開する（Tailscale Funnel やポート開放）使い方は想定していません。
+
+## 設定
+
+`~/.config/spark-lens/config.json`（場所は環境変数 `SPARK_LENS_CONFIG` で変更可）。全体の例は [`config/config.example.json`](config/config.example.json) にあります。
+
+| 項目 | 既定値 | 内容 |
+|---|---|---|
+| `server.host` / `server.port` | `127.0.0.1` / `8686` | 待ち受けるアドレスとポート |
+| `server.allowedHosts` | `[]` | 独自ドメインで開く場合に、そのホスト名を追加する |
+| `pollSeconds` | `5` | マシンと LLM を確認する間隔 |
+| `agentPollSeconds` | `15` | エージェントを確認する間隔 |
+| `subscriptionPollSeconds` | `300` | クラウド利用枠を取得する間隔 |
+| `hosts[]` | このマシンのみ | 監視するマシン |
+| `llms[]` | なし | 監視するローカル LLM |
+| `subscriptions[]` | 3 サービス | 表示するクラウド利用枠 |
+| `agents.processes[]` | なし | 追加で検出したいエージェントのプロセス |
+
+### マシン（`hosts`）
+
+```json
+{ "id": "spark-1", "label": "DGX Spark 1", "kind": "spark", "ssh": "spark-1" }
+```
+
+- `ssh` — SSH の接続先。`~/.ssh/config` の別名か `user@host`。このマシン自身を見るときは代わりに `"local": true`
+- `kind` — `spark`（GPU を主役に表示）、`workstation`、`server`
+- `mounts` — 容量を表示するマウントポイント。既定は `["/"]`
+
+### ローカル LLM（`llms`）
+
+```json
+{
+  "id": "glm-5-3-flash",
+  "label": "GLM-5.3 Flash",
+  "baseUrl": "http://spark-1:8888",
+  "nodes": ["spark-1", "spark-2"],
+  "containers": ["glm53-exl3-head", "glm53-exl3-worker"]
+}
+```
+
+- `baseUrl` — OpenAI 互換サーバーのアドレス（`/v1` は付けない）。`/health`・`/v1/models`・`/metrics` を読みます
+- `nodes` — そのモデルが載っているマシンの `id`
+- `containers` — モデルを動かすコンテナ名。API がまだ応答しなくてもコンテナが起動していれば「起動中」と表示します
+- `apiKeyEnv` — API キーが必要なサーバーの場合、キーを入れた環境変数の名前（キー自体は設定ファイルに書きません）
+
+上の例は [GLM-5.3 Flash EXL3 on DGX Spark](https://github.com/MiaAI-Lab/GLM-5.3-Flash-EXL3-2x-DGX-Sparks) を 2 台構成で動かした場合の値です。
+
+### クラウド利用枠（`subscriptions`）
+
+| `type` | 取得元 | 前提 |
+|---|---|---|
+| `claude-code` | Anthropic の使用状況 API | 開発機で `claude` にサブスクリプションでログイン済み |
+| `codex` | ChatGPT の使用状況 API | 開発機で `codex` に ChatGPT アカウントでログイン済み |
+| `opencode-go` | OpenCode Go の使用状況 API | 開発機で `opencode auth login` 済み（または環境変数 `OPENCODE_GO_API_KEY`） |
+| `command` | 任意のコマンドの出力 | 下記 |
+
+認証情報は各ツールが保存しているものをその都度読むだけで、Spark Lens は複製も更新もしません。ログインの期限が切れたときは、そのツールを一度起動すれば元に戻ります。
+
+バーの上の縦線は「期間がどこまで進んだか」を示します。バーが縦線より右にあれば、均等に使うペースより速く消費しています。
+
+#### ほかのサービスを足す
+
+コードを書かずに足すなら `command` を使います。使用状況を JSON で出力するスクリプトを用意して、設定に登録します。
+
+```json
+{ "type": "command", "label": "My Plan", "options": { "command": ["/path/to/usage.sh"] } }
+```
+
+```json
+{
+  "plan": "Pro",
+  "windows": [{ "id": "weekly", "label": "週間", "usedPct": 40, "resetsAt": "2026-10-05T00:00:00Z" }],
+  "notes": []
+}
+```
+
+組み込みとして足すなら、[`server/collectors/subscriptions/`](server/collectors/subscriptions) に `Provider` を 1 ファイル追加し、[`index.ts`](server/collectors/subscriptions/index.ts) の一覧に加えます。既存の 3 つがそのまま見本になります。
+
+### エージェント
+
+開発機では次の情報源を自動で使います。入っていないツールは単に表示されません。
+
+| ツール | 情報源 |
+|---|---|
+| Claude Code | `~/.claude/sessions/` のセッション記録 |
+| Codex | `~/.codex/` のスレッド記録 |
+| OpenCode | 常駐サーバーへの問い合わせ（`opencode api`） |
+| Orca | `orca worktree ps`（Orca 上で動くエージェント全般） |
+
+SSH 先のマシンでは、`claude`・`codex`・`opencode` のプロセスを検出します。ほかのプロセスも拾いたいときは規則を足します。`match` は各マシンの awk で評価されるため、POSIX 拡張正規表現の範囲で書いてください（`\d` や `(?:…)` は使えません）。
+
+```json
+{ "agents": { "processes": [{ "tool": "hermes", "label": "Hermes", "match": "(^|/)hermes( |$)" }] } }
+```
+
+## 仕組み
+
+```
+ブラウザ ──HTTPS──▶ tailscale serve ──▶ Spark Lens（開発機, Node.js）
+                                          ├─ ssh ──▶ 各マシンで server/probe.sh を実行
+                                          ├─ HTTP ─▶ ローカル LLM の /health, /metrics
+                                          ├─ HTTPS ▶ 各サービスの使用状況 API
+                                          └─ 開発機内のエージェント記録を読む
+```
+
+- サーバー（[`server/`](server)）は Node.js の標準機能だけで動き、実行時の依存パッケージはありません。TypeScript をそのまま実行します
+- 画面（[`web/`](web)）は React で、`pnpm build` で `dist/` に出力したものをサーバーが配信します
+- 画面への反映は Server-Sent Events。履歴は直近 10 分ぶんをメモリに持つだけで、データベースは使いません
+- 日ごとのトークン数だけ `~/.local/state/spark-lens/state.json` に保存します
+
+## 開発
+
+```bash
+pnpm dev        # サーバーを変更監視つきで起動（:8686）
+pnpm dev:web    # 画面をホットリロードで起動（API は :8686 に中継）
+pnpm check      # 型チェック・テスト・ビルド
+```
+
+## アンインストール
+
+```bash
+deploy/install.sh --uninstall
+tailscale serve --https=8686 off
+```
+
+## ライセンス
+
+[MIT](LICENSE)
