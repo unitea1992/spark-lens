@@ -10,10 +10,6 @@ function status(llm: LlmSnapshot): { tone: Tone; text: string } {
   return (llm.requestsRunning ?? 0) > 0 ? { tone: "busy", text: "推論中" } : { tone: "good", text: "待機中" };
 }
 
-function tps(v: number | null | undefined): string {
-  return v === null || v === undefined ? "–" : `${v.toFixed(1)} トークン/秒`;
-}
-
 export function LlmPanel({ llm, hosts, now }: { llm: LlmSnapshot; hosts: HostSnapshot[]; now: number }) {
   const st = status(llm);
   const up = llm.state === "up";
@@ -102,9 +98,8 @@ export function LlmPanel({ llm, hosts, now }: { llm: LlmSnapshot; hosts: HostSna
               <div>
                 <dt>投機的デコードの速度</dt>
                 <dd>
-                  ドラフト生成 {tps(spec.draftTokensPerSec)}
-                  <br />
-                  採用トークン {tps(spec.acceptedTokensPerSec)}
+                  ドラフト {spec.draftTokensPerSec === null ? "–" : spec.draftTokensPerSec.toFixed(1)}／採用{" "}
+                  {spec.acceptedTokensPerSec === null ? "–" : spec.acceptedTokensPerSec.toFixed(1)} トークン/秒
                 </dd>
               </div>
             )}

@@ -55,3 +55,12 @@ test("Host header: local names, IPs and tailnet names pass; others do not", () =
   }
   assert.ok(hostAllowed("lens.example.com", ["lens.example.com"]));
 });
+
+test("recipes must point at known hosts and llms", () => {
+  const base = { hosts: [{ id: "a", local: true }], llms: [{ id: "m", baseUrl: "http://a:1" }] };
+  const ok = parseConfig({ ...base, recipes: [{ id: "r", host: "a", llm: "m", dir: "~/x", start: "./s", stop: "./s stop" }] });
+  assert.equal(ok.recipes[0]?.label, "r");
+  assert.throws(() => parseConfig({ ...base, recipes: [{ id: "r", host: "zz", dir: "x", start: "s", stop: "s" }] }), /unknown host/);
+  assert.throws(() => parseConfig({ ...base, recipes: [{ id: "r", host: "a", llm: "q", dir: "x", start: "s", stop: "s" }] }), /unknown llm/);
+  assert.throws(() => parseConfig({ ...base, recipes: [{ id: "r", host: "a", dir: "x", start: "s" }] }), /stop/);
+});

@@ -44,6 +44,23 @@ export interface AgentProcessRule {
   match: string;
 }
 
+export interface RecipeConfig {
+  id: string;
+  label: string;
+  /** Host id the launcher runs on. */
+  host: string;
+  /** Working directory on that host (~ allowed). */
+  dir: string;
+  /** Shell commands, run in `dir`. */
+  start: string;
+  stop: string;
+  logs?: string;
+  /** The llms[] entry this recipe serves, used to tell running from stopped. */
+  llm?: string;
+  /** Recipes in one group share machines: only one may run at a time. Defaults to the host. */
+  group?: string;
+}
+
 export interface Config {
   server: { host: string; port: number; allowedHosts: string[] };
   pollSeconds: number;
@@ -53,6 +70,7 @@ export interface Config {
   llms: LlmConfig[];
   subscriptions: SubscriptionConfig[];
   agents: { processes: AgentProcessRule[] };
+  recipes: RecipeConfig[];
 }
 
 // ---------------------------------------------------------------- snapshot
@@ -271,6 +289,21 @@ export interface UsageSnapshot {
   week: ModelUsage[];
 }
 
+export interface RecipeSnapshot {
+  id: string;
+  label: string;
+  host: string;
+  hostLabel: string;
+  llm: string | null;
+  status: "running" | "starting" | "stopping" | "stopped" | "failed";
+  canStart: boolean;
+  canStop: boolean;
+  hasServerLog: boolean;
+  /** Label of the recipe that holds the same machines, when that blocks a start. */
+  blockedBy: string | null;
+  lastAction: { kind: "start" | "stop"; startedAt: number; finishedAt: number | null; ok: boolean | null; message: string | null } | null;
+}
+
 export interface Snapshot {
   generatedAt: number;
   pollSeconds: number;
@@ -280,4 +313,5 @@ export interface Snapshot {
   subscriptions: SubscriptionSnapshot[];
   agents: AgentSnapshot[];
   usage: UsageSnapshot;
+  recipes: RecipeSnapshot[];
 }

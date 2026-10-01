@@ -9,6 +9,7 @@ import { SubscriptionCollector } from "./collectors/subscriptions/index.ts";
 import { UsageCollector } from "./collectors/usage.ts";
 import { loadConfig, stateDir } from "./config.ts";
 import { HttpServer } from "./http.ts";
+import { RecipeManager } from "./recipes.ts";
 import { Store } from "./store.ts";
 import type { Snapshot } from "./types.ts";
 
@@ -37,6 +38,7 @@ async function main(): Promise<void> {
   });
   const agents = new AgentCollector(config.agents.processes);
   const usage = new UsageCollector(config.llms, store);
+  const recipes = new RecipeManager(config.recipes, config.hosts, runtimeDir);
 
   const snapshot = (): Snapshot => ({
     generatedAt: Date.now(),
@@ -47,6 +49,7 @@ async function main(): Promise<void> {
     subscriptions: subscriptions.snapshots(),
     agents: agents.snapshots(),
     usage: usage.snapshot(),
+    recipes: recipes.snapshots(),
   });
 
   const http = new HttpServer({
@@ -55,6 +58,8 @@ async function main(): Promise<void> {
     staticDir: join(ROOT, "dist"),
     allowedHosts: config.server.allowedHosts,
     snapshot,
+    recipes: config.recipes.length > 0 ? recipes : undefined,
+    changed: () => http.broadcast(),
   });
 
   // Agent sources are other tools' CLIs; asking them every few seconds costs
@@ -71,6 +76,7 @@ async function main(): Promise<void> {
       await hosts.poll();
       const pollAgents = tickCount++ % agentEvery === 0;
       await Promise.all([llms.poll(hosts.snapshots()), pollAgents ? agents.poll(hosts.processes()) : null]);
+      await recipes.update(llms.snapshots());
       http.broadcast();
     } catch (err) {
       log(`poll failed: ${(err as Error).message}`);

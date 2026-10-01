@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { AgentProcessRule, Config, HostConfig, LlmConfig, SubscriptionConfig } from "./types.ts";
+import type { AgentProcessRule, Config, HostConfig, LlmConfig, RecipeConfig, SubscriptionConfig } from "./types.ts";
 
 const DEFAULT_SUBSCRIPTIONS: SubscriptionConfig[] = [
   { type: "claude-code" },
@@ -142,6 +142,30 @@ function parseRule(raw: unknown, i: number): AgentProcessRule {
   return { tool, label: optString(o.label, `${where}.label`) ?? tool, match };
 }
 
+function parseRecipe(raw: unknown, i: number, hostIds: Set<string>, llmIds: Set<string>): RecipeConfig {
+  const where = `recipes[${i}]`;
+  const o = asObject(raw, where);
+  const id = asString(o.id, `${where}.id`);
+  if (!ID.test(id)) fail(`${where}.id must be lowercase letters, digits and dashes`);
+  const host = asString(o.host, `${where}.host`);
+  if (!hostIds.has(host)) fail(`${where}.host: unknown host id "${host}"`);
+  const llm = optString(o.llm, `${where}.llm`);
+  if (llm && !llmIds.has(llm)) fail(`${where}.llm: unknown llm id "${llm}"`);
+  const dir = asString(o.dir, `${where}.dir`);
+  if (dir.includes("\n")) fail(`${where}.dir must be a single line`);
+  return {
+    id,
+    label: optString(o.label, `${where}.label`) ?? id,
+    host,
+    dir,
+    start: asString(o.start, `${where}.start`),
+    stop: asString(o.stop, `${where}.stop`),
+    logs: optString(o.logs, `${where}.logs`),
+    llm,
+    group: optString(o.group, `${where}.group`),
+  };
+}
+
 export function parseConfig(raw: unknown): Config {
   const o = asObject(raw, "config");
   const server = o.server === undefined ? {} : asObject(o.server, "server");
@@ -170,6 +194,16 @@ export function parseConfig(raw: unknown): Config {
     llms,
     subscriptions,
     agents: { processes: asArray(agents.processes, "agents.processes").map(parseRule) },
+    recipes: (() => {
+      const llmIds = new Set(llms.map((l) => l.id));
+      const recipes = asArray(o.recipes, "recipes").map((r, i) => parseRecipe(r, i, hostIds, llmIds));
+      const ids = new Set<string>();
+      for (const r of recipes) {
+        if (ids.has(r.id)) fail(`recipes: duplicate id "${r.id}"`);
+        ids.add(r.id);
+      }
+      return recipes;
+    })(),
   };
 }
 

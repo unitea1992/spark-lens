@@ -7,6 +7,10 @@
 - **クラウド利用枠** — Claude Code・Codex・OpenCode Go の使用率とリセット時刻
 - **エージェント** — いま動いている coding agent と、その作業内容、モデル別のトークン利用量
 
+画面は「概要」と、マシン・ローカル LLM・クラウド利用枠・エージェントの各ページに分かれています。スマートフォンでは下部のタブで切り替えます。ページごとに URL（`#/machines` など）があるので、ブックマークや戻るボタンも使えます。
+
+ローカル LLM のページからは、登録した「レシピ」（モデルの起動スクリプト）の起動・停止とログの確認もできます。
+
 監視される側のマシンには何もインストールしません。Spark Lens は開発機で動き、Spark へは数秒おきに SSH で短いスクリプトを流すだけなので、Spark の GPU とメモリは推論のために空いたままです。
 
 ## 必要なもの
@@ -91,6 +95,32 @@ tailscale serve --bg --https=8686 http://127.0.0.1:8686
 
 上の例は [GLM-5.3 Flash EXL3 on DGX Spark](https://github.com/MiaAI-Lab/GLM-5.3-Flash-EXL3-2x-DGX-Sparks) を 2 台構成で動かした場合の値です。
 
+### レシピ（`recipes`）
+
+モデルの起動・停止をダッシュボードのボタンから行うための登録です。upstream の起動スクリプトをそのまま呼び出すので、スクリプト側に手を加える必要はありません。
+
+```json
+{
+  "id": "glm-5-3-flash",
+  "label": "GLM-5.3 Flash",
+  "host": "spark-1",
+  "group": "sparks",
+  "llm": "glm-5-3-flash",
+  "dir": "~/tools/local-llm/glm-5.3-flash/upstream",
+  "start": "./start.sh",
+  "stop": "./start.sh stop",
+  "logs": "docker logs --tail 300 glm53-exl3-head"
+}
+```
+
+- `host` と `dir` — どのマシンのどのディレクトリでコマンドを実行するか
+- `start` / `stop` — 起動・停止のコマンド。起動はそのマシン上で切り離して実行され、出力はそのマシンの `~/.local/state/spark-lens/recipe-<id>.log` に残ります。ダッシュボードを再起動しても起動処理は止まりません
+- `logs` — 「サーバーログ」に表示する内容を出力するコマンド（省略可）
+- `llm` — このレシピが動かすモデル（`llms` の `id`）。稼働中かどうかの判定に使います
+- `group` — 同じマシンを使うレシピの組。同じ組で同時に動かせるのは 1 つだけで、ほかが動いている間は起動ボタンが押せません。省略すると `host` が組になります
+
+ボタン操作に認証はありません。tailnet の中から開ける人は誰でも起動・停止できる前提です。別のサイトから閲覧者のブラウザを使って操作させることはできないようにしてあります（操作には画面からだけ付く専用のヘッダーが必要です）。
+
 ### マシンのクロック上限
 
 CPU は `scaling_max_freq`、GPU は systemd のユニットに書かれた `nvidia-smi -lgc 最小,最大` を読み、上限を絞っている場合はその値を上限として表示します。
@@ -168,7 +198,7 @@ SSH 先のマシンでは、`claude`・`codex`・`opencode` のプロセスを�
 pnpm dev        # サーバーを変更監視つきで起動（:8686）
 pnpm dev:web    # 画面をホットリロードで起動（API は :8686 に中継）
 pnpm check      # 型チェック・テスト・ビルド
-pnpm scan:secrets   # gitleaks（Docker）で履歴と作業ツリーの秘密情報を走査
+pnpm scan:secrets   # Betterleaks（Docker）で履歴と作業ツリーの秘密情報を走査
 ```
 
 GitHub Actions でも push と pull request のたびに同じ走査を行います。

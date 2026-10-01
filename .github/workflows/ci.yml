@@ -27,5 +27,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      # Betterleaks is the successor to Gitleaks by the same maintainers. Pinned to
+      # the stable v1 line until v2 is released as stable. Running as the runner's
+      # user keeps git from refusing the checkout as "dubious ownership".
       - name: Scan the full history for committed secrets
-        run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:latest git /repo --no-banner --redact
+        run: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/repo:ro" ghcr.io/betterleaks/betterleaks:v1 git /repo --no-banner --redact

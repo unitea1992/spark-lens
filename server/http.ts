@@ -48,13 +48,31 @@ export function hostAllowed(header: string | undefined, extra: string[]): boolea
   return extra.some((h) => h.toLowerCase() === name);
 }
 
+export interface RecipeActions {
+  start(id: string): Promise<{ ok: boolean; message: string }>;
+  stop(id: string): Promise<{ ok: boolean; message: string }>;
+  logs(id: string, source: "launcher" | "server"): Promise<{ ok: boolean; text: string }>;
+}
+
 export interface HttpOptions {
   host: string;
   port: number;
   staticDir: string;
   allowedHosts: string[];
   snapshot: () => Snapshot;
+  recipes?: RecipeActions;
+  /** Called after a state-changing request so viewers see it at once. */
+  changed?: () => void;
 }
+
+const RECIPE_ROUTE = /^\/api\/recipes\/([a-z0-9][a-z0-9-]*)\/(start|stop|logs)$/;
+
+/**
+ * Requests that change something must carry this header. A browser only sends
+ * a custom header cross-origin after a CORS preflight, which this server never
+ * approves, so another site cannot make a viewer's browser press the buttons.
+ */
+export const ACTION_HEADER = "x-spark-lens";
 
 export class HttpServer {
   private readonly server: Server;
@@ -93,13 +111,18 @@ export class HttpServer {
       res.writeHead(421, { "Content-Type": "text/plain; charset=utf-8" }).end("Unrecognised Host header\n");
       return;
     }
-    if (req.method !== "GET" && req.method !== "HEAD") {
-      res.writeHead(405, { Allow: "GET, HEAD" }).end();
-      return;
-    }
     const path = decodePath(req.url ?? "/");
     if (path === null) {
       res.writeHead(400).end();
+      return;
+    }
+    const recipe = RECIPE_ROUTE.exec(path);
+    if (recipe) {
+      void this.recipe(req, res, recipe[1]!, recipe[2] as "start" | "stop" | "logs");
+      return;
+    }
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      res.writeHead(405, { Allow: "GET, HEAD" }).end();
       return;
     }
     if (path === "/healthz") {
@@ -121,6 +144,36 @@ export class HttpServer {
       return;
     }
     this.serveStatic(path, req, res);
+  }
+
+  private async recipe(req: IncomingMessage, res: ServerResponse, id: string, op: "start" | "stop" | "logs"): Promise<void> {
+    const json = (status: number, body: unknown): void => {
+      res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }).end(JSON.stringify(body));
+    };
+    const actions = this.opts.recipes;
+    if (!actions) return json(404, { ok: false, message: "レシピは設定されていません" });
+    const wantMethod = op === "logs" ? "GET" : "POST";
+    if (req.method !== wantMethod) {
+      res.writeHead(405, { Allow: wantMethod }).end();
+      return;
+    }
+    if (op !== "logs" && req.headers[ACTION_HEADER] !== "1") {
+      return json(403, { ok: false, message: "この操作はダッシュボードの画面から行ってください" });
+    }
+    try {
+      if (op === "logs") {
+        const source = new URL(req.url ?? "/", "http://x").searchParams.get("source") === "server" ? "server" : "launcher";
+        return json(200, await actions.logs(id, source));
+      }
+      // Answer as soon as the action is accepted; progress arrives over the stream.
+      const result = op === "start" ? actions.start(id) : actions.stop(id);
+      this.opts.changed?.();
+      const done = await Promise.race([result, new Promise<null>((r) => setTimeout(() => r(null), 1500))]);
+      void result.finally(() => this.opts.changed?.());
+      return json(done && !done.ok ? 409 : 202, done ?? { ok: true, message: op === "start" ? "起動を開始しました" : "停止しています" });
+    } catch {
+      return json(500, { ok: false, message: "操作中にエラーが発生しました" });
+    }
   }
 
   private stream(req: IncomingMessage, res: ServerResponse): void {
