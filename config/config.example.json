@@ -50,6 +50,9 @@
     },
     {
       "type": "opencode-go"
+    },
+    {
+      "type": "grok"
     }
   ],
   "agents": {

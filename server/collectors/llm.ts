@@ -140,7 +140,7 @@ export class LlmCollector {
       const latencyMs = Math.round(performance.now() - started);
 
       // Not answering, or answering as some other model that shares the port.
-      const markDown = (other: string | null) => {
+      const markDown = (other: string | null, otherDetail: string | null = null) => {
         // The same container name may run on every node, so count machines.
         const nodes = new Set(containers.filter((c) => c.state === "running").map((c) => c.host));
         const running = nodes.size;
@@ -150,11 +150,13 @@ export class LlmCollector {
           state: starting ? "starting" : "down",
           detail: starting
             ? `${running}/${Math.max(nodeIds.size, running)} 台でコンテナが起動済み`
-            : other
-              ? `このポートでは ${other} が動いています`
-              : health && health.status !== 200
-                ? `応答異常（HTTP ${health.status}）`
-                : "停止中",
+            : otherDetail
+              ? otherDetail
+              : other
+                ? `このポートでは ${other} が動いています`
+                : health && health.status !== 200
+                  ? `応答異常（HTTP ${health.status}）`
+                  : "停止中",
           upSince: null,
           latencyMs: null,
           requestsRunning: null,
@@ -206,6 +208,12 @@ export class LlmCollector {
       }
       if (config.model && modelsRes?.status === 200 && !models.includes(config.model)) {
         markDown(models[0] ?? "別のモデル");
+        return;
+      }
+      // Two recipes can serve the same model name on one port; their containers tell them apart.
+      const nodesSeen = hosts.some((h) => h.online && (nodeIds.size === 0 || nodeIds.has(h.id)));
+      if (wanted.size > 0 && nodesSeen && !containers.some((c) => c.state === "running")) {
+        markDown(null, "このポートでは同じモデル名の別のレシピが動いています");
         return;
       }
       const metricsText = metricsRes?.status === 200 ? await metricsRes.text() : null;

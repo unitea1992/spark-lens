@@ -197,3 +197,39 @@ test("a model sharing its port with another reads as down while the other is ser
     server.close();
   }
 });
+
+test("two recipes serving the same model name are told apart by their containers", async () => {
+  const { createServer } = await import("node:http");
+  const { LlmCollector } = await import("../collectors/llm.ts");
+  const { Store } = await import("../store.ts");
+  const { mkdtempSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const server = createServer((req, res) => {
+    if (req.url === "/health") return void res.end("");
+    if (req.url === "/v1/models") return void res.end(JSON.stringify({ data: [{ id: "glm", owned_by: "vllm" }] }));
+    res.end("vllm:num_requests_running 0\n");
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+  const port = (server.address() as { port: number }).port;
+  try {
+    const store = new Store(mkdtempSync(join(tmpdir(), "sl-store-")));
+    const baseUrl = `http://127.0.0.1:${port}`;
+    const llm = new LlmCollector(
+      [
+        { id: "vllm", label: "GLM vLLM", baseUrl, model: "glm", engine: "vllm", nodes: ["a"], containers: ["glm-vllm"] },
+        { id: "tf", label: "GLM TensorFold", baseUrl, model: "glm", engine: "vllm", nodes: ["a"], containers: ["glm-tf"] },
+      ],
+      store,
+      5,
+    );
+    const host = { id: "a", online: true, containers: [{ name: "glm-vllm", image: "", state: "running", status: "Up" }] } as never;
+    await llm.poll([host]);
+    const [vllm, tf] = llm.snapshots();
+    assert.equal(vllm?.state, "up");
+    assert.equal(tf?.state, "down");
+    assert.match(tf?.detail ?? "", /別のレシピ/);
+  } finally {
+    server.close();
+  }
+});

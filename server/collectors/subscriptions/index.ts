@@ -2,11 +2,12 @@ import type { SubscriptionConfig, SubscriptionSnapshot } from "../../types.ts";
 import { claudeCode } from "./claudeCode.ts";
 import { codex } from "./codex.ts";
 import { command } from "./command.ts";
+import { grok } from "./grok.ts";
 import { opencodeGo } from "./opencodeGo.ts";
 import type { Provider, UsageReport } from "./provider.ts";
 
 // To add a service: write a Provider next to these and list it here.
-const PROVIDERS: Provider[] = [claudeCode, codex, opencodeGo, command];
+const PROVIDERS: Provider[] = [claudeCode, codex, opencodeGo, grok, command];
 
 const BACKOFF_MIN_SEC = 600;
 const BACKOFF_MAX_SEC = 3600;

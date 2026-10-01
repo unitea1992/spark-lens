@@ -4,6 +4,7 @@ import { parseClaudeUsage } from "../collectors/subscriptions/claudeCode.ts";
 import { parseCodexResets, parseCodexUsage } from "../collectors/subscriptions/codex.ts";
 import { parseCommandReport } from "../collectors/subscriptions/command.ts";
 import { SubscriptionCollector } from "../collectors/subscriptions/index.ts";
+import { parseGrokBilling, pickGrokCredential } from "../collectors/subscriptions/grok.ts";
 import { parseOpencodeGoUsage } from "../collectors/subscriptions/opencodeGo.ts";
 import type { Provider, UsageReport } from "../collectors/subscriptions/provider.ts";
 
@@ -194,4 +195,42 @@ test("collector waits its interval, backs off on throttling and restores from ca
   assert.equal(again.snapshots()[0]?.windows[0]?.usedPct, 10);
   await again.poll();
   assert.equal(calls, 2);
+});
+
+test("Grok: reads the weekly credit window and the product breakdown", () => {
+  const { windows, notes } = parseGrokBilling({
+    config: {
+      currentPeriod: { type: "USAGE_PERIOD_TYPE_WEEKLY", start: "2026-09-27T03:34:37.807064+00:00", end: "2026-10-04T03:34:37.807064+00:00" },
+      creditUsagePercent: 64.0,
+      onDemandCap: { val: 0 },
+      onDemandUsed: { val: 0 },
+      productUsage: [
+        { product: "GrokImagine", usagePercent: 64.0 },
+        { product: "GrokBuild", usagePercent: 0 },
+      ],
+      billingPeriodStart: "2026-09-27T03:34:37.807064+00:00",
+      billingPeriodEnd: "2026-10-04T03:34:37.807064+00:00",
+    },
+  });
+  assert.deepEqual(windows.map((w) => [w.label, w.usedPct, w.windowSec]), [["週間", 64, 7 * 86400]]);
+  assert.equal(windows[0]?.resetsAt, Date.parse("2026-10-04T03:34:37.807Z"));
+  assert.deepEqual(notes, ["内訳: Imagine 64%"]);
+});
+
+test("Grok: a period without a percentage is unknown, not zero", () => {
+  const { windows } = parseGrokBilling({
+    config: { currentPeriod: { type: "USAGE_PERIOD_TYPE_WEEKLY", start: "2026-09-27T00:00:00Z", end: "2026-10-04T00:00:00Z" } },
+  });
+  assert.deepEqual(windows, []);
+});
+
+test("Grok: picks the SuperGrok login from the auth file", () => {
+  assert.deepEqual(
+    pickGrokCredential({
+      "https://accounts.x.ai/sign-in": { key: "old" },
+      "https://auth.x.ai::client": { key: "new", expires_at: "2026-10-01T17:59:23Z" },
+    }),
+    { token: "new", expiresAt: Date.parse("2026-10-01T17:59:23Z") },
+  );
+  assert.equal(pickGrokCredential({ "https://auth.x.ai::client": { key: "" } }), null);
 });
