@@ -69,27 +69,14 @@ export function badges(s: Snapshot, now: number): Record<Page, Badge | null> {
     list.filter((a) => a.page === page).sort((a, b) => RANK[b.tone] - RANK[a.tone])[0] ?? null;
 
   const labAlert = worst("lab");
-  const busyLlm = s.llms.some((l) => (l.requestsRunning ?? 0) > 0);
-  const starting = s.llms.some((l) => l.state === "starting") || s.recipes.some((r) => r.status === "starting" || r.status === "stopping");
-  const lab: Badge | null = labAlert
-    ? { tone: labAlert.tone, text: "", label: labAlert.text }
-    : starting
-      ? { tone: "warn", text: "", label: "起動・停止の処理中" }
-      : busyLlm
-        ? { tone: "busy", text: "", label: "推論中" }
-        : null;
+  // Tabs only speak up when something needs the owner; busy is normal and stays quiet.
+  const lab: Badge | null = labAlert ? { tone: labAlert.tone, text: "", label: labAlert.text } : null;
 
   const usageAlert = worst("usage");
   const usage: Badge | null = usageAlert ? { tone: usageAlert.tone, text: "", label: usageAlert.text } : null;
 
   const waiting = s.agents.filter((a) => a.status === "waiting").length;
-  const working = s.agents.filter((a) => a.status === "working").length;
-  const agents: Badge | null =
-    waiting > 0
-      ? { tone: "warn", text: String(waiting + working), label: `入力待ち ${waiting}・作業中 ${working}` }
-      : working > 0
-        ? { tone: "busy", text: String(working), label: `作業中 ${working}` }
-        : null;
+  const agents: Badge | null = waiting > 0 ? { tone: "warn", text: "", label: `入力待ち ${waiting}` } : null;
 
   return { lab, usage, agents };
 }
