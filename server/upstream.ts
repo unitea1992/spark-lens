@@ -14,6 +14,7 @@ export function checkScript(dir: string): string {
   return `cd ${shDir(dir)} 2>/dev/null || { echo "@@error ディレクトリが見つかりません"; exit 0; }
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "@@error git の作業ツリーではありません"; exit 0; }
 if ! err="$(timeout 60 git fetch --quiet 2>&1)"; then echo "@@fetch-error $(printf '%s' "$err" | tail -n 1)"; fi
+echo "@@remote $(git remote get-url origin 2>/dev/null)"
 echo "@@head $(git rev-parse --short HEAD) $(git log -1 --format=%cI HEAD)"
 up="$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null)"
 if [ -n "$up" ]; then
@@ -38,6 +39,13 @@ echo "@@end"
 `;
 }
 
+/** "owner/repo" and a browsable https link from a GitHub remote; anything else stays unnamed. */
+export function repoFromRemote(url: string): { repo: string | null; repoUrl: string | null } {
+  const m = /github\.com[:/]([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/.exec(url.trim());
+  if (!m) return { repo: null, repoUrl: null };
+  return { repo: `${m[1]}/${m[2]}`, repoUrl: `https://github.com/${m[1]}/${m[2]}` };
+}
+
 export function parseCheck(text: string, now = Date.now()): UpstreamStatus {
   const base: UpstreamStatus = {
     state: "unknown",
@@ -53,6 +61,8 @@ export function parseCheck(text: string, now = Date.now()): UpstreamStatus {
     newEnvKeys: [],
     checkedAt: now,
     message: null,
+    repo: null,
+    repoUrl: null,
   };
   if (!text.includes("@@end") && !text.includes("@@error")) return { ...base, state: "error", message: "確認できませんでした" };
   let section = "";
@@ -66,6 +76,7 @@ export function parseCheck(text: string, now = Date.now()): UpstreamStatus {
       const v = rest.join(" ");
       if (tag === "error") return { ...base, state: "error", message: v || "確認できませんでした" };
       if (tag === "fetch-error") fetchError = v;
+      if (tag === "remote") Object.assign(base, repoFromRemote(v));
       if (tag === "head") [base.head, base.headDate] = [rest[0] ?? null, Date.parse(rest[1] ?? "") || null];
       if (tag === "upstream") [base.latest, base.latestDate, base.branch] = [rest[0] ?? null, Date.parse(rest[1] ?? "") || null, rest[2] ?? null];
       if (tag === "behind") base.behind = Number(rest[0]) || 0;

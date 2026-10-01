@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseProgress, startedAt } from "../progress.ts";
+import { parseMemoryPlan, parseProgress, startedAt } from "../progress.ts";
 
 test("start progress follows vLLM's milestones", () => {
   assert.deepEqual(parseProgress(""), { pct: 3, stage: "準備しています" });
@@ -22,4 +22,12 @@ test("start progress follows vLLM's milestones", () => {
 test("the start time comes from the launcher log's own marker", () => {
   assert.equal(startedAt("=== spark-lens: start 2026-10-01 13:52:31\nfoo"), Date.parse("2026-10-01T13:52:31"));
   assert.equal(startedAt("no marker"), null);
+});
+
+test("memory plan comes from vLLM's start-up lines", () => {
+  assert.deepEqual(parseMemoryPlan("Model loading took 64.52 GiB memory\nAvailable KV cache memory: 30.78 GiB"), { weightsGiB: 64.52, kvGiB: 30.78 });
+  const glm = parseMemoryPlan("--kv-cache-memory-bytes 11811160064\nModel loading took 81.89 GiB and 80.7 seconds");
+  assert.equal(glm.weightsGiB, 81.89);
+  assert.ok(Math.abs((glm.kvGiB ?? 0) - 11) < 0.01);
+  assert.deepEqual(parseMemoryPlan(""), { weightsGiB: null, kvGiB: null });
 });

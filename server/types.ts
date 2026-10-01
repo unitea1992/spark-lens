@@ -303,6 +303,8 @@ export interface UsageSnapshot {
   generatedAt: number;
   today: ModelUsage[];
   week: ModelUsage[];
+  /** The last 30 days, today included. Claude Code keeps only about that much history. */
+  month: ModelUsage[];
 }
 
 export interface UpstreamCommit {
@@ -328,6 +330,9 @@ export interface UpstreamStatus {
   newEnvKeys: string[];
   checkedAt: number;
   message: string | null;
+  /** "owner/repo" for GitHub remotes, with a link to it. */
+  repo: string | null;
+  repoUrl: string | null;
 }
 
 export interface RecipeSnapshot {
@@ -344,6 +349,8 @@ export interface RecipeSnapshot {
   blockedBy: string | null;
   upstream: UpstreamStatus | null;
   canUpdate: boolean;
+  /** What the running model reserved at start (from its log), when known. */
+  memory: { weightsGiB: number | null; kvGiB: number | null } | null;
   /** While starting: how far it has got, and how long the last good start took. */
   progress: { pct: number; stage: string; startedAt: number; expectedSec: number | null } | null;
   lastAction: { kind: "start" | "stop" | "update"; startedAt: number; finishedAt: number | null; ok: boolean | null; message: string | null } | null;

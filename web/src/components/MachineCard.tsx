@@ -135,7 +135,6 @@ export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) 
         {gpu && <Spec label="GPU 電力" value={gpu.powerW !== null ? `${gpu.powerW.toFixed(1)} W` : "–"} />}
         {gpu && gpu.clockMhz !== null && <Spec label="GPU クロック / 上限" value={clock(gpu.clockMhz, gpu.clockMaxMhz)} />}
         <Spec label="CPU クロック / 上限" value={clock(host.clockMhz, host.clockMaxMhz)} />
-        <Spec label="ロードアベレージ" value={host.load ? host.load.map((l) => l.toFixed(1)).join("  ") : "–"} />
         <Spec label="スワップ" value={host.swapTotalBytes ? `${bytes(host.swapUsedBytes)} / ${bytes(host.swapTotalBytes)}` : "なし"} />
       </ul>
 

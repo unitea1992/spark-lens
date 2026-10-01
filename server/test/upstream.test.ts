@@ -253,3 +253,13 @@ test("parseCheck keeps parsing after @@fetch-error but sets a message", () => {
   assert.match(s.message ?? "", /fatal: unable to access/);
   assert.equal(parseCheck("@@error boom\n").message, "boom");
 });
+
+test("repoFromRemote names GitHub remotes and ignores others", async () => {
+  const { repoFromRemote } = await import("../upstream.ts");
+  assert.deepEqual(repoFromRemote("https://github.com/MiaAI-Lab/GLM-5.3-Flash-EXL3-2x-DGX-Sparks.git"), {
+    repo: "MiaAI-Lab/GLM-5.3-Flash-EXL3-2x-DGX-Sparks",
+    repoUrl: "https://github.com/MiaAI-Lab/GLM-5.3-Flash-EXL3-2x-DGX-Sparks",
+  });
+  assert.equal(repoFromRemote("git@github.com:owner/repo.git").repo, "owner/repo");
+  assert.deepEqual(repoFromRemote("/srv/git/local.git"), { repo: null, repoUrl: null });
+});

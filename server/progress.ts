@@ -44,3 +44,19 @@ export function parseProgress(log: string): StartProgress {
   }
   return { pct: Math.round(best.pct), stage: best.stage };
 }
+
+/** What vLLM reported reserving at start, in GiB. */
+export interface MemoryPlan {
+  weightsGiB: number | null;
+  kvGiB: number | null;
+}
+
+export function parseMemoryPlan(log: string): MemoryPlan {
+  const weights = /Model loading took ([0-9.]+) ?GiB/.exec(log);
+  const kv = /Available KV cache memory: ([0-9.]+) ?GiB/.exec(log);
+  const kvBytes = /kv-cache-memory-bytes[ =]([0-9]+)/.exec(log);
+  return {
+    weightsGiB: weights ? Number(weights[1]) : null,
+    kvGiB: kv ? Number(kv[1]) : kvBytes ? Number(kvBytes[1]) / 1024 ** 3 : null,
+  };
+}

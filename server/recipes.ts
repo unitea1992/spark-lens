@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { run } from "./exec.ts";
 import { shDir, shq } from "./recipes-shell.ts";
 import { checkScript, parseCheck, pullScript } from "./upstream.ts";
-import { parseProgress, startedAt, type StartProgress } from "./progress.ts";
+import { parseMemoryPlan, parseProgress, startedAt, type MemoryPlan, type StartProgress } from "./progress.ts";
 import type { HostConfig, LlmSnapshot, RecipeConfig, RecipeSnapshot, UpstreamStatus } from "./types.ts";
 
 // Starting, stopping and reading the logs of model "recipes" — upstream
@@ -86,6 +86,7 @@ export class RecipeManager {
   private readonly controlDir: string;
   private readonly actions = new Map<string, Action>();
   private readonly upstream = new Map<string, UpstreamStatus>();
+  private readonly memory = new Map<string, MemoryPlan & { readAt: number }>();
   private readonly progress = new Map<string, StartProgress & { startedAt: number | null }>();
   private readonly durations: { get(id: string): number | null; set(id: string, sec: number): void } | null;
   private llms: LlmSnapshot[] = [];
@@ -162,6 +163,7 @@ export class RecipeManager {
         hasServerLog: Boolean(r.logs),
         blockedBy: blocker?.label ?? null,
         upstream: this.upstream.get(r.id) ?? null,
+        memory: status === "running" ? (this.memory.get(r.id) ?? null) : null,
         progress: (() => {
           if (status !== "starting") return null;
           const p = this.progress.get(r.id);
@@ -181,9 +183,27 @@ export class RecipeManager {
     });
   }
 
+  /** Read what the running model reserved, once per start (retried a minute later if missing). */
+  private async readMemory(r: RecipeConfig): Promise<void> {
+    if (this.llmState(r) !== "up") {
+      this.memory.delete(r.id);
+      return;
+    }
+    const known = this.memory.get(r.id);
+    if (known && (known.weightsGiB !== null || Date.now() - known.readAt < 60_000)) return;
+    const res = await this.exec(
+      this.hosts.get(r.host)!,
+      `grep -aoE "Model loading took [0-9.]+ ?GiB|Available KV cache memory: [0-9.]+ ?GiB|kv-cache-memory-bytes[ =][0-9]+" "${logPath(r.id)}" 2>/dev/null | tail -n 3`,
+      10_000,
+    );
+    if (res.code === null || res.timedOut) return;
+    this.memory.set(r.id, { ...parseMemoryPlan(res.stdout), readAt: Date.now() });
+  }
+
   /** Called every tick with fresh LLM states; also notices launchers that finished. */
   async update(llms: LlmSnapshot[]): Promise<void> {
     this.llms = llms;
+    await Promise.all(this.recipes.map((r) => this.readMemory(r)));
     await Promise.all(
       this.recipes.map(async (r) => {
         const a = this.actions.get(r.id);

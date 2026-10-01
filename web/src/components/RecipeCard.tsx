@@ -97,6 +97,11 @@ function Upstream({
     <div className={`upstream upstream--${up.state}`}>
       <div className="upstream__line">
         <span className="upstream__label">upstream</span>
+        {up.repo && up.repoUrl && (
+          <a className="upstream__repo" href={up.repoUrl} target="_blank" rel="noopener noreferrer">
+            {up.repo}
+          </a>
+        )}
         <span className="upstream__state">
           {up.state === "current" && `最新です（${head}）`}
           {up.state === "behind" && `${up.behind} 件の更新があります`}

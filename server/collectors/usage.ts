@@ -7,11 +7,14 @@ import { run } from "../exec.ts";
 import { localDate, type Store } from "../store.ts";
 import type { LlmConfig, ModelUsage, UsageSnapshot } from "../types.ts";
 
-// Token use per model, today and over the last seven days, gathered from the
+// Token use per model, today and over the last 7 and 30 days, gathered from the
 // records each tool already keeps on this machine. Nothing here calls a
 // cloud API, so it costs no quota.
 
-const DAYS = 7;
+const WEEK_DAYS = 7;
+const MONTH_DAYS = 30;
+/** Files and rows are read for one day more than the longest range, so the local-time boundary is never cut. */
+const SCAN_DAYS = MONTH_DAYS + 1;
 
 interface Tally {
   input: number;
@@ -35,8 +38,9 @@ function add(target: DayModel, day: string, source: string, model: string, t: Pa
   target.set(day, byModel);
 }
 
-function recentDays(now = new Date()): string[] {
-  return Array.from({ length: DAYS }, (_, i) => localDate(new Date(now.getTime() - i * 86400_000)));
+/** Local dates of the last `count` days, today first. */
+export function recentDays(count: number, now = new Date()): string[] {
+  return Array.from({ length: count }, (_, i) => localDate(new Date(now.getTime() - i * 86400_000)));
 }
 
 // ------------------------------------------------------------ Claude Code
@@ -107,7 +111,7 @@ class ClaudeSource {
   private readonly root = join(homedir(), ".claude", "projects");
 
   async collect(target: DayModel): Promise<void> {
-    const since = Date.now() - (DAYS + 1) * 86400_000;
+    const since = Date.now() - SCAN_DAYS * 86400_000;
     const files = await walk(this.root, since);
     const live = new Set(files);
     for (const f of this.cache.keys()) if (!live.has(f)) this.cache.delete(f);
@@ -150,7 +154,7 @@ function codexThreads(target: DayModel): void {
     try {
       const rows = conn
         .prepare("select tokens_used, model, model_provider, updated_at_ms from threads where updated_at_ms > ? and tokens_used > 0")
-        .all(Date.now() - (DAYS + 1) * 86400_000) as Record<string, unknown>[];
+        .all(Date.now() - SCAN_DAYS * 86400_000) as Record<string, unknown>[];
       for (const r of rows) {
         const model = typeof r.model === "string" && r.model ? r.model : "モデル不明";
         add(target, localDate(new Date(Number(r.updated_at_ms))), "Codex", model, { totalOnly: Number(r.tokens_used) || 0 });
@@ -224,7 +228,7 @@ function rows(tallies: Map<string, Tally>[], localSources: Set<string>): ModelUs
 }
 
 export class UsageCollector {
-  private current: UsageSnapshot = { generatedAt: 0, today: [], week: [] };
+  private current: UsageSnapshot = { generatedAt: 0, today: [], week: [], month: [] };
   private busy = false;
   private readonly claude = new ClaudeSource();
   private readonly opencodeBin: string | null;
@@ -251,19 +255,21 @@ export class UsageCollector {
       await this.claude.collect(byDay);
       codexThreads(byDay);
       for (const llm of this.llms) {
-        for (const day of recentDays()) {
+        for (const day of recentDays(MONTH_DAYS)) {
           const t = this.store.tokensOn(llm.id, new Date(`${day}T12:00:00`));
           add(byDay, day, "ローカル", llm.label, { input: t.prompt, output: t.generation });
         }
       }
-      const days = recentDays();
+      const days = recentDays(MONTH_DAYS);
       const today = rows([byDay.get(days[0]!) ?? new Map()], new Set(["ローカル"]));
-      const week = rows(days.map((d) => byDay.get(d) ?? new Map()), new Set(["ローカル"]));
+      const range = (n: number) => rows(days.slice(0, n).map((d) => byDay.get(d) ?? new Map()), new Set(["ローカル"]));
+      const week = range(WEEK_DAYS);
+      const month = range(MONTH_DAYS);
 
-      // OpenCode keeps its own day boundaries; ask it for both ranges.
+      // OpenCode keeps its own day boundaries; ask it for each range.
       if (this.opencodeBin) {
-        const [d0, d7] = await Promise.all(
-          ["0", String(DAYS)].map((d) => run(this.opencodeBin!, ["stats", "--days", d, "--json", "--models"], { timeoutMs: 15_000 })),
+        const [d0, d7, d30] = await Promise.all(
+          ["0", String(WEEK_DAYS), String(MONTH_DAYS)].map((d) => run(this.opencodeBin!, ["stats", "--days", d, "--json", "--models"], { timeoutMs: 15_000 })),
         );
         const add2 = (list: ModelUsage[], stdout: string) => {
           for (const m of parseOpencodeStats(stdout)) {
@@ -274,8 +280,9 @@ export class UsageCollector {
         };
         if (d0?.code === 0) add2(today, d0.stdout);
         if (d7?.code === 0) add2(week, d7.stdout);
+        if (d30?.code === 0) add2(month, d30.stdout);
       }
-      this.current = { generatedAt: Date.now(), today, week };
+      this.current = { generatedAt: Date.now(), today, week, month };
     } finally {
       this.busy = false;
     }

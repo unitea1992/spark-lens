@@ -34,6 +34,8 @@ function Row({ recipe, now }: { recipe: RecipeSnapshot; now: number }) {
   const busy = recipe.status === "starting" || recipe.status === "stopping" || recipe.status === "updating";
   const blocked = !recipe.canStart && recipe.blockedBy !== null && recipe.status === "stopped";
 
+  const check = async () => setNotice(await act(recipe.id, "check"));
+
   const run = async (op: "start" | "switch" | "update") => {
     setPending(null);
     setNotice(await act(recipe.id, op));
@@ -46,8 +48,28 @@ function Row({ recipe, now }: { recipe: RecipeSnapshot; now: number }) {
         <StatusPill tone={st.tone}>{st.text}</StatusPill>
         <span className="rrow__name">{recipe.label}</span>
         <span className="rrow__meta">実行先 {recipe.hostLabel}</span>
+        {recipe.upstream?.repo && recipe.upstream.repoUrl && (
+          <a className="upstream__repo" href={recipe.upstream.repoUrl} target="_blank" rel="noopener noreferrer">
+            {recipe.upstream.repo}
+          </a>
+        )}
         <span className={`rrow__up rrow__up--${up.tone}`}>{up.text}</span>
+        {recipe.upstream && <span className="rrow__checked">{ago(recipe.upstream.checkedAt, now)}に確認</span>}
+        <button type="button" className="link-button" onClick={() => void check()}>
+          今すぐ確認
+        </button>
       </div>
+      {recipe.upstream?.state === "behind" && recipe.upstream.commits.length > 0 && (
+        <ul className="upstream__commits rrow__commits">
+          {recipe.upstream.commits.slice(0, 3).map((c) => (
+            <li key={c.sha}>
+              <span>{c.subject}</span>
+              <span>{c.date ? shortDate(c.date) : c.sha}</span>
+            </li>
+          ))}
+          {recipe.upstream.commits.length > 3 && <li className="muted">ほか {recipe.upstream.commits.length - 3} 件</li>}
+        </ul>
+      )}
       <div className="rrow__actions">
         {pending ? (
           <span className="rrow__confirm">

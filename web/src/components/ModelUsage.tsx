@@ -2,7 +2,9 @@ import { useState } from "react";
 import type { ModelUsage as Row, UsageSnapshot } from "../../../server/types.ts";
 import { count } from "../format.ts";
 
-type Range = "today" | "week";
+type Range = "today" | "week" | "month";
+
+const LABELS: Record<Range, string> = { today: "今日", week: "7 日間", month: "30 日間" };
 
 function breakdown(r: Row): string {
   if (r.input === null || r.output === null) return "内訳なし";
@@ -33,9 +35,9 @@ export function ModelUsage({ usage }: { usage: UsageSnapshot }) {
           )}
         </p>
         <div className="toggle" role="group" aria-label="期間">
-          {(["today", "week"] as Range[]).map((r) => (
+          {(["today", "week", "month"] as Range[]).map((r) => (
             <button key={r} type="button" aria-pressed={range === r} onClick={() => setRange(r)}>
-              {r === "today" ? "今日" : "7 日間"}
+              {LABELS[r]}
             </button>
           ))}
         </div>
@@ -57,7 +59,7 @@ export function ModelUsage({ usage }: { usage: UsageSnapshot }) {
           ))}
         </ul>
       )}
-      <p className="card__foot">各ツールがこのマシンに残している記録から集計しています。「キャッシュ読み取り」は、キャッシュから読み取った入力トークン数です。</p>
+      <p className="card__foot">各ツールがこのマシンに残している記録から集計しています。「キャッシュ読み取り」は、キャッシュから読み取った入力トークン数です。Claude Code は記録を約 30 日分しか残さないため、30 日間の古い日は不足している場合があります。</p>
     </div>
   );
 }

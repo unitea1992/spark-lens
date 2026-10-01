@@ -4,6 +4,7 @@ import { llmStatus } from "../status.ts";
 import { levelFor, Meter } from "./Meter.tsx";
 import { RecipeControls } from "./RecipeCard.tsx";
 import { Sparkline } from "./Sparkline.tsx";
+import { MemoryMap } from "./MemoryMap.tsx";
 import { StartProgress } from "./StartProgress.tsx";
 import { StatusPill } from "./StatusPill.tsx";
 
@@ -22,6 +23,7 @@ function Fact({ label, value }: { label: string; value: string }) {
 
 export function LlmPanel({
   llm,
+  hosts,
   recipes,
   now,
 }: {
@@ -105,6 +107,14 @@ export function LlmPanel({
             </div>
           </div>
 
+          {(() => {
+            const r = recipes.find((x) => x.memory);
+            const head = hosts.find((h) => h.id === (r?.host ?? llm.nodes[0]));
+            return head && r?.memory ? (
+              <MemoryMap host={head} weightsGiB={r.memory.weightsGiB} kvGiB={r.memory.kvGiB} kvUsage={llm.kvCacheUsage} />
+            ) : null;
+          })()}
+
           <Sparkline
             values={llm.history.genTps}
             stepSec={llm.history.stepSec}
@@ -118,13 +128,13 @@ export function LlmPanel({
             {spec && <Fact label="検証あたり" value={spec.meanLength === null ? "–" : `${spec.meanLength.toFixed(1)} トークン`} />}
             {spec && running && <Fact label="ドラフト / 採用" value={`${rate(spec.draftTokensPerSec)} / ${rate(spec.acceptedTokensPerSec)} トークン/秒`} />}
             <Fact label="TTFT（平均）" value={llm.ttftSec === null ? "–" : `${llm.ttftSec.toFixed(2)} 秒`} />
-            <Fact label="プレフィックスキャッシュ命中率" value={llm.prefixCacheHitRate === null ? "–" : pct(llm.prefixCacheHitRate * 100)} />
+            <Fact label="キャッシュヒット率" value={llm.prefixCacheHitRate === null ? "–" : pct(llm.prefixCacheHitRate * 100)} />
             <Fact
               label="起動からの累計"
               value={llm.tokensTotal ? `入力 ${count(llm.tokensTotal.prompt)}・出力 ${count(llm.tokensTotal.generation)}` : "–"}
             />
             <Fact label="連続稼働" value={llm.upSince ? duration((now - llm.upSince) / 1000) : "–"} />
-            <Fact label="API" value={`${shortHost(llm.baseUrl)}${llm.latencyMs !== null ? `・${llm.latencyMs} ms` : ""}`} />
+            <Fact label="API の場所" value={`${shortHost(llm.baseUrl)}/v1`} />
           </dl>
         </>
       )}
