@@ -10,7 +10,7 @@ test("start progress follows vLLM's milestones", () => {
     "Loading safetensors checkpoint shards:   9% Completed | 1/11",
     "Loading safetensors checkpoint shards:  27% Completed | 3/11",
   ].join("\n");
-  assert.deepEqual(parseProgress(loading), { pct: 29, stage: "重みを読み込んでいます" });
+  assert.deepEqual(parseProgress(loading), { pct: 29, stage: "モデルを読み込んでいます" });
   assert.equal(parseProgress("Loading safetensors using InstantTensor loader:  53% Completed | 86.9G/164G").pct, 44);
   const graphs = loading + "\nGPU KV cache size: 1,233,779 tokens\nCapturing CUDA graphs (PIECEWISE):  57%|█████▋ | 4/7";
   assert.deepEqual(parseProgress(graphs), { pct: 84, stage: "CUDA グラフを作成しています" });
@@ -62,7 +62,7 @@ test("start progress follows the TensorFold launchers' steps and loading", () =>
     "  │ [tensorfold] loading GLM-5.3-Flash-EXL3: GLM-5.3-Flash (glm5_next) on CUDA, rank 0 of 2",
     "  ⋯ 46s elapsed, 44.0 of ~88.0 GiB on the GPU here, 39.0 on the worker",
   ].join("\n");
-  assert.deepEqual(parseProgress(head), { pct: 47, stage: "重みを読み込んでいます" });
+  assert.deepEqual(parseProgress(head), { pct: 47, stage: "モデルを読み込んでいます" });
   // More than the estimate ends loading, not past it.
   assert.equal(parseProgress(`${head}\n  ⋯ 92s elapsed, 94.4 of ~88.09 GiB on the GPU here`).pct, 80);
   assert.deepEqual(parseProgress(`${head}\n  │ [tensorfold] serving GLM-5.3-Flash-EXL3 at http://0.0.0.0:8888/v1`), { pct: 93, stage: "最終確認をしています" });

@@ -19,8 +19,8 @@ interface Milestone {
 
 const MILESTONES: Milestone[] = [
   { re: /non-default args|Initializing a V1 LLM engine/, at: 10, stage: "エンジンを初期化しています" },
-  { re: /Loading model from scratch|Starting to load model/, at: 14, stage: "重みを読み込んでいます" },
-  { re: /Loading safetensors[^\n]*?(\d+)%/, at: [14, 70], stage: "重みを読み込んでいます" },
+  { re: /Loading model from scratch|Starting to load model/, at: 14, stage: "モデルを読み込んでいます" },
+  { re: /Loading safetensors[^\n]*?(\d+)%/, at: [14, 70], stage: "モデルを読み込んでいます" },
   { re: /GPU KV cache size|Available KV cache memory/, at: 74, stage: "KV キャッシュを確保しています" },
   { re: /Capturing CUDA graphs[^\n]*?(\d+)%/, at: [76, 90], stage: "CUDA グラフを作成しています" },
   // Only lines the server prints at the end; launchers mention "warmup" early on.
@@ -28,12 +28,12 @@ const MILESTONES: Milestone[] = [
   // TensorFold launchers: "[N/5] ..." steps, and GiB placed on the GPU while loading.
   { re: /\[1\/5\] Setup/, at: 4, stage: "準備しています" },
   { re: /\[3\/5\] Launch/, at: 10, stage: "エンジンを初期化しています" },
-  { re: /\[4\/5\] Loading|\[tensorfold\] loading /, at: 14, stage: "重みを読み込んでいます" },
+  { re: /\[4\/5\] Loading|\[tensorfold\] loading /, at: 14, stage: "モデルを読み込んでいます" },
   {
     re: /elapsed, ([0-9.]+) of ~([0-9.]+) GiB on the GPU/,
     at: [14, 80],
     done: (hit) => (100 * Number(hit[1])) / Number(hit[2]),
-    stage: "重みを読み込んでいます",
+    stage: "モデルを読み込んでいます",
   },
   { re: /\[tensorfold\] drafter timings|\[tensorfold\] verify windows/, at: 85, stage: "推論の準備をしています" },
   { re: /\[tensorfold\] serving |\[5\/5\] Smoke test/, at: 93, stage: "最終確認をしています" },
