@@ -98,8 +98,8 @@ export class RecipeManager {
   private readonly progress = new Map<string, StartProgress & { startedAt: number | null }>();
   private readonly durations: { get(id: string): number | null; set(id: string, sec: number): void } | null;
   private llms: LlmSnapshot[] = [];
-  /** Launchers found still running on the hosts when this dashboard started. */
-  private recovery: Promise<void> | null = null;
+  /** Recipes whose host has been asked, since this dashboard started, for a launcher still running. */
+  private readonly recovered = new Set<string>();
 
   constructor(
     recipes: RecipeConfig[],
@@ -208,7 +208,7 @@ export class RecipeManager {
             expectedSec: this.durations?.get(r.id) ?? null,
           };
         })(),
-        canUpdate: !inFlight && (this.upstream.get(r.id)?.state === "behind"),
+        canUpdate: !inFlight && this.upstream.get(r.id)?.state === "behind" && this.upstream.get(r.id)?.ahead === 0,
         lastAction: a ? { kind: a.kind, startedAt: a.startedAt, finishedAt: a.finishedAt, ok: a.ok, message: a.message } : null,
       };
     });
@@ -236,19 +236,26 @@ export class RecipeManager {
    * example still downloading, with no container or API yet), so their
    * machines stay held and a second start is refused. Runs once.
    */
-  private recover(): Promise<void> {
-    this.recovery ??= Promise.all(
+  private async recover(): Promise<void> {
+    await Promise.all(
       this.recipes.map(async (r) => {
-        if (this.actions.has(r.id)) return;
+        if (this.recovered.has(r.id)) return;
+        if (this.actions.has(r.id)) {
+          this.recovered.add(r.id);
+          return;
+        }
         const pidFile = pidPath(r.id);
         const res = await this.exec(
           this.hosts.get(r.host)!,
           // The command line check guards against a recycled pid.
-          `p=$(cat "${pidFile}" 2>/dev/null) && kill -0 "$p" 2>/dev/null && ps -o args= -p "$p" | grep -q "spark-lens: exit" && echo "$p"; head -n 1 "${logPath(r.id)}" 2>/dev/null`,
+          `p=$(cat "${pidFile}" 2>/dev/null) && kill -0 "$p" 2>/dev/null && ps -o args= -p "$p" | grep -q "spark-lens: exit" && echo "$p"; head -n 1 "${logPath(r.id)}" 2>/dev/null; echo "@@checked"`,
           10_000,
         );
+        // An unreachable host proves nothing; ask again on the next tick.
+        if (res.timedOut || !res.stdout.includes("@@checked")) return;
+        this.recovered.add(r.id);
         const pid = Number(res.stdout.split("\n")[0]);
-        if (res.code === null || res.timedOut || !Number.isInteger(pid) || pid <= 0 || this.actions.has(r.id)) return;
+        if (!Number.isInteger(pid) || pid <= 0 || this.actions.has(r.id)) return;
         this.actions.set(r.id, {
           kind: "start",
           startedAt: startedAt(cleanLog(res.stdout)) ?? Date.now(),
@@ -258,8 +265,7 @@ export class RecipeManager {
           pid,
         });
       }),
-    ).then(() => undefined);
-    return this.recovery;
+    );
   }
 
   /** Called every tick with fresh LLM states; also notices launchers that finished. */
@@ -291,8 +297,9 @@ export class RecipeManager {
           return;
         }
         const host = this.hosts.get(r.host)!;
-        const res = await this.exec(host, `tail -n 400 "${logPath(r.id)}" 2>/dev/null; kill -0 ${a.pid ?? 0} 2>/dev/null && echo ALIVE`, 10_000);
-        if (res.code === null || res.timedOut) return;
+        const res = await this.exec(host, `tail -n 400 "${logPath(r.id)}" 2>/dev/null; kill -0 ${a.pid ?? 0} 2>/dev/null && echo ALIVE; echo "@@checked"`, 10_000);
+        // Only a completed check may conclude the launcher is gone; a failed SSH keeps the machines held.
+        if (res.timedOut || !res.stdout.includes("@@checked")) return;
         const text = cleanLog(res.stdout);
         this.progress.set(r.id, { ...parseProgress(text), startedAt: null });
         if (res.stdout.includes("ALIVE")) return;
@@ -428,6 +435,8 @@ export class RecipeManager {
     if (!up || up.state === "error") return { ok: false, message: up?.message ?? "upstream を確認できませんでした" };
     if (up.state === "modified") return { ok: false, message: "追跡ファイルに手元の変更があるため更新しません" };
     if (up.state !== "behind") return { ok: true, message: "すでに最新です" };
+    // Diverged history cannot fast-forward; refuse before stopping anything.
+    if (up.ahead > 0) return { ok: false, message: "手元に upstream にないコミットがあるため更新しません" };
     const host = this.hosts.get(r.host)!;
     const wasRunning = this.busy(r);
     const action: Action = { kind: "update", startedAt: Date.now(), finishedAt: null, ok: null, message: "更新しています", pid: null };
@@ -446,7 +455,17 @@ export class RecipeManager {
     }
     action.message = "upstream を取り込んでいます";
     const pulled = await this.exec(host, pullScript(r.dir, logPath(r.id)), 180_000);
-    if (pulled.code !== 0 || pulled.timedOut) return fail("git pull に失敗しました。起動ログを確認してください");
+    if (pulled.code !== 0 || pulled.timedOut) {
+      fail("git pull に失敗しました。起動ログを確認してください");
+      if (!wasRunning) return { ok: false, message: action.message! };
+      // `--ff-only` leaves the checkout as it was, so bring the previous version back up.
+      const restarted = await this.doStart(r, true);
+      const message = restarted.ok
+        ? "git pull に失敗したため、元の版で起動し直しています"
+        : `git pull に失敗し、元の版でも起動し直せませんでした（${restarted.message}）`;
+      if (this.actions.get(id) === action) action.message = message;
+      return { ok: false, message };
+    }
     await this.checkUpstream(id);
     Object.assign(action, { finishedAt: Date.now(), ok: true, message: `${up.behind} 件の更新を取り込みました` });
     if (wasRunning) {

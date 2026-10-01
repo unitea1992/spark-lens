@@ -298,3 +298,44 @@ test("a stale 'still running' reading during the pull does not cancel the restar
     assert.deepEqual(readFileSync(marks, "utf8").trim().split("\n"), ["stop", "start"]);
   });
 });
+
+test("a diverged checkout is refused before the model is stopped", async () => {
+  const f = fixture();
+  pushTwo(f);
+  writeFileSync(join(f.dir, "LOCAL"), "mine\n");
+  git(f.dir, "add", "LOCAL");
+  git(f.dir, "commit", "-q", "-m", "local commit");
+  const marks = join(f.home, "marks");
+  await withEnv(f.home, async () => {
+    const m = manager(f, { start: `echo start >> ${marks}`, stop: `echo stop >> ${marks}` });
+    await m.update([llm("up")]);
+    const s = await m.checkUpstream("r");
+    assert.equal(s?.ahead, 1);
+    assert.equal(m.snapshots()[0]?.canUpdate, false);
+    const res = await m.updateRecipe("r");
+    assert.equal(res.ok, false);
+    assert.equal(existsSync(marks), false, "nothing may be stopped");
+  });
+});
+
+test("a failed pull brings the previous version back up", async () => {
+  const f = fixture();
+  writeFileSync(join(f.other, "NEW"), "upstream\n");
+  git(f.other, "add", "NEW");
+  git(f.other, "commit", "-q", "-m", "add NEW");
+  git(f.other, "push", "-q", "origin", "main");
+  // An untracked file in the way makes the fast-forward fail.
+  writeFileSync(join(f.dir, "NEW"), "local\n");
+  const old = git(f.dir, "rev-parse", "--short", "HEAD");
+  const marks = join(f.home, "marks");
+  const rec = (name: string) => `echo "${name} $(git rev-parse --short HEAD)" >> ${marks}`;
+  await withEnv(f.home, async () => {
+    const m = manager(f, { start: rec("start"), stop: rec("stop") });
+    await m.update([llm("up")]);
+    const res = await m.updateRecipe("r");
+    assert.equal(res.ok, false);
+    assert.match(res.message, /元の版で起動し直しています/);
+    for (let i = 0; i < 50 && !(existsSync(marks) && readFileSync(marks, "utf8").includes("start")); i++) await sleep(100);
+    assert.deepEqual(readFileSync(marks, "utf8").trim().split("\n"), [`stop ${old}`, `start ${old}`]);
+  });
+});

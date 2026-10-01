@@ -170,3 +170,40 @@ test("a restarted dashboard adopts a launcher that is still preparing and keeps 
     process.env.HOME = oldHome;
   }
 });
+
+test("a failed SSH check keeps a starting launcher holding its machines", async () => {
+  const home = mkdtempSync(join(tmpdir(), "sl-ssh-"));
+  const work = join(home, "work");
+  const { mkdirSync } = await import("node:fs");
+  mkdirSync(work);
+  const oldHome = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    const m = new RecipeManager(
+      [
+        { id: "a", label: "A", host: "local", dir: work, start: "sleep 2", stop: "true", llm: "m", group: "g" },
+        { id: "b", label: "B", host: "local", dir: work, start: "true", stop: "true", group: "g" },
+      ],
+      [{ id: "local", label: "Local", kind: "server", local: true }],
+      join(home, "ctl"),
+    );
+    await m.update([llm("down")]);
+    assert.equal((await m.start("a")).ok, true);
+    // Simulate Tailscale SSH dropping the connection: exit 255, no output.
+    const target = m as unknown as { exec: (...args: unknown[]) => Promise<unknown> };
+    const real = target.exec.bind(m);
+    target.exec = async () => ({ code: 255, stdout: "", stderr: "", timedOut: false });
+    for (let i = 0; i < 3; i++) await m.update([llm("down")]);
+    assert.equal(m.snapshots()[0]?.status, "starting");
+    assert.equal(m.snapshots()[1]?.canStart, false);
+    // Back online, the launcher's real end is noticed.
+    target.exec = real;
+    for (let i = 0; i < 50 && m.snapshots()[0]?.status === "starting"; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      await m.update([llm("down")]);
+    }
+    assert.equal(m.snapshots()[1]?.canStart, true);
+  } finally {
+    process.env.HOME = oldHome;
+  }
+});
