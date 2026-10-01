@@ -207,3 +207,53 @@ test("a failed SSH check keeps a starting launcher holding its machines", async 
     process.env.HOME = oldHome;
   }
 });
+
+test("a lost start reply keeps the start in flight, and an unreachable host after a restart blocks its group", async () => {
+  const home = mkdtempSync(join(tmpdir(), "sl-lost-"));
+  const work = join(home, "work");
+  const { mkdirSync } = await import("node:fs");
+  mkdirSync(work);
+  const oldHome = process.env.HOME;
+  process.env.HOME = home;
+  const recipes = [
+    { id: "a", label: "A", host: "local", dir: work, start: "sleep 2", stop: "true", llm: "m", group: "g" },
+    { id: "b", label: "B", host: "local", dir: work, start: "true", stop: "true", group: "g" },
+  ];
+  const hosts = [{ id: "local", label: "Local", kind: "server" as const, local: true }];
+  type Exec = (...args: unknown[]) => Promise<{ code: number | null; stdout: string; stderr: string; timedOut: boolean }>;
+  try {
+    const m = new RecipeManager(recipes, hosts, join(home, "ctl"));
+    await m.update([llm("down")]);
+    const target = m as unknown as { exec: Exec };
+    const real = target.exec.bind(m);
+    // The launcher starts on the host, but SSH drops before the pid comes back.
+    target.exec = async (...args) => {
+      await real(...args);
+      return { code: 255, stdout: "", stderr: "", timedOut: false };
+    };
+    assert.equal((await m.start("a")).ok, true);
+    target.exec = real;
+    await m.update([llm("down")]);
+    assert.equal(m.snapshots()[0]?.status, "starting");
+    assert.equal(m.snapshots()[1]?.canStart, false);
+    assert.equal((await m.start("b")).ok, false);
+
+    // A dashboard restarted while the host is unreachable may not start anything in that group.
+    const second = new RecipeManager(recipes, hosts, join(home, "ctl"));
+    const t2 = second as unknown as { exec: Exec };
+    const real2 = t2.exec.bind(second);
+    t2.exec = async () => ({ code: 255, stdout: "", stderr: "", timedOut: false });
+    await second.update([llm("down")]);
+    assert.equal(second.snapshots()[1]?.canStart, false);
+    assert.equal((await second.start("b")).ok, false);
+    t2.exec = real2;
+    await second.update([llm("down")]);
+    assert.equal(second.snapshots()[0]?.status, "starting", "the running launcher is adopted once reachable");
+    for (let i = 0; i < 50 && m.snapshots()[0]?.status === "starting"; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      await m.update([llm("down")]);
+    }
+  } finally {
+    process.env.HOME = oldHome;
+  }
+});

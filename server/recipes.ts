@@ -164,10 +164,18 @@ export class RecipeManager {
     return s === "up" || s === "starting";
   }
 
-  /** Another recipe that holds the same machines. */
+  /** Not yet confirmed, since this dashboard started, to have no launcher running. */
+  private unconfirmed(r: RecipeConfig): boolean {
+    return !this.recovered.has(r.id);
+  }
+
+  /**
+   * Another recipe that holds the same machines. One whose host could not be
+   * asked yet counts as holding them: an unreachable host proves nothing.
+   */
   private blocker(r: RecipeConfig): RecipeConfig | null {
     const group = this.group(r);
-    return this.recipes.find((o) => o.id !== r.id && this.group(o) === group && this.busy(o)) ?? null;
+    return this.recipes.find((o) => o.id !== r.id && this.group(o) === group && (this.busy(o) || this.unconfirmed(o))) ?? null;
   }
 
   snapshots(): RecipeSnapshot[] {
@@ -189,7 +197,7 @@ export class RecipeManager {
         hostLabel: this.hosts.get(r.host)?.label ?? r.host,
         llm: r.llm ?? null,
         status,
-        canStart: !inFlight && status !== "running" && status !== "starting" && blocker === null,
+        canStart: !inFlight && status !== "running" && status !== "starting" && blocker === null && !this.unconfirmed(r),
         canStop: !inFlight && status !== "stopped",
         hasServerLog: Boolean(r.logs),
         blockedBy: blocker?.label ?? null,
@@ -297,12 +305,19 @@ export class RecipeManager {
           return;
         }
         const host = this.hosts.get(r.host)!;
-        const res = await this.exec(host, `tail -n 400 "${logPath(r.id)}" 2>/dev/null; kill -0 ${a.pid ?? 0} 2>/dev/null && echo ALIVE; echo "@@checked"`, 10_000);
+        // Without a pid (the start reply was lost), ask the pid file the launcher left.
+        const pidExpr = a.pid ?? `$(cat "${pidPath(r.id)}" 2>/dev/null || echo 0)`;
+        const res = await this.exec(host, `tail -n 400 "${logPath(r.id)}" 2>/dev/null; p=${pidExpr}; kill -0 "$p" 2>/dev/null && echo "ALIVE $p"; echo "@@checked"`, 10_000);
         // Only a completed check may conclude the launcher is gone; a failed SSH keeps the machines held.
         if (res.timedOut || !res.stdout.includes("@@checked")) return;
         const text = cleanLog(res.stdout);
         this.progress.set(r.id, { ...parseProgress(text), startedAt: null });
-        if (res.stdout.includes("ALIVE")) return;
+        const alive = /^ALIVE (\d+)$/m.exec(res.stdout);
+        if (alive) {
+          // Learn the pid when the start reply was lost, so a stop can end the launcher too.
+          a.pid ??= Number(alive[1]);
+          return;
+        }
         const exit = /=== spark-lens: exit (\d+)/.exec(res.stdout);
         const code = exit ? Number(exit[1]) : null;
         // A launcher that exits 0 before the API answers is still loading the model;
@@ -329,6 +344,7 @@ export class RecipeManager {
   private async doStart(r: RecipeConfig, afterOwnStop = false): Promise<{ ok: boolean; message: string }> {
     const id = r.id;
     const snap = this.snapshots().find((s) => s.id === id)!;
+    if (this.unconfirmed(r)) return { ok: false, message: "前回の起動状態を確認できていません。マシンへの接続を確認してください" };
     if (afterOwnStop ? snap.blockedBy !== null : !snap.canStart) {
       return { ok: false, message: snap.blockedBy ? `${snap.blockedBy} が動いているため起動できません` : "すでに動いているか、操作中です" };
     }
@@ -336,6 +352,12 @@ export class RecipeManager {
     this.actions.set(id, action);
     const res = await this.exec(this.hosts.get(r.host)!, startScript(r), 30_000);
     const pid = Number(res.stdout.trim().split("\n").pop());
+    // SSH dropped (255) or timed out: the launcher may well be running. Keep
+    // the start in flight; the next ticks find it through the pid file.
+    if ((!Number.isInteger(pid) || pid <= 0) && (res.timedOut || res.code === 255 || res.code === null)) {
+      action.message = "起動を依頼しましたが、応答を受け取れませんでした。状態を確認しています";
+      return { ok: true, message: action.message };
+    }
     if (!Number.isInteger(pid) || pid <= 0) {
       Object.assign(action, { finishedAt: Date.now(), ok: false, message: "起動コマンドを実行できませんでした" });
       return { ok: false, message: action.message! };
