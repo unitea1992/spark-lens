@@ -3628,3 +3628,57 @@ section {
 .usage__usd {
   font-variant-numeric: tabular-nums;
 }
+
+/* Usage notes: two short lists instead of one long paragraph. */
+.usage__notes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 40px;
+  margin-top: 4px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.usage__notes h4 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+  margin-bottom: 6px;
+}
+
+.usage__notes h4 span {
+  margin-left: 10px;
+  font-weight: 400;
+  color: var(--ink-3);
+}
+
+.usage__notes ul {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink-3);
+}
+
+.usage__notes li {
+  position: relative;
+  padding-left: 12px;
+}
+
+.usage__notes li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 0.75em;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+@media (max-width: 720px) {
+  .usage__notes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
