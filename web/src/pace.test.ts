@@ -52,7 +52,7 @@ const sub = (windows: UsageWindow[], status: SubscriptionSnapshot["status"] = "o
 
 test("a service's status is its worst window, pace included", () => {
   assert.equal(subscriptionStatus(sub([window(20, 3)]), now).text, "余裕あり");
-  assert.match(subscriptionStatus(sub([window(20, 3), window(60, 3)]), now).text, /^ペース速め/);
+  assert.match(subscriptionStatus(sub([window(20, 3), window(60, 3)]), now).text, /で上限に達する見込み$/);
   assert.equal(subscriptionStatus(sub([window(85, 0.5)]), now).text, "残りわずか");
   assert.equal(subscriptionStatus(sub([window(100, 3)]), now).tone, "critical");
   assert.equal(subscriptionStatus(sub([], "unconfigured"), now).text, "未接続");

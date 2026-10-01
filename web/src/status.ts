@@ -38,15 +38,15 @@ export function alerts(s: Snapshot, now: number): Alert[] {
   const out: Alert[] = [];
   for (const h of s.hosts) {
     const st = hostStatus(h);
-    if (st.tone === "critical" || st.tone === "warn") out.push({ text: `${h.label} ${st.text}`, tone: st.tone, page: "lab" });
+    if (st.tone === "critical" || st.tone === "warn") out.push({ text: `${h.label}：${st.text}`, tone: st.tone, page: "lab" });
   }
-  for (const r of s.recipes) if (r.status === "failed") out.push({ text: `${r.label} 起動に失敗`, tone: "critical", page: "lab" });
+  for (const r of s.recipes) if (r.status === "failed") out.push({ text: `${r.label}：起動に失敗しました`, tone: "critical", page: "lab" });
   for (const sub of s.subscriptions) {
     const st = subscriptionStatus(sub, now);
-    if (st.tone === "warn" || st.tone === "critical") out.push({ text: `${sub.label} ${st.text}`, tone: st.tone, page: "usage" });
+    if (st.tone === "warn" || st.tone === "critical") out.push({ text: `${sub.label}：${st.text}${st.reset ? `（${st.reset}）` : ""}`, tone: st.tone, page: "usage" });
   }
   const waiting = s.agents.filter((a) => a.status === "waiting").length;
-  if (waiting > 0) out.push({ text: `入力待ち ${waiting}`, tone: "warn", page: "agents" });
+  if (waiting > 0) out.push({ text: `エージェント ${waiting} 件が入力を待っています`, tone: "warn", page: "agents" });
   return out;
 }
 

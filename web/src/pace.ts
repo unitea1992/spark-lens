@@ -36,23 +36,32 @@ export function pace(w: UsageWindow, now: number): Pace | null {
 
 export function paceLabel(p: Pace): string {
   if (p.tone === "critical") return "上限に到達";
-  if (p.untilFullSec !== null) return `このままだと あと約${duration(p.untilFullSec)}で上限`;
+  if (p.untilFullSec !== null) return `このペースだと約${duration(p.untilFullSec)}で上限に達します`;
   return `終了時予測 ${Math.round(p.projected ?? 0)}%`;
 }
 
-/** One status per service: the worst of its windows, counting pace as well as use. */
-export function subscriptionStatus(sub: SubscriptionSnapshot, now: number): { tone: Tone; text: string } {
+function untilReset(w: UsageWindow, now: number): string | undefined {
+  return w.resetsAt !== null && w.resetsAt > now ? `リセットまで約${duration((w.resetsAt - now) / 1000)}` : undefined;
+}
+
+/**
+ * One status per service: the worst of its windows, counting pace as well as
+ * use. `reset` says when the window behind a warning resets; the card already
+ * shows it under each bar, so only the alert strip adds it.
+ */
+export function subscriptionStatus(sub: SubscriptionSnapshot, now: number): { tone: Tone; text: string; reset?: string } {
   if (sub.status === "unconfigured") return { tone: "quiet", text: "未接続" };
   if (sub.status === "stale") return { tone: "warn", text: "要ログイン" };
   if (sub.status === "error" && sub.windows.length === 0) return { tone: "warn", text: "取得失敗" };
   const known = sub.windows.filter((w) => w.usedPct !== null);
   if (known.length === 0) return { tone: "quiet", text: "使用率不明" };
-  if (known.some((w) => w.usedPct! >= 100)) return { tone: "critical", text: "上限に到達" };
+  const full = known.find((w) => w.usedPct! >= 100);
+  if (full) return { tone: "critical", text: "上限に到達", reset: untilReset(full, now) };
   const fast = known
-    .map((w) => pace(w, now))
-    .filter((p): p is Pace => p !== null && p.untilFullSec !== null)
-    .sort((a, b) => a.untilFullSec! - b.untilFullSec!)[0];
-  if (fast) return { tone: "warn", text: `ペース速め・あと約${duration(fast.untilFullSec!)}` };
+    .map((w) => ({ w, p: pace(w, now) }))
+    .filter((x): x is { w: UsageWindow; p: Pace } => x.p !== null && x.p.untilFullSec !== null)
+    .sort((a, b) => a.p.untilFullSec! - b.p.untilFullSec!)[0];
+  if (fast) return { tone: "warn", text: `約${duration(fast.p.untilFullSec!)}で上限に達する見込み`, reset: untilReset(fast.w, now) };
   if (known.some((w) => w.usedPct! >= 80)) return { tone: "warn", text: "残りわずか" };
   return { tone: "good", text: "余裕あり" };
 }
