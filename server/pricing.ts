@@ -144,7 +144,8 @@ export function priceRow(table: PriceTable | null, row: ModelUsage): { usd: numb
 export function applyPrices(list: ModelUsage[], table: PriceTable | null): void {
   for (const r of list) {
     const p = priceRow(table, r);
-    r.usd = p.usd;
+    // A local model with no API counterpart still costs nothing to run here.
+    r.usd = p.usd === null && r.local && table ? 0 : p.usd;
     if (p.usdEstimate) r.usdEstimate = true;
     else delete r.usdEstimate;
   }

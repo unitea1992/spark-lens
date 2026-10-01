@@ -98,3 +98,13 @@ test("no price table: everything is unknown, and applyPrices clears stale flags"
   assert.equal(r.usd, null);
   assert.equal(r.usdEstimate, undefined);
 });
+
+test("a local model with no API counterpart counts as $0; an unknown cloud model stays unknown", () => {
+  const list = [
+    row({ source: "ローカル", local: true, model: "Qwen3.8 Flash Next", input: 10, output: 10, cached: 0, total: 20 }),
+    row({ source: "Codex", model: "no-such-model", input: 10, output: 10, cached: 0, total: 20 }),
+  ];
+  applyPrices(list, table);
+  assert.equal(list[0]!.usd, 0);
+  assert.equal(list[1]!.usd, null);
+});

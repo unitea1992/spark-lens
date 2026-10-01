@@ -1,8 +1,7 @@
-import { existsSync, readdirSync } from "node:fs";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { open, readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { stateDir } from "../config.ts";
 import { run } from "../exec.ts";
 import { applyPrices, PriceBook } from "../pricing.ts";
@@ -140,32 +139,114 @@ class ClaudeSource {
 
 // ------------------------------------------------------------------ Codex
 
-function codexThreads(target: DayModel): void {
-  const home = process.env.CODEX_HOME || join(homedir(), ".codex");
-  let names: string[] = [];
-  try {
-    names = readdirSync(home);
-  } catch {
-    return;
-  }
-  const version = (n: string) => Number(/^state_(\d+)\.sqlite$/.exec(n)?.[1] ?? -1);
-  const db = names.filter((n) => version(n) >= 0).sort((a, b) => version(a) - version(b)).pop();
-  if (!db) return;
-  try {
-    const conn = new DatabaseSync(join(home, db), { readOnly: true });
+interface CodexEntry {
+  key: string;
+  day: string;
+  model: string;
+  input: number;
+  output: number;
+  cached: number;
+}
+
+/**
+ * Reads complete lines of a Codex rollout. Each `token_usage_record` is one
+ * response with its own usage; the model comes from the latest
+ * `turn_context`. `input_tokens` includes the cached part, as in the OpenAI API.
+ * Older rollouts without those records fall back to `token_count` events.
+ */
+export function parseCodexRollout(text: string, state: { model: string | null }): CodexEntry[] {
+  const out: CodexEntry[] = [];
+  for (const line of text.split("\n")) {
+    if (!line.includes('"turn_context"') && !line.includes('"token_usage_record"') && !line.includes('"token_count"')) continue;
+    let o: Record<string, unknown>;
     try {
-      const rows = conn
-        .prepare("select tokens_used, model, model_provider, updated_at_ms from threads where updated_at_ms > ? and tokens_used > 0")
-        .all(Date.now() - SCAN_DAYS * 86400_000) as Record<string, unknown>[];
-      for (const r of rows) {
-        const model = typeof r.model === "string" && r.model ? r.model : "モデル不明";
-        add(target, localDate(new Date(Number(r.updated_at_ms))), "Codex", model, { totalOnly: Number(r.tokens_used) || 0 });
-      }
-    } finally {
-      conn.close();
+      o = JSON.parse(line);
+    } catch {
+      continue;
     }
-  } catch {
-    // Schema change: Codex simply drops out of the table.
+    const p = (o.payload ?? {}) as Record<string, unknown>;
+    if (o.type === "turn_context") {
+      if (typeof p.model === "string" && p.model) state.model = p.model;
+      continue;
+    }
+    let usage: Record<string, number> | undefined;
+    let key: string;
+    if (o.type === "token_usage_record") {
+      usage = p.usage as Record<string, number> | undefined;
+      key = `r:${String(p.response_id ?? "")}`;
+    } else if (o.type === "event_msg" && p.type === "token_count") {
+      const info = p.info as Record<string, Record<string, number>> | null | undefined;
+      usage = info?.last_token_usage;
+      // The running total identifies a reading even when it is logged twice.
+      key = `c:${p.info ? JSON.stringify(info?.total_token_usage) : ""}`;
+    } else continue;
+    const at = Date.parse(String(o.timestamp ?? ""));
+    if (!usage || !Number.isFinite(at) || key.length <= 2) continue;
+    const cached = usage.cached_input_tokens ?? 0;
+    out.push({
+      key,
+      day: localDate(new Date(at)),
+      model: state.model ?? "モデル不明",
+      input: Math.max(0, (usage.input_tokens ?? 0) - cached),
+      output: usage.output_tokens ?? 0,
+      cached,
+    });
+  }
+  return out;
+}
+
+/** Codex rollouts, read incrementally: a growing file is read from where the last poll stopped. */
+class CodexSource {
+  private readonly files = new Map<string, { offset: number; mtimeMs: number; model: string | null; entries: CodexEntry[] }>();
+  private readonly root = join(process.env.CODEX_HOME || join(homedir(), ".codex"), "sessions");
+
+  async collect(target: DayModel): Promise<void> {
+    const since = Date.now() - SCAN_DAYS * 86400_000;
+    const found = await walk(this.root, since);
+    const live = new Set(found);
+    for (const f of this.files.keys()) if (!live.has(f)) this.files.delete(f);
+    for (const f of found) {
+      try {
+        const info = await stat(f);
+        let cur = this.files.get(f);
+        // A file that shrank was replaced; start over.
+        if (!cur || info.size < cur.offset) cur = { offset: 0, mtimeMs: 0, model: null, entries: [] };
+        if (info.size > cur.offset) {
+          const handle = await open(f, "r");
+          try {
+            const buf = Buffer.alloc(info.size - cur.offset);
+            await handle.read(buf, 0, buf.length, cur.offset);
+            // Only complete lines; a half-written last line waits for the next poll.
+            const end = buf.lastIndexOf(0x0a) + 1;
+            if (end > 0) {
+              const state = { model: cur.model };
+              cur.entries.push(...parseCodexRollout(buf.subarray(0, end).toString("utf8"), state));
+              cur.model = state.model;
+              cur.offset += end;
+            }
+          } finally {
+            await handle.close();
+          }
+        }
+        cur.mtimeMs = info.mtimeMs;
+        this.files.set(f, cur);
+      } catch {
+        // Unreadable file: skip this round.
+      }
+    }
+    // Forked threads copy earlier lines; count each response once.
+    const seen = new Set<string>();
+    for (const { entries } of this.files.values()) {
+      // Current rollouts log each response twice (a usage record and a token
+      // count); use the records, and the counts only for rollouts without them.
+      const records = entries.some((e) => e.key.startsWith("r:"));
+      for (const e of entries) {
+        if (records !== e.key.startsWith("r:")) continue;
+        if (seen.has(e.key)) continue;
+        seen.add(e.key);
+        add(target, e.day, "Codex", e.model, e);
+      }
+    }
   }
 }
 
@@ -234,6 +315,7 @@ export class UsageCollector {
   private current: UsageSnapshot = { generatedAt: 0, pricesFetchedAt: null, pricesSource: null, today: [], week: [], month: [] };
   private busy = false;
   private readonly claude = new ClaudeSource();
+  private readonly codex = new CodexSource();
   private readonly prices = new PriceBook(stateDir(), { log: (m) => console.error(`[usage] ${m}`) });
   private readonly opencodeBin: string | null;
 
@@ -260,7 +342,7 @@ export class UsageCollector {
       void this.prices.refreshIfStale();
       const byDay: DayModel = new Map();
       await this.claude.collect(byDay);
-      codexThreads(byDay);
+      await this.codex.collect(byDay);
       for (const llm of this.llms) {
         for (const day of recentDays(MONTH_DAYS)) {
           const t = this.store.tokensOn(llm.id, new Date(`${day}T12:00:00`));

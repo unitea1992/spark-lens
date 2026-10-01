@@ -15,13 +15,13 @@ function breakdown(r: Row): string {
 
 function usd(n: number): string {
   if (n >= 100) return `$${Math.round(n).toLocaleString("en-US")}`;
+  if (n === 0) return "$0";
   if (n >= 1) return `$${n.toFixed(2)}`;
   return n > 0 && n < 0.01 ? "$0.01 未満" : `$${n.toFixed(2)}`;
 }
 
 function price(r: Row): { text: string; unknown: boolean } {
   if (r.usd === null) return { text: "料金不明", unknown: true };
-  if (r.usd === 0) return { text: "無料", unknown: false };
   return { text: `${r.usdEstimate ? "約 " : ""}${usd(r.usd)}`, unknown: false };
 }
 
@@ -97,8 +97,8 @@ export function ModelUsage({ usage }: { usage: UsageSnapshot }) {
           <ul>
             <li>同じトークン数を API 料金で使った場合の目安です。</li>
             <li>ローカルモデルは、同じモデルの API 料金で換算します。</li>
-            <li>料金がないモデルは「料金不明」とし、合計に含めません。</li>
-            <li>Codex は合計しか分からないため、入力料金で計算した上限（「約」）です。</li>
+            <li>API 料金がないローカルモデルは $0 とします。</li>
+            <li>料金が分からないクラウドのモデルは「料金不明」とし、合計に含めません。</li>
             <li>キャッシュ書き込みは入力として数えているため、全体として概算です。</li>
           </ul>
         </div>
