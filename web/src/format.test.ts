@@ -18,3 +18,10 @@ test("dockerStatus translates the common shapes", () => {
   assert.equal(dockerStatus("Exited (143) 2 days ago"), "停止（2 日前・終了コード 143）");
   assert.equal(dockerStatus("Created"), "Created");
 });
+
+test("containerUptime reads Docker's own uptime", async () => {
+  const { containerUptime } = await import("./format.ts");
+  assert.equal(containerUptime("Up 4 hours"), "4 時間");
+  assert.equal(containerUptime("Up 2 days (unhealthy)"), "2 日");
+  assert.equal(containerUptime("Exited (0) 3 days ago"), null);
+});

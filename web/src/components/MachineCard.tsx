@@ -196,7 +196,7 @@ export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) 
       )}
 
       <p className="machine__foot">
-        {[host.os, host.cpuModel, host.latencyMs !== null ? `応答 ${host.latencyMs} ms` : null].filter(Boolean).join("・")}
+        {[host.os, host.cpuModel, host.latencyMs !== null ? `監視の応答 ${host.latencyMs} ms` : null].filter(Boolean).join("・")}
       </p>
     </article>
   );

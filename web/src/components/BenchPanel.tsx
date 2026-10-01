@@ -5,10 +5,10 @@ import { shortDate } from "../format.ts";
 type Key = BenchCase["key"];
 
 const COLUMNS: { key: Key; label: string; unit: string; pick: (c: BenchCase) => number | null; better: "low" | "high" }[] = [
-  { key: "ttft", label: "応答開始まで", unit: "秒", pick: (c) => (c.ttftMs === null ? null : c.ttftMs / 1000), better: "low" },
+  { key: "ttft", label: "TTFT", unit: "秒", pick: (c) => (c.ttftMs === null ? null : c.ttftMs / 1000), better: "low" },
   { key: "prose", label: "生成速度（文章）", unit: "トークン/秒", pick: (c) => c.decodeTps, better: "high" },
   { key: "code", label: "生成速度（コード）", unit: "トークン/秒", pick: (c) => c.decodeTps, better: "high" },
-  { key: "prefill", label: "長文の読み込み", unit: "トークン/秒", pick: (c) => c.prefillTps, better: "high" },
+  { key: "prefill", label: "プリフィル", unit: "トークン/秒", pick: (c) => c.prefillTps, better: "high" },
 ];
 
 function value(run: BenchRun | undefined, key: Key): number | null {

@@ -65,6 +65,12 @@ export function dockerStatus(status: string): string {
   return status;
 }
 
+/** How long a running container has been up, from Docker's own status ("4 時間"), or null. */
+export function containerUptime(status: string): string | null {
+  const text = dockerStatus(status);
+  return text.startsWith("稼働 ") ? text.slice(3).replace(/（異常）$/, "") : null;
+}
+
 /** "3日 4時間", "2時間 5分", "40秒" */
 export function duration(seconds: number | null | undefined): string {
   if (seconds === null || seconds === undefined || seconds < 0) return "–";

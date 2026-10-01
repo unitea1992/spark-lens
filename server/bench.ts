@@ -20,7 +20,7 @@ const FILLER = Array.from(
 ).join(" ");
 
 export const CASES: Case[] = [
-  { key: "ttft", label: "応答開始まで", prompt: "Reply with the single word OK.", maxTokens: 8 },
+  { key: "ttft", label: "TTFT", prompt: "Reply with the single word OK.", maxTokens: 8 },
   {
     key: "prose",
     label: "文章の生成",
@@ -35,7 +35,7 @@ export const CASES: Case[] = [
   },
   {
     key: "prefill",
-    label: "長文の読み込み",
+    label: "プリフィル",
     prompt: `${FILLER}\n\nSummarise the text above in one sentence.`,
     maxTokens: 32,
   },
