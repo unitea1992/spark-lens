@@ -189,7 +189,7 @@ function Dashboard({ snapshot, now, stale, page }: { snapshot: Snapshot; now: nu
 
       {page === "lab" && (
         <>
-          <LabMap snapshot={snapshot} />
+          <LabMap snapshot={snapshot} now={now} />
           {(snapshot.llms.length > 0 || loose.length > 0) && (
             <section aria-labelledby="h-llm">
               <h2 id="h-llm">モデル</h2>

@@ -1,9 +1,8 @@
 import type { HostSnapshot, NetInfo } from "../../../server/types.ts";
 import { ago, bytes, dockerStatus, duration, pct, rate, ratioPct, usedOfTotal } from "../format.ts";
-import { levelFor, Meter } from "./Meter.tsx";
-import { Sparkline } from "./Sparkline.tsx";
 import { hostStatus } from "../status.ts";
-import { StatusPill, type Tone } from "./StatusPill.tsx";
+import { Sparkline } from "./Sparkline.tsx";
+import { StatusPill } from "./StatusPill.tsx";
 
 const KIND_LABEL: Record<HostSnapshot["kind"], string> = {
   spark: "DGX Spark",
@@ -11,9 +10,8 @@ const KIND_LABEL: Record<HostSnapshot["kind"], string> = {
   server: "サーバー",
 };
 
-
 function temp(value: number | null | undefined): string {
-  return value === null || value === undefined ? "温度不明" : `${value.toFixed(0)}℃`;
+  return value === null || value === undefined ? "" : `${value.toFixed(0)}℃`;
 }
 
 function clock(cur: number | null | undefined, max: number | null | undefined): string {
@@ -26,13 +24,37 @@ function byLinkSpeed(a: NetInfo, b: NetInfo): number {
   return (a.speedMbps ?? Infinity) - (b.speedMbps ?? Infinity) || a.iface.localeCompare(b.iface);
 }
 
+function Bar({ label, value, side, series }: { label: string; value: number | null; side: string; series: 1 | 2 | 3 | 0 }) {
+  return (
+    <div className="bar-row">
+      <span className="bar-row__label">
+        {series > 0 && <i className={`swatch series-bg-${series}`} />}
+        {label}
+      </span>
+      <strong className="bar-row__value">{pct(value)}</strong>
+      <span className="bar-row__side">{side}</span>
+      <div className={`bar-row__track series-track-${series}`}>
+        <div className="bar-row__fill" style={{ width: `${Math.min(100, Math.max(0, value ?? 0))}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function Spec({ label, value }: { label: string; value: string }) {
+  return (
+    <li>
+      <span>{label}</span>
+      <span>{value}</span>
+    </li>
+  );
+}
 
 export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) {
   const memPct = ratioPct(host.memUsedBytes, host.memTotalBytes);
   const gpu = host.gpu;
   const isSpark = host.kind === "spark";
   const st = hostStatus(host);
-  const running = host.containers.filter((c) => c.state === "running");
+  const containers = [...host.containers].sort((a, b) => Number(b.state === "running") - Number(a.state === "running"));
   // Ports carrying nothing are counted, not listed: a Spark has several idle fabric ports.
   const moving = (rx: number | null, tx: number | null) => (rx ?? 0) + (tx ?? 0) >= 1000;
   const allLinks = host.net.filter((n) => n.up).sort(byLinkSpeed);
@@ -61,29 +83,14 @@ export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) 
       )}
 
       <div className="machine__bars">
-        {[
-          { key: "gpu", label: "GPU", value: gpu?.utilPct ?? null, side: temp(gpu?.tempC), series: 1 },
-          {
-            key: "mem",
-            label: "メモリ",
-            value: memPct,
-            side: `${usedOfTotal(host.memUsedBytes, host.memTotalBytes)}${isSpark && host.gpuProcesses.length > 0 ? "・モデルが確保" : ""}`,
-            series: 2,
-          },
-          { key: "cpu", label: "CPU", value: host.cpuPct, side: temp(host.cpuTempC), series: 3 },
-        ].map((r) => (
-          <div key={r.key} className="bar-row">
-            <span className="bar-row__label">
-              <i className={`swatch series-bg-${r.series}`} />
-              {r.label}
-            </span>
-            <strong className="bar-row__value">{pct(r.value)}</strong>
-            <span className="bar-row__side">{r.side}</span>
-            <div className={`bar-row__track series-track-${r.series}`}>
-              <div className="bar-row__fill" style={{ width: `${Math.min(100, Math.max(0, r.value ?? 0))}%` }} />
-            </div>
-          </div>
-        ))}
+        <Bar label="GPU" value={gpu?.utilPct ?? null} side={temp(gpu?.tempC)} series={1} />
+        <Bar
+          label="メモリ"
+          value={memPct}
+          side={`${usedOfTotal(host.memUsedBytes, host.memTotalBytes)}${isSpark && host.gpuProcesses.length > 0 ? "・モデルが確保" : ""}`}
+          series={2}
+        />
+        <Bar label="CPU" value={host.cpuPct} side={temp(host.cpuTempC)} series={3} />
       </div>
 
       <Sparkline
@@ -95,76 +102,51 @@ export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) 
         format={(v) => `${v.toFixed(0)}%`}
       />
 
-      <div className="machine__disks">
-        {host.disks.map((d) => {
-          const used = ratioPct(d.usedBytes, d.totalBytes);
-          return (
-            <div className="stat" key={d.mount}>
-              <div className="stat__line">
-                <span>ストレージ{host.disks.length > 1 ? ` ${d.mount}` : ""}</span>
-                <span>
-                  <strong>{pct(used)}</strong> {usedOfTotal(d.usedBytes, d.totalBytes)}
-                </span>
-              </div>
-              <Meter value={used} level={levelFor(used, 85, 95)} label={`ストレージ ${d.mount} の使用率`} />
-            </div>
-          );
-        })}
-      </div>
+      {host.disks.map((d) => (
+        <Bar
+          key={d.mount}
+          label={host.disks.length > 1 ? `ストレージ ${d.mount}` : "ストレージ"}
+          value={ratioPct(d.usedBytes, d.totalBytes)}
+          side={usedOfTotal(d.usedBytes, d.totalBytes)}
+          series={0}
+        />
+      ))}
 
-      <dl className="facts facts--compact">
-        <div>
-          <dt>稼働時間</dt>
-          <dd>{duration(host.uptimeSec)}</dd>
-        </div>
-        <div>
-          <dt>GPU 電力</dt>
-          <dd>{gpu?.powerW !== null && gpu?.powerW !== undefined ? `${gpu.powerW.toFixed(1)} W` : "–"}</dd>
-        </div>
-        <div>
-          <dt>GPU クロック / 上限</dt>
-          <dd>{clock(gpu?.clockMhz, gpu?.clockMaxMhz)}</dd>
-        </div>
-        <div>
-          <dt>CPU クロック / 上限</dt>
-          <dd>{clock(host.clockMhz, host.clockMaxMhz)}</dd>
-        </div>
-        <div>
-          <dt>ロードアベレージ</dt>
-          <dd>
-            {host.load ? host.load.map((l) => l.toFixed(1)).join(" / ") : "–"}
-          </dd>
-        </div>
-        <div>
-          <dt>スワップ</dt>
-          <dd>{host.swapTotalBytes ? `${bytes(host.swapUsedBytes)} / ${bytes(host.swapTotalBytes)}` : "なし"}</dd>
-        </div>
-      </dl>
+      <ul className="spec">
+        <Spec label="稼働時間" value={duration(host.uptimeSec)} />
+        {gpu && <Spec label="GPU 電力" value={gpu.powerW !== null ? `${gpu.powerW.toFixed(1)} W` : "–"} />}
+        {gpu && gpu.clockMhz !== null && <Spec label="GPU クロック / 上限" value={clock(gpu.clockMhz, gpu.clockMaxMhz)} />}
+        <Spec label="CPU クロック / 上限" value={clock(host.clockMhz, host.clockMaxMhz)} />
+        <Spec label="ロードアベレージ" value={host.load ? host.load.map((l) => l.toFixed(1)).join("  ") : "–"} />
+        <Spec label="スワップ" value={host.swapTotalBytes ? `${bytes(host.swapUsedBytes)} / ${bytes(host.swapTotalBytes)}` : "なし"} />
+      </ul>
 
-      {links.length > 0 && (
+      {(links.length > 0 || rdma.length > 0) && (
         <div className="minilist">
           <h4>ネットワーク</h4>
-          <ul className="rows">
+          <ul className="spec spec--flow">
             {links.map((n) => (
               <li key={n.iface}>
-                <span className="rows__name">{n.iface}</span>
-                <span className="rows__meta">
-                  {n.speedMbps ? (n.speedMbps >= 1000 ? `${n.speedMbps / 1000} GbE` : `${n.speedMbps} Mb`) : ""}
+                <span>
+                  {n.iface}
+                  <em>{n.speedMbps ? (n.speedMbps >= 1000 ? `${n.speedMbps / 1000} GbE` : `${n.speedMbps} Mb`) : ""}</em>
                 </span>
-                <span className="rows__value">
+                <span>
                   ↓ {rate(n.rxBps)}　↑ {rate(n.txBps)}
                 </span>
               </li>
             ))}
             {rdma.map((f) => (
-                <li key={f.device}>
-                  <span className="rows__name">{f.device}</span>
-                  <span className="rows__meta">RDMA{f.rateGbps ? ` ${f.rateGbps} Gb` : ""}</span>
-                  <span className="rows__value">
-                    ↓ {rate(f.rxBps)}　↑ {rate(f.txBps)}
-                  </span>
-                </li>
-              ))}
+              <li key={f.device}>
+                <span>
+                  {f.device}
+                  <em>RDMA</em>
+                </span>
+                <span>
+                  ↓ {rate(f.rxBps)}　↑ {rate(f.txBps)}
+                </span>
+              </li>
+            ))}
           </ul>
           {quietPorts > 0 && <p className="minilist__more">ほか {quietPorts} ポートは通信なし</p>}
         </div>
@@ -173,25 +155,22 @@ export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) 
       {host.gpuProcesses.length > 0 && (
         <div className="minilist">
           <h4>GPU を使っているプロセス</h4>
-          <ul className="rows">
+          <ul className="spec">
             {host.gpuProcesses.map((p) => (
-              <li key={p.pid}>
-                <span className="rows__name">{p.name || `PID ${p.pid}`}</span>
-                <span className="rows__value">{p.memBytes === null ? `PID ${p.pid}` : bytes(p.memBytes)}</span>
-              </li>
+              <Spec key={p.pid} label={p.name || `PID ${p.pid}`} value={p.memBytes === null ? `PID ${p.pid}` : bytes(p.memBytes)} />
             ))}
           </ul>
         </div>
       )}
 
-      {host.containers.length > 0 && (
+      {containers.length > 0 && (
         <div className="minilist">
           <h4>コンテナ</h4>
-          <ul className="rows">
-            {[...running, ...host.containers.filter((c) => c.state !== "running")].map((c) => (
-              <li key={c.name} className={c.state === "running" ? "" : "rows--quiet"}>
-                <span className="rows__name">{c.name}</span>
-                <span className="rows__value">{dockerStatus(c.status)}</span>
+          <ul className="spec">
+            {containers.map((c) => (
+              <li key={c.name} className={c.state === "running" ? "" : "spec--quiet"}>
+                <span>{c.name}</span>
+                <span>{dockerStatus(c.status)}</span>
               </li>
             ))}
           </ul>

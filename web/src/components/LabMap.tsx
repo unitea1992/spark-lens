@@ -1,9 +1,9 @@
 import type { CSSProperties } from "react";
 import type { HostSnapshot, LlmSnapshot, Snapshot } from "../../../server/types.ts";
-import { pct, rate, ratioPct } from "../format.ts";
+import { ago, pct, rate, ratioPct } from "../format.ts";
 import { hostStatus, llmStatus } from "../status.ts";
+import { layout } from "../lab.ts";
 import { LensDial } from "./LensDial.tsx";
-import { StatusPill } from "./StatusPill.tsx";
 
 /**
  * Throughput on a host's fast ports, both directions. RDMA counters come
@@ -19,6 +19,10 @@ function fabricBps(h: HostSnapshot): { bps: number | null; speedGb: number | nul
   return { bps: rdma + ip, speedGb: speed };
 }
 
+function num(v: number | null | undefined): string {
+  return v === null || v === undefined ? "–" : String(Math.round(v));
+}
+
 function scrollToMachine(id: string) {
   document.getElementById(`machine-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -29,8 +33,14 @@ function Node({ host }: { host: HostSnapshot }) {
   const mem = ratioPct(host.memUsedBytes, host.memTotalBytes);
   const centerGpu = spark && host.gpu?.tempC != null;
   const temp = centerGpu ? host.gpu!.tempC : (host.cpuTempC ?? null);
+  const working = (host.gpu?.utilPct ?? 0) >= 40;
   return (
-    <button type="button" className={`node node--${st.tone}${host.online ? "" : " node--offline"}`} onClick={() => scrollToMachine(host.id)}>
+    <button
+      type="button"
+      className={`node node--${st.tone}${host.online ? "" : " node--offline"}${working ? " node--working" : ""}`}
+      onClick={() => scrollToMachine(host.id)}
+      aria-label={`${host.label}の詳細へ移動`}
+    >
       <LensDial
         dimmed={!host.online}
         rings={[
@@ -43,128 +53,124 @@ function Node({ host }: { host: HostSnapshot }) {
         caption={centerGpu ? "GPU" : "CPU"}
       />
       <span className="node__name">{host.label}</span>
-      <span className="node__figures">
-        <span>
-          <i className="swatch series-bg-1" />
-          {pct(host.gpu?.utilPct)}
+      <span className="node__figures" aria-hidden="true">
+        <span className="node__fig node__fig--1">
+          <small>GPU</small>
+          {num(host.gpu?.utilPct)}
         </span>
-        <span>
-          <i className="swatch series-bg-2" />
-          {pct(mem)}
+        <span className="node__fig node__fig--2">
+          <small>メモリ</small>
+          {num(mem)}
         </span>
-        <span>
-          <i className="swatch series-bg-3" />
-          {pct(host.cpuPct)}
+        <span className="node__fig node__fig--3">
+          <small>CPU</small>
+          {num(host.cpuPct)}
         </span>
       </span>
-      {st.tone !== "good" && <StatusPill tone={st.tone}>{st.text}</StatusPill>}
+      {st.tone !== "good" && <span className={`node__flag node__flag--${st.tone}`}>{st.text}</span>}
     </button>
   );
 }
 
-/** A cable between two Sparks. Dashes travel along it while data does. */
+/** A cable between two machines. Light travels along it while data does. */
 function Fabric({ a, b }: { a: HostSnapshot; b: HostSnapshot }) {
   const fa = fabricBps(a);
   const fb = fabricBps(b);
   const bps = fa.bps === null && fb.bps === null ? null : Math.max(fa.bps ?? 0, fb.bps ?? 0);
   const speed = fa.speedGb ?? fb.speedGb;
   const active = (bps ?? 0) > 1_000_000; // more than ~8 Mb/s is real traffic, not keep-alives
-  // Faster traffic, faster dashes: one second at 1 GB/s, slower below.
+  // Faster traffic, faster pulses.
   const seconds = active ? Math.max(0.35, Math.min(3, 2.2 - Math.log10(bps! / 1e6) * 0.6)) : 0;
   return (
     <div className={`fabric${active ? " fabric--active" : ""}`} style={active ? ({ "--flow": `${seconds}s` } as CSSProperties) : undefined}>
       <span className="fabric__line" aria-hidden="true" />
       <span className="fabric__label">
-        {speed ? `${speed} GbE` : "直結"}
-        <strong>{bps === null ? "" : rate(bps)}</strong>
+        <span>{speed ? `${speed} GbE` : "直結"}</span>
+        <strong>{bps === null ? "–" : rate(bps)}</strong>
       </span>
     </div>
   );
 }
 
-function Band({ llm }: { llm: LlmSnapshot }) {
+function Band({ llm, now }: { llm: LlmSnapshot; now: number }) {
   const st = llmStatus(llm);
-  const up = llm.state === "up";
   const running = (llm.requestsRunning ?? 0) > 0;
   const kind = llm.state === "down" ? "down" : llm.state === "starting" ? "starting" : running ? "busy" : "idle";
   return (
     <div className={`band band--${kind}`}>
       <span className="band__name">{llm.label}</span>
       <span className="band__state">{st.text}</span>
-      {up && (
-        <span className="band__figures">
-          {running && llm.genTokensPerSec !== null && (
+      <span className="band__figures">
+        {kind === "busy" && (
+          <span className="band__hero">
+            <strong>{llm.genTokensPerSec === null ? "–" : llm.genTokensPerSec.toFixed(1)}</strong> トークン/秒
+          </span>
+        )}
+        {kind === "idle" && llm.lastActiveAt !== null && <span>最後の推論 {ago(llm.lastActiveAt, now)}</span>}
+        {(kind === "busy" || kind === "idle") && (
+          <>
             <span>
-              <strong>{llm.genTokensPerSec.toFixed(1)}</strong> トークン/秒
+              実行 <strong>{llm.requestsRunning ?? "–"}</strong>・待ち <strong>{llm.requestsWaiting ?? "–"}</strong>
             </span>
-          )}
-          <span>
-            実行 <strong>{llm.requestsRunning ?? "–"}</strong>・待ち <strong>{llm.requestsWaiting ?? "–"}</strong>
-          </span>
-          <span>
-            KV <strong>{llm.kvCacheUsage === null ? "–" : pct(llm.kvCacheUsage * 100)}</strong>
-          </span>
-        </span>
-      )}
+            <span>
+              KV <strong>{llm.kvCacheUsage === null ? "–" : pct(llm.kvCacheUsage * 100)}</strong>
+            </span>
+          </>
+        )}
+      </span>
     </div>
   );
 }
 
-interface Cluster {
-  llm: LlmSnapshot | null;
-  hosts: HostSnapshot[];
-}
-
-/** Hosts grouped the way they are wired: each model with the machines it spans. */
-function layout(s: Snapshot): { observers: HostSnapshot[]; clusters: Cluster[] } {
-  const used = new Set<string>();
-  const clusters: Cluster[] = [];
-  for (const llm of s.llms) {
-    const hosts = llm.nodes.map((id) => s.hosts.find((h) => h.id === id)).filter((h): h is HostSnapshot => !!h && !used.has(h.id));
-    if (hosts.length === 0) continue;
-    hosts.forEach((h) => used.add(h.id));
-    clusters.push({ llm, hosts });
-  }
-  const observers = s.hosts.filter((h) => !used.has(h.id) && h.kind === "workstation");
-  const rest = s.hosts.filter((h) => !used.has(h.id) && h.kind !== "workstation");
-  if (rest.length > 0) clusters.push({ llm: null, hosts: rest });
-  return { observers, clusters };
-}
-
 /**
  * The lab drawn the way it is built: the machine this dashboard runs on,
- * then each model with the machines it spans and the cable between them.
+ * then each group of machines with the models they serve and the cables
+ * between them. Always on a dark stage, like an instrument.
  */
-export function LabMap({ snapshot }: { snapshot: Snapshot }) {
+export function LabMap({ snapshot, now }: { snapshot: Snapshot; now: number }) {
   const { observers, clusters } = layout(snapshot);
   return (
-    <section className="lab" aria-label="ラボの構成">
-      {observers.length > 0 && (
-        <div className="lab__side">
-          {observers.map((h) => (
-            <Node key={h.id} host={h} />
+    <section className="stage" aria-label="ラボの構成">
+      <div className={`stage__map${observers.length > 0 ? " stage__map--with-side" : ""}`}>
+        {observers.length > 0 && (
+          <div className="stage__side">
+            {observers.map((h) => (
+              <Node key={h.id} host={h} />
+            ))}
+          </div>
+        )}
+        {observers.length > 0 && clusters.length > 0 && (
+          <div className="stage__tether" aria-hidden="true">
+            <span>Tailscale</span>
+          </div>
+        )}
+        <div className="stage__clusters">
+          {clusters.map((c) => (
+            <div key={c.key} className="cluster">
+              <div className="cluster__nodes">
+                {c.hosts.map((h, j) => (
+                  <div key={h.id} className="cluster__cell">
+                    {j > 0 && c.llms.length > 0 && <Fabric a={c.hosts[j - 1]!} b={h} />}
+                    <Node host={h} />
+                  </div>
+                ))}
+              </div>
+              {c.llms.length > 0 && (
+                <div className="cluster__bands">
+                  {c.llms.map((l) => (
+                    <Band key={l.id} llm={l} now={now} />
+                  ))}
+                </div>
+              )}
+            </div>
           ))}
         </div>
-      )}
-      {observers.length > 0 && clusters.length > 0 && (
-        <div className="lab__tether" aria-hidden="true">
-          <span>Tailscale</span>
-        </div>
-      )}
-      <div className="lab__clusters">
-        {clusters.map((c, i) => (
-          <div key={c.llm?.id ?? `rest-${i}`} className="cluster">
-            <div className="cluster__nodes">
-              {c.hosts.map((h, j) => (
-                <div key={h.id} className="cluster__cell">
-                  {j > 0 && c.llm && <Fabric a={c.hosts[j - 1]!} b={h} />}
-                  <Node host={h} />
-                </div>
-              ))}
-            </div>
-            {c.llm && <Band llm={c.llm} />}
-          </div>
-        ))}
+      </div>
+      <div className="stage__legend" aria-hidden="true">
+        <span className="legend-key legend-key--1">GPU</span>
+        <span className="legend-key legend-key--2">メモリ</span>
+        <span className="legend-key legend-key--3">CPU</span>
+        <span className="legend-key legend-key--center">リングの中央は温度・数値は使用率 %</span>
       </div>
     </section>
   );

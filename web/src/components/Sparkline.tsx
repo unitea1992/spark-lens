@@ -62,6 +62,14 @@ export function Sparkline({
 
   return (
     <div className={`spark series-text-${series}`}>
+      <div className="spark__legend">
+        <span>{label}</span>
+        <span className="spark__readout">
+          {hover === null
+            ? `直近 ${Math.round((n * stepSec) / 60)} 分`
+            : `${secondsAgo === 0 ? "現在" : secondsAgo < 60 ? `${secondsAgo}秒前` : `${Math.round(secondsAgo / 60)}分前`} ${hv === null || hv === undefined ? "記録なし" : format(hv)}`}
+        </span>
+      </div>
       <svg
         viewBox={`0 0 ${W} ${H}`}
         preserveAspectRatio="none"
@@ -87,14 +95,6 @@ export function Sparkline({
           <line className="spark__cursor" x1={x(hover)} x2={x(hover)} y1={0} y2={H} vectorEffect="non-scaling-stroke" />
         )}
       </svg>
-      <div className="spark__legend">
-        <span>{label}</span>
-        <span className="spark__readout">
-          {hover === null
-            ? `直近 ${Math.round((n * stepSec) / 60)} 分`
-            : `${secondsAgo === 0 ? "現在" : secondsAgo < 60 ? `${secondsAgo}秒前` : `${Math.round(secondsAgo / 60)}分前`} ${hv === null || hv === undefined ? "記録なし" : format(hv)}`}
-        </span>
-      </div>
     </div>
   );
 }

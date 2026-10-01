@@ -106,7 +106,6 @@ export function RecipeControls({ recipe, now, showName }: { recipe: RecipeSnapsh
     <div className="recipe">
       <div className="recipe__bar">
         {showName && <span className="recipe__name">{recipe.label}</span>}
-        <span className="recipe__where">実行先: {recipe.hostLabel}</span>
         <button type="button" className="btn btn--quiet" aria-expanded={showLogs} onClick={() => setShowLogs((v) => !v)}>
           {showLogs ? "ログを閉じる" : "ログ"}
         </button>
