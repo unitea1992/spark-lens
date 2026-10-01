@@ -85,6 +85,8 @@ export class RecipeManager {
   private readonly hosts: Map<string, HostConfig>;
   private readonly controlDir: string;
   private readonly actions = new Map<string, Action>();
+  /** Machine groups with an operation in progress (start, stop, switch, update). */
+  private readonly locks = new Set<string>();
   private readonly upstream = new Map<string, UpstreamStatus>();
   private readonly memory = new Map<string, MemoryPlan & { readAt: number }>();
   private readonly progress = new Map<string, StartProgress & { startedAt: number | null }>();
@@ -126,6 +128,26 @@ export class RecipeManager {
     return r.llm ? (this.llms.find((l) => l.id === r.llm)?.state ?? null) : null;
   }
 
+  private group(r: RecipeConfig): string {
+    return r.group ?? r.host;
+  }
+
+  /**
+   * Run one operation per machine group at a time. The lock is taken before
+   * the first await, so two clicks cannot both pass the checks and then both
+   * stop, pull or start.
+   */
+  private async locked(r: RecipeConfig, run: () => Promise<{ ok: boolean; message: string }>): Promise<{ ok: boolean; message: string }> {
+    const group = this.group(r);
+    if (this.locks.has(group)) return { ok: false, message: "ほかの操作が進行中です。終わってからもう一度試してください" };
+    this.locks.add(group);
+    try {
+      return await run();
+    } finally {
+      this.locks.delete(group);
+    }
+  }
+
   private busy(r: RecipeConfig): boolean {
     const a = this.actions.get(r.id);
     if (a && a.finishedAt === null) return true;
@@ -135,8 +157,8 @@ export class RecipeManager {
 
   /** Another recipe that holds the same machines. */
   private blocker(r: RecipeConfig): RecipeConfig | null {
-    const group = r.group ?? r.host;
-    return this.recipes.find((o) => o.id !== r.id && (o.group ?? o.host) === group && this.busy(o)) ?? null;
+    const group = this.group(r);
+    return this.recipes.find((o) => o.id !== r.id && this.group(o) === group && this.busy(o)) ?? null;
   }
 
   snapshots(): RecipeSnapshot[] {
@@ -249,6 +271,11 @@ export class RecipeManager {
   async start(id: string): Promise<{ ok: boolean; message: string }> {
     const r = this.recipes.find((x) => x.id === id);
     if (!r) return { ok: false, message: "レシピが見つかりません" };
+    return this.locked(r, () => this.doStart(r));
+  }
+
+  private async doStart(r: RecipeConfig): Promise<{ ok: boolean; message: string }> {
+    const id = r.id;
     const snap = this.snapshots().find((s) => s.id === id)!;
     if (!snap.canStart) {
       return { ok: false, message: snap.blockedBy ? `${snap.blockedBy} が動いているため起動できません` : "すでに動いているか、操作中です" };
@@ -268,6 +295,11 @@ export class RecipeManager {
   async stop(id: string): Promise<{ ok: boolean; message: string }> {
     const r = this.recipes.find((x) => x.id === id);
     if (!r) return { ok: false, message: "レシピが見つかりません" };
+    return this.locked(r, () => this.doStop(r));
+  }
+
+  private async doStop(r: RecipeConfig): Promise<{ ok: boolean; message: string }> {
+    const id = r.id;
     const current = this.actions.get(id);
     if (current && current.finishedAt === null && current.kind === "stop") return { ok: false, message: "停止処理中です" };
     // Stopping also abandons an in-flight start: the launcher's own stop handles both.
@@ -291,16 +323,20 @@ export class RecipeManager {
   async switchTo(id: string): Promise<{ ok: boolean; message: string }> {
     const r = this.recipes.find((x) => x.id === id);
     if (!r) return { ok: false, message: "レシピが見つかりません" };
-    const current = this.actions.get(id);
+    return this.locked(r, () => this.doSwitch(r));
+  }
+
+  private async doSwitch(r: RecipeConfig): Promise<{ ok: boolean; message: string }> {
+    const current = this.actions.get(r.id);
     if (current && current.finishedAt === null) return { ok: false, message: "ほかの操作が進行中です" };
     const other = this.blocker(r);
     if (other) {
-      const stopped = await this.stop(other.id);
+      const stopped = await this.doStop(other);
       if (!stopped.ok) return { ok: false, message: `${other.label} を停止できませんでした` };
       // Seen as stopped from here on, without waiting for the next poll.
       if (other.llm) this.llms = this.llms.map((l) => (l.id === other.llm ? { ...l, state: "down" } : l));
     }
-    const started = await this.start(id);
+    const started = await this.doStart(r);
     return started.ok ? { ok: true, message: other ? `${other.label} を停止し、起動しています` : started.message } : started;
   }
 
@@ -336,6 +372,11 @@ export class RecipeManager {
   async updateRecipe(id: string): Promise<{ ok: boolean; message: string }> {
     const r = this.recipes.find((x) => x.id === id);
     if (!r) return { ok: false, message: "レシピが見つかりません" };
+    return this.locked(r, () => this.doUpdate(r));
+  }
+
+  private async doUpdate(r: RecipeConfig): Promise<{ ok: boolean; message: string }> {
+    const id = r.id;
     const current = this.actions.get(id);
     if (current && current.finishedAt === null) return { ok: false, message: "ほかの操作が進行中です" };
     const up = await this.checkUpstream(id);
@@ -364,7 +405,7 @@ export class RecipeManager {
     await this.checkUpstream(id);
     Object.assign(action, { finishedAt: Date.now(), ok: true, message: `${up.behind} 件の更新を取り込みました` });
     if (wasRunning) {
-      const started = await this.start(id);
+      const started = await this.doStart(r);
       return { ok: started.ok, message: started.ok ? `${up.behind} 件の更新を取り込み、起動し直しています` : started.message };
     }
     return { ok: true, message: action.message! };

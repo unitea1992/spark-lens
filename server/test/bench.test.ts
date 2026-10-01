@@ -40,3 +40,40 @@ test("summaries give decode speed for generation cases and prefill speed for the
   assert.equal(p.decodeTps, null);
   assert.equal(summarise(prose, { ttftMs: null, decodeMs: null, promptTokens: null, completionTokens: null }).decodeTps, null);
 });
+
+test("a stream that breaks mid-answer is recorded as a failure, not an unhandled rejection", async () => {
+  const { BenchRunner, runBench } = await import("../bench.ts");
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(
+      new ReadableStream({
+        start(c) {
+          c.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"a"}}]}\n\n'));
+          c.error(new Error("socket hang up"));
+        },
+      }),
+      { status: 200 },
+    )) as typeof fetch;
+  try {
+    const result = await runBench("http://x", "m", undefined, () => {});
+    assert.match(result.error ?? "", /接続が切れました/);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  // Even an unexpected throw ends the run and keeps the dashboard alive.
+  const runs: unknown[] = [];
+  const runner = new BenchRunner({ benchRuns: () => [], addBenchRun: (r) => runs.push(r) }, async () => {
+    throw new Error("boom");
+  });
+  let done!: () => void;
+  const finished = new Promise<void>((r) => (done = r));
+  let calls = 0;
+  runner.start("m", { baseUrl: "http://x", model: "m", commit: null, repo: null }, () => {
+    if (++calls >= 2) done();
+  });
+  await finished;
+  assert.equal(runner.snapshot(["m"]).m?.running, false);
+  assert.equal(runs.length, 1);
+  assert.match((runs[0] as { error: string }).error, /boom/);
+});

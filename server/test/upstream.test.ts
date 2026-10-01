@@ -263,3 +263,20 @@ test("repoFromRemote names GitHub remotes and ignores others", async () => {
   assert.equal(repoFromRemote("git@github.com:owner/repo.git").repo, "owner/repo");
   assert.deepEqual(repoFromRemote("/srv/git/local.git"), { repo: null, repoUrl: null });
 });
+
+test("two update clicks at once run one stop and one pull; a stop during the update is refused", async () => {
+  const f = fixture();
+  pushTwo(f);
+  const marks = join(f.home, "marks");
+  await withEnv(f.home, async () => {
+    const m = manager(f, { start: `echo start >> ${marks}`, stop: `sleep 0.3; echo stop >> ${marks}` });
+    await m.update([llm("up")]);
+    const [first, second] = await Promise.all([m.updateRecipe("r"), m.updateRecipe("r"), m.stop("r").then((s) => assert.equal(s.ok, false))]);
+    assert.equal(first.ok, true, first.message);
+    assert.equal(second.ok, false);
+    for (let i = 0; i < 50 && !(existsSync(marks) && readFileSync(marks, "utf8").includes("start")); i++) await sleep(100);
+    assert.deepEqual(readFileSync(marks, "utf8").trim().split("\n"), ["stop", "start"]);
+    // The lock is released afterwards: a stop now goes through.
+    assert.equal((await m.stop("r")).ok, true);
+  });
+});

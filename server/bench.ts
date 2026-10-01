@@ -147,7 +147,12 @@ export async function runBench(
       return { cases, error: `${c.label}: 接続できませんでした` };
     }
     if (!res.ok || !res.body) return { cases, error: `${c.label}: HTTP ${res.status}` };
-    cases.push(summarise(c, await timeStream(res.body, startedAt)));
+    // The connection can still drop, or the timeout fire, while the answer streams.
+    try {
+      cases.push(summarise(c, await timeStream(res.body, startedAt)));
+    } catch {
+      return { cases, error: `${c.label}: 応答の途中で接続が切れました` };
+    }
   }
   onProgress("完了", CASES.length, CASES.length);
   return { cases, error: null };
@@ -162,8 +167,12 @@ export class BenchRunner {
   private readonly state = new Map<string, { running: boolean; stage: string | null; done: number; total: number }>();
   private readonly store: { benchRuns(): BenchRun[]; addBenchRun(run: BenchRun): void };
 
-  constructor(store: { benchRuns(): BenchRun[]; addBenchRun(run: BenchRun): void }) {
+  /** Replaceable for tests. */
+  private readonly runImpl: typeof runBench | null;
+
+  constructor(store: { benchRuns(): BenchRun[]; addBenchRun(run: BenchRun): void }, runImpl: typeof runBench | null = null) {
     this.store = store;
+    this.runImpl = runImpl;
   }
 
   snapshot(llmIds: string[]): Record<string, import("./types.ts").BenchState> {
@@ -186,14 +195,17 @@ export class BenchRunner {
     const run = newRun(llmId, target.model, target.commit, target.repo);
     this.state.set(llmId, { running: true, stage: "準備しています", done: 0, total: CASES.length });
     changed();
-    void runBench(target.baseUrl, target.model, target.apiKey, (stage, done, total) => {
+    void (this.runImpl ?? runBench)(target.baseUrl, target.model, target.apiKey, (stage, done, total) => {
       this.state.set(llmId, { running: true, stage, done, total });
       changed();
-    }).then(({ cases, error }) => {
-      this.store.addBenchRun({ ...run, cases, error });
-      this.state.set(llmId, { running: false, stage: null, done: 0, total: CASES.length });
-      changed();
-    });
+    })
+      .catch((err: unknown) => ({ cases: [] as BenchCase[], error: `計測に失敗しました（${err instanceof Error ? err.message : String(err)}）` }))
+      .then(({ cases, error }) => this.store.addBenchRun({ ...run, cases, error }))
+      .catch(() => {})
+      .finally(() => {
+        this.state.set(llmId, { running: false, stage: null, done: 0, total: CASES.length });
+        changed();
+      });
     return { ok: true, message: "ベンチマークを開始しました（1〜2 分）" };
   }
 }
