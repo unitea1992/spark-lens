@@ -195,6 +195,9 @@ export class RecipeManager {
         label: r.label,
         host: r.host,
         hostLabel: this.hosts.get(r.host)?.label ?? r.host,
+        hostLabels: [...new Set([r.host, ...((r.llm && this.llms.find((l) => l.id === r.llm)?.nodes) || [])])].map(
+          (h) => this.hosts.get(h)?.label ?? h,
+        ),
         llm: r.llm ?? null,
         status,
         canStart: !inFlight && status !== "running" && status !== "starting" && blocker === null && !this.unconfirmed(r),

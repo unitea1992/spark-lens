@@ -47,7 +47,7 @@ export function SubscriptionCard({ sub, now }: { sub: SubscriptionSnapshot; now:
           <h3 className="card__title">{sub.label}</h3>
           <p className="card__sub">{sub.plan ?? "プラン不明"}</p>
         </div>
-        <StatusPill tone={st.tone}>{st.text}</StatusPill>
+        <StatusPill tone={st.tone}>{st.short ?? st.text}</StatusPill>
       </header>
 
       {sub.message && <p className={`notice ${sub.status === "unconfigured" ? "" : "notice--warn"}`}>{sub.message}</p>}

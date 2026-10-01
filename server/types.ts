@@ -378,6 +378,8 @@ export interface RecipeSnapshot {
   label: string;
   host: string;
   hostLabel: string;
+  /** Every machine the recipe's model runs on (both Sparks for a two-node recipe), launch host first. */
+  hostLabels: string[];
   llm: string | null;
   status: "running" | "starting" | "stopping" | "updating" | "stopped" | "failed";
   canStart: boolean;

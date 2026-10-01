@@ -47,7 +47,7 @@ function Row({ recipe, now }: { recipe: RecipeSnapshot; now: number }) {
       <div className="rrow__main">
         <StatusPill tone={st.tone}>{st.text}</StatusPill>
         <span className="rrow__name">{recipe.label}</span>
-        <span className="rrow__meta">実行先 {recipe.hostLabel}</span>
+        <span className="rrow__meta">実行先 {(recipe.hostLabels ?? [recipe.hostLabel]).join("・")}</span>
         {recipe.upstream?.repo && recipe.upstream.repoUrl && (
           <a className="upstream__repo" href={recipe.upstream.repoUrl} target="_blank" rel="noopener noreferrer">
             {recipe.upstream.repo}

@@ -20,22 +20,22 @@ const FILLER = Array.from(
 ).join(" ");
 
 export const CASES: Case[] = [
-  { key: "ttft", label: "最初のトークンまで", prompt: "Reply with the single word OK.", maxTokens: 8 },
+  { key: "ttft", label: "応答開始まで", prompt: "Reply with the single word OK.", maxTokens: 8 },
   {
     key: "prose",
-    label: "文章",
+    label: "文章の生成",
     prompt: "日本の四季それぞれの特徴と楽しみ方を、具体例を交えて 600 字程度で説明してください。",
     maxTokens: 640,
   },
   {
     key: "code",
-    label: "コード",
+    label: "コードの生成",
     prompt: "Write a Python module implementing an LRU cache class with get/put, type hints, docstrings, and pytest tests.",
     maxTokens: 640,
   },
   {
     key: "prefill",
-    label: "長い入力の読み込み",
+    label: "長文の読み込み",
     prompt: `${FILLER}\n\nSummarise the text above in one sentence.`,
     maxTokens: 32,
   },

@@ -3714,3 +3714,19 @@ section {
   text-decoration-color: var(--line);
   text-underline-offset: 3px;
 }
+
+/* The pace note sits where the projection goes, in the same quiet size. */
+.pace--warn {
+  color: var(--warn-text, var(--warn));
+  font-weight: 400;
+}
+
+.memstack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.memband__title .memband__more {
+  margin-left: 0;
+}

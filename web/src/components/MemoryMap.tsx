@@ -19,7 +19,10 @@ export function MemoryMap({
   weightsGiB,
   kvGiB,
   kvUsage,
+  continued = false,
 }: {
+  /** A further machine of the same model: the heading is already above. */
+  continued?: boolean;
   host: HostSnapshot;
   weightsGiB: number | null;
   kvGiB: number | null;
@@ -48,7 +51,10 @@ export function MemoryMap({
   return (
     <figure className="memband">
       <figcaption className="memband__title">
-        メモリの内訳<span>{host.label}・{total.toFixed(0)} GiB・目盛りは 1 GiB</span>
+        {continued ? null : "メモリの内訳"}
+        <span className={continued ? "memband__more" : undefined}>
+          {host.label}・{total.toFixed(0)} GiB{continued ? "" : "・目盛りは 1 GiB"}
+        </span>
       </figcaption>
       <div
         className="memband__bar"

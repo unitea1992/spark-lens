@@ -42,7 +42,7 @@ export function LlmPanel({
   const running = (llm.requestsRunning ?? 0) > 0;
   const kv = llm.kvCacheUsage === null ? null : llm.kvCacheUsage * 100;
   const spec = llm.spec;
-  const where = [...new Set(recipes.map((r) => r.hostLabel))].join("・");
+  const where = [...new Set(recipes.flatMap((r) => r.hostLabels ?? [r.hostLabel]))].join("・");
   const sub = [
     llm.models[0],
     llm.engine,
@@ -111,10 +111,23 @@ export function LlmPanel({
           </div>
 
           {(() => {
+            // A model split across machines holds its share on each; the start-up figures are per machine.
             const r = recipes.find((x) => x.memory);
-            const head = hosts.find((h) => h.id === (r?.host ?? llm.nodes[0]));
-            return head ? (
-              <MemoryMap host={head} weightsGiB={r?.memory?.weightsGiB ?? null} kvGiB={r?.memory?.kvGiB ?? null} kvUsage={llm.kvCacheUsage} />
+            const ids = llm.nodes.length > 0 ? llm.nodes : r ? [r.host] : [];
+            const machines = ids.map((id) => hosts.find((h) => h.id === id)).filter((h): h is HostSnapshot => Boolean(h));
+            return machines.length > 0 ? (
+              <div className="memstack">
+                {machines.map((h, i) => (
+                  <MemoryMap
+                    key={h.id}
+                    continued={i > 0}
+                    host={h}
+                    weightsGiB={r?.memory?.weightsGiB ?? null}
+                    kvGiB={r?.memory?.kvGiB ?? null}
+                    kvUsage={llm.kvCacheUsage}
+                  />
+                ))}
+              </div>
             ) : null;
           })()}
 
@@ -128,16 +141,16 @@ export function LlmPanel({
           />
 
           <dl className="factline">
-            {spec && <Fact label="ドラフト採用率" value={spec.acceptRate === null ? "–" : pct(spec.acceptRate * 100)} />}
-            {spec && <Fact label="検証あたり" value={spec.meanLength === null ? "–" : `${spec.meanLength.toFixed(1)} トークン`} />}
-            {spec && running && <Fact label="ドラフト / 採用" value={`${rate(spec.draftTokensPerSec)} / ${rate(spec.acceptedTokensPerSec)} トークン/秒`} />}
-            <Fact label="TTFT（平均）" value={llm.ttftSec === null ? "–" : `${llm.ttftSec.toFixed(2)} 秒`} />
+            {spec && <Fact label="先読みの的中率" value={spec.acceptRate === null ? "–" : pct(spec.acceptRate * 100)} />}
+            {spec && <Fact label="1回で進むトークン" value={spec.meanLength === null ? "–" : `${spec.meanLength.toFixed(1)} トークン`} />}
+            {spec && running && <Fact label="先読み / 的中" value={`${rate(spec.draftTokensPerSec)} / ${rate(spec.acceptedTokensPerSec)} トークン/秒`} />}
+            <Fact label="応答開始まで（平均）" value={llm.ttftSec === null ? "–" : `${llm.ttftSec.toFixed(2)} 秒`} />
             <Fact label="キャッシュヒット率" value={llm.prefixCacheHitRate === null ? "–" : pct(llm.prefixCacheHitRate * 100)} />
             <Fact
-              label="起動からの累計"
+              label="起動後の合計"
               value={llm.tokensTotal ? `入力 ${count(llm.tokensTotal.prompt)}・出力 ${count(llm.tokensTotal.generation)}` : "–"}
             />
-            <Fact label="連続稼働" value={llm.upSince ? duration((now - llm.upSince) / 1000) : "–"} />
+            <Fact label="稼働時間" value={llm.upSince ? duration((now - llm.upSince) / 1000) : "–"} />
             <Fact label="API の場所" value={`${shortHost(llm.baseUrl)}/v1`} />
           </dl>
 

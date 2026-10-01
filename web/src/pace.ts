@@ -36,7 +36,7 @@ export function pace(w: UsageWindow, now: number): Pace | null {
 
 export function paceLabel(p: Pace): string {
   if (p.tone === "critical") return "上限に到達";
-  if (p.untilFullSec !== null) return `このペースだと約${duration(p.untilFullSec)}で上限に達します`;
+  if (p.untilFullSec !== null) return `約${duration(p.untilFullSec)}で上限`;
   return `終了時予測 ${Math.round(p.projected ?? 0)}%`;
 }
 
@@ -49,7 +49,10 @@ function untilReset(w: UsageWindow, now: number): string | undefined {
  * use. `reset` says when the window behind a warning resets; the card already
  * shows it under each bar, so only the alert strip adds it.
  */
-export function subscriptionStatus(sub: SubscriptionSnapshot, now: number): { tone: Tone; text: string; reset?: string } {
+export function subscriptionStatus(
+  sub: SubscriptionSnapshot,
+  now: number,
+): { tone: Tone; text: string; reset?: string; short?: string } {
   if (sub.status === "unconfigured") return { tone: "quiet", text: "未接続" };
   if (sub.status === "stale") return { tone: "warn", text: "要ログイン" };
   if (sub.status === "error" && sub.windows.length === 0) return { tone: "warn", text: "取得失敗" };
@@ -61,7 +64,14 @@ export function subscriptionStatus(sub: SubscriptionSnapshot, now: number): { to
     .map((w) => ({ w, p: pace(w, now) }))
     .filter((x): x is { w: UsageWindow; p: Pace } => x.p !== null && x.p.untilFullSec !== null)
     .sort((a, b) => a.p.untilFullSec! - b.p.untilFullSec!)[0];
-  if (fast) return { tone: "warn", text: `約${duration(fast.p.untilFullSec!)}で上限に達する見込み`, reset: untilReset(fast.w, now) };
+  if (fast)
+    return {
+      tone: "warn",
+      text: `約${duration(fast.p.untilFullSec!)}で上限に達する見込み`,
+      reset: untilReset(fast.w, now),
+      // On the card the window itself says when; the header only flags it.
+      short: "ペース速め",
+    };
   if (known.some((w) => w.usedPct! >= 80)) return { tone: "warn", text: "残りわずか" };
   return { tone: "good", text: "余裕あり" };
 }

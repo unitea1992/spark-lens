@@ -185,7 +185,10 @@ export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) 
             {containers.map((c) => (
               <li key={c.name} className={c.state === "running" ? "" : "spec--quiet"}>
                 <span>{c.name}</span>
-                <span>{dockerStatus(c.status)}</span>
+                {/* Running or not is what matters here; the details stay in the tooltip. */}
+                <span title={dockerStatus(c.status)}>
+                  {c.state === "running" ? (/unhealthy/i.test(c.status) ? "稼働中（異常）" : "稼働中") : "停止"}
+                </span>
               </li>
             ))}
           </ul>
