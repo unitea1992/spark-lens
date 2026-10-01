@@ -25,6 +25,16 @@ async function withEnv<T>(home: string, fn: () => Promise<T>): Promise<T> {
   }
 }
 
+// CI runners have no git identity, and the fixtures commit; name one for every git these tests start.
+for (const [k, v] of Object.entries({
+  GIT_AUTHOR_NAME: "Spark Lens Test",
+  GIT_AUTHOR_EMAIL: "test@example.invalid",
+  GIT_COMMITTER_NAME: "Spark Lens Test",
+  GIT_COMMITTER_EMAIL: "test@example.invalid",
+})) {
+  process.env[k] ??= v;
+}
+
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
