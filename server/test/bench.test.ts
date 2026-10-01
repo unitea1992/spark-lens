@@ -77,3 +77,20 @@ test("a stream that breaks mid-answer is recorded as a failure, not an unhandled
   assert.equal(runs.length, 1);
   assert.match((runs[0] as { error: string }).error, /boom/);
 });
+
+test("a stopped benchmark ends promptly and is not kept", async () => {
+  const { BenchRunner } = await import("../bench.ts");
+  const runs: unknown[] = [];
+  const runner = new BenchRunner({ benchRuns: () => [], addBenchRun: (r) => runs.push(r) }, (_u, _m, _k, _p, stop) =>
+    new Promise((resolve) => stop?.addEventListener("abort", () => resolve({ cases: [], error: "中止しました" }))),
+  );
+  let done!: () => void;
+  const finished = new Promise<void>((r) => (done = r));
+  runner.start("m", { baseUrl: "http://x", model: "m", commit: null, repo: null }, () => {
+    if (!runner.snapshot(["m"]).m?.running) done();
+  });
+  assert.equal(runner.stop("m").ok, true);
+  await finished;
+  assert.equal(runs.length, 0);
+  assert.equal(runner.stop("m").ok, false);
+});

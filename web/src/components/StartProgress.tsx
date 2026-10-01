@@ -37,7 +37,7 @@ export function StartProgress({ progress, now }: { progress: RecipeSnapshot["pro
       {elapsed !== null && (
         <p className="startbar__time">
           経過 {duration(elapsed)}
-          {left !== null ? (left > 30 ? `・残り 約${duration(left)}（前回の起動時間から）` : "・まもなく完了") : ""}
+          {left !== null ? (left > 30 ? ` / 残り 約${duration(left)}（前回の起動時間から）` : " / まもなく完了") : ""}
         </p>
       )}
     </div>

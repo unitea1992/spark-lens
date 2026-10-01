@@ -10,7 +10,7 @@ function breakdown(r: Row): string {
   if (r.input === null || r.output === null) return "内訳なし";
   const parts = [`入力 ${count(r.input)}`, `出力 ${count(r.output)}`];
   if (r.cached) parts.push(`キャッシュ読み取り ${count(r.cached)}`);
-  return parts.join("・");
+  return parts.join(" / ");
 }
 
 function usd(n: number): string {
@@ -48,7 +48,7 @@ export function ModelUsage({ usage }: { usage: UsageSnapshot }) {
               {local > 0 ? `（うちローカル ${count(local)}）` : ""}
               {priced && (
                 <>
-                  {" ・ "}API 換算 <strong className="usage__usd">{usd(sum(rows))}</strong>
+                  {" / "}API 換算 <strong className="usage__usd">{usd(sum(rows))}</strong>
                   {local > 0 ? `（うちローカル ${usd(sum(rows.filter((r) => r.local)))}）` : ""}
                 </>
               )}
@@ -92,7 +92,7 @@ export function ModelUsage({ usage }: { usage: UsageSnapshot }) {
         </div>
         <div className="usage__note">
           <h4>
-            金額について<span>models.dev{fetched ? `・${fetched}取得` : "・未取得"}</span>
+            金額について<span>models.dev{fetched ? ` / ${fetched}取得` : " / 未取得"}</span>
           </h4>
           <ul>
             <li>同じトークン数を API 料金で使った場合の目安です。</li>

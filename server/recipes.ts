@@ -328,7 +328,7 @@ export class RecipeManager {
         Object.assign(a, {
           finishedAt: Date.now(),
           ok: code === 0,
-          message: code === 0 ? "起動処理が完了しました" : `起動に失敗しました（終了コード ${code ?? "不明"}）。起動ログを確認してください`,
+          message: code === 0 ? "起動処理が完了しました" : "起動に失敗しました。起動ログを確認してください",
         });
       }),
     );
@@ -388,12 +388,12 @@ export class RecipeManager {
     if (!ok && current && current.finishedAt === null && current.kind === "start") {
       // The launcher may still be running; keep following it rather than freeing its machines.
       this.actions.set(id, current);
-      return { ok: false, message: res.timedOut ? "停止処理がタイムアウトしました" : `停止に失敗しました（終了コード ${res.code}）` };
+      return { ok: false, message: res.timedOut ? "停止処理がタイムアウトしました" : "停止に失敗しました。起動ログを確認してください" };
     }
     Object.assign(action, {
       finishedAt: Date.now(),
       ok,
-      message: ok ? "停止しました" : res.timedOut ? "停止処理がタイムアウトしました" : `停止に失敗しました（終了コード ${res.code}）`,
+      message: ok ? "停止しました" : res.timedOut ? "停止処理がタイムアウトしました" : "停止に失敗しました。起動ログを確認してください",
     });
     return { ok, message: action.message! };
   }
@@ -524,6 +524,6 @@ export class RecipeManager {
     const res = await this.exec(this.hosts.get(r.host)!, script, 20_000);
     if (res.timedOut) return { ok: false, text: "ログの取得がタイムアウトしました" };
     const text = cleanLog(res.stdout.slice(-MAX_LOG_BYTES));
-    return { ok: res.code === 0, text: text || (res.code === 0 ? "（出力なし）" : `取得に失敗しました（終了コード ${res.code}）`) };
+    return { ok: res.code === 0, text: text || (res.code === 0 ? "（出力なし）" : "ログを取得できませんでした") };
   }
 }

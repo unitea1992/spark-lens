@@ -38,9 +38,9 @@ export function BenchPanel({ llmId, state }: { llmId: string; state: BenchState 
   const previousVersion =
     latest?.commit ? runs.find((r) => !r.error && r.commit !== null && r.commit !== latest.commit) : undefined;
 
-  const start = async () => {
+  const send = async (path: "bench" | "bench/stop") => {
     try {
-      const res = await fetch(`/api/llms/${llmId}/bench`, { method: "POST", headers: { "X-Spark-Lens": "1" } });
+      const res = await fetch(`/api/llms/${llmId}/${path}`, { method: "POST", headers: { "X-Spark-Lens": "1" } });
       setNotice(((await res.json()) as { message?: string }).message ?? null);
     } catch {
       setNotice("サーバーに接続できませんでした");
@@ -52,12 +52,17 @@ export function BenchPanel({ llmId, state }: { llmId: string; state: BenchState 
       <div className="bench__head">
         <h4>ベンチマーク</h4>
         {state?.running ? (
-          <span className="bench__running">
-            {state.stage}を計測中（{Math.min(state.done + 1, state.total)}/{state.total}）
-          </span>
+          <>
+            <span className="bench__running">
+              {state.stage}を計測中（{Math.min(state.done + 1, state.total)}/{state.total}）
+            </span>
+            <button type="button" className="link-button" onClick={() => void send("bench/stop")}>
+              停止
+            </button>
+          </>
         ) : (
-          <button type="button" className="link-button" onClick={() => void start()}>
-            計測する（1〜2 分）
+          <button type="button" className="link-button" onClick={() => void send("bench")}>
+            計測
           </button>
         )}
       </div>
@@ -81,10 +86,10 @@ export function BenchPanel({ llmId, state }: { llmId: string; state: BenchState 
             })}
           </dl>
           <p className="bench__meta">
-            {shortDate(latest.at)} に計測・{latest.repo ? `${latest.repo} ` : ""}
+            {shortDate(latest.at)} に計測 / {latest.repo ? `${latest.repo} ` : ""}
             {latest.commit ?? "版不明"}
-            {previousVersion ? `・比較は前の版 ${previousVersion.commit ?? ""}（${shortDate(previousVersion.at)}）` : ""}
-            {latest.error ? `・${latest.error}` : ""}
+            {previousVersion ? ` / 比較は前の版 ${previousVersion.commit ?? ""}（${shortDate(previousVersion.at)}）` : ""}
+            {latest.error ? ` / ${latest.error}` : ""}
           </p>
           {runs.length > 1 && (
             <table className="bench__history">

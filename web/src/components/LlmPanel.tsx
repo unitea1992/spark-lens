@@ -42,7 +42,7 @@ export function LlmPanel({
   const running = (llm.requestsRunning ?? 0) > 0;
   const kv = llm.kvCacheUsage === null ? null : llm.kvCacheUsage * 100;
   const spec = llm.spec;
-  const where = [...new Set(recipes.flatMap((r) => r.hostLabels ?? [r.hostLabel]))].join("・");
+  const where = [...new Set(recipes.flatMap((r) => r.hostLabels ?? [r.hostLabel]))].join("、");
   const sub = [
     llm.models[0],
     llm.engine,
@@ -55,7 +55,7 @@ export function LlmPanel({
       <header className="model__head">
         <div className="model__title">
           <h3 className="card__title">{llm.label}</h3>
-          <p className="card__sub">{sub.length > 0 ? sub.join("・") : "モデル名は起動後に表示されます"}</p>
+          <p className="card__sub">{sub.length > 0 ? sub.join(" / ") : "モデル名は起動後に表示されます"}</p>
         </div>
         <StatusPill tone={st.tone}>{st.text}</StatusPill>
         {recipes.map((r) => (
@@ -142,14 +142,9 @@ export function LlmPanel({
 
           <dl className="factline">
             {spec && <Fact label="ドラフト採用率" value={spec.acceptRate === null ? "–" : pct(spec.acceptRate * 100)} />}
-            {spec && <Fact label="1回の検証で進むトークン" value={spec.meanLength === null ? "–" : `${spec.meanLength.toFixed(1)} トークン`} />}
             {spec && running && <Fact label="ドラフト / 採用" value={`${rate(spec.draftTokensPerSec)} / ${rate(spec.acceptedTokensPerSec)} トークン/秒`} />}
             <Fact label="TTFT（平均）" value={llm.ttftSec === null ? "–" : `${llm.ttftSec.toFixed(2)} 秒`} />
             <Fact label="キャッシュヒット率" value={llm.prefixCacheHitRate === null ? "–" : pct(llm.prefixCacheHitRate * 100)} />
-            <Fact
-              label="起動後のトークン"
-              value={llm.tokensTotal ? `入力 ${count(llm.tokensTotal.prompt)}・出力 ${count(llm.tokensTotal.generation)}` : "–"}
-            />
             {/* Docker knows when the model started; the dashboard only knows since it last restarted. */}
             <Fact
               label="稼働時間"

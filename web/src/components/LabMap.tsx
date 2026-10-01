@@ -115,13 +115,13 @@ function Band({ llm, now, progress }: { llm: LlmSnapshot; now: number; progress:
         {kind === "idle" && llm.lastActiveAt !== null && <span>最後の推論 {ago(llm.lastActiveAt, now)}</span>}
         {kind === "starting" && progress && (
           <span>
-            <strong>{progress.pct}%</strong>・{progress.stage}
+            <strong>{progress.pct}%</strong> / {progress.stage}
           </span>
         )}
         {(kind === "busy" || kind === "idle") && (
           <>
             <span>
-              実行 <strong>{llm.requestsRunning ?? "–"}</strong>・待ち <strong>{llm.requestsWaiting ?? "–"}</strong>
+              実行 <strong>{llm.requestsRunning ?? "–"}</strong> / 待ち <strong>{llm.requestsWaiting ?? "–"}</strong>
             </span>
             <span>
               KV <strong>{llm.kvCacheUsage === null ? "–" : pct(llm.kvCacheUsage * 100)}</strong>
@@ -189,7 +189,7 @@ export function LabMap({ snapshot, now }: { snapshot: Snapshot; now: number }) {
         <span className="legend-key legend-key--1">GPU</span>
         <span className="legend-key legend-key--2">メモリ</span>
         <span className="legend-key legend-key--3">CPU</span>
-        <span className="legend-key legend-key--center">リングの中央は温度・数値は使用率 %</span>
+        <span className="legend-key legend-key--center">リングの中央は温度 / 数値は使用率 %</span>
       </div>
     </section>
   );

@@ -54,7 +54,7 @@ export const command: Provider = {
     }
     const [cmd, ...args] = argv as string[];
     const res = await run(cmd!, args, { timeoutMs: 30_000 });
-    if (res.code !== 0) return failed("error", res.timedOut ? "コマンドがタイムアウトしました。" : `コマンドが失敗しました（終了コード ${res.code}）。`);
+    if (res.code !== 0) return failed("error", res.timedOut ? "コマンドがタイムアウトしました。" : "コマンドが失敗しました。");
     return parseCommandReport(res.stdout) ?? failed("error", "コマンドの出力を使用状況として読み取れませんでした。");
   },
 };

@@ -120,9 +120,11 @@ export async function runBench(
   model: string,
   apiKey: string | undefined,
   onProgress: (label: string, done: number, total: number) => void,
+  stop?: AbortSignal,
 ): Promise<{ cases: BenchCase[]; error: string | null }> {
   const cases: BenchCase[] = [];
   for (const [i, c] of CASES.entries()) {
+    if (stop?.aborted) return { cases, error: "中止しました" };
     onProgress(c.label, i, CASES.length);
     const startedAt = performance.now();
     let res: Response;
@@ -141,17 +143,17 @@ export async function runBench(
           // Measure the answer, not the thinking; servers ignore kwargs their template lacks.
           chat_template_kwargs: { enable_thinking: false },
         }),
-        signal: AbortSignal.timeout(300_000),
+        signal: stop ? AbortSignal.any([stop, AbortSignal.timeout(300_000)]) : AbortSignal.timeout(300_000),
       });
     } catch {
-      return { cases, error: `${c.label}: 接続できませんでした` };
+      return { cases, error: stop?.aborted ? "中止しました" : `${c.label}: 接続できませんでした` };
     }
     if (!res.ok || !res.body) return { cases, error: `${c.label}: HTTP ${res.status}` };
     // The connection can still drop, or the timeout fire, while the answer streams.
     try {
       cases.push(summarise(c, await timeStream(res.body, startedAt)));
     } catch {
-      return { cases, error: `${c.label}: 応答の途中で接続が切れました` };
+      return { cases, error: stop?.aborted ? "中止しました" : `${c.label}: 応答の途中で接続が切れました` };
     }
   }
   onProgress("完了", CASES.length, CASES.length);
@@ -165,6 +167,7 @@ export function newRun(llmId: string, model: string, commit: string | null, repo
 /** One benchmark at a time per model; results go to the store. */
 export class BenchRunner {
   private readonly state = new Map<string, { running: boolean; stage: string | null; done: number; total: number }>();
+  private readonly controllers = new Map<string, AbortController>();
   private readonly store: { benchRuns(): BenchRun[]; addBenchRun(run: BenchRun): void };
 
   /** Replaceable for tests. */
@@ -193,19 +196,37 @@ export class BenchRunner {
   ): { ok: boolean; message: string } {
     if (this.state.get(llmId)?.running) return { ok: false, message: "ベンチマークを実行中です" };
     const run = newRun(llmId, target.model, target.commit, target.repo);
+    const controller = new AbortController();
+    this.controllers.set(llmId, controller);
     this.state.set(llmId, { running: true, stage: "準備しています", done: 0, total: CASES.length });
     changed();
-    void (this.runImpl ?? runBench)(target.baseUrl, target.model, target.apiKey, (stage, done, total) => {
-      this.state.set(llmId, { running: true, stage, done, total });
-      changed();
-    })
+    void (this.runImpl ?? runBench)(
+      target.baseUrl,
+      target.model,
+      target.apiKey,
+      (stage, done, total) => {
+        this.state.set(llmId, { running: true, stage, done, total });
+        changed();
+      },
+      controller.signal,
+    )
       .catch((err: unknown) => ({ cases: [] as BenchCase[], error: `計測に失敗しました（${err instanceof Error ? err.message : String(err)}）` }))
-      .then(({ cases, error }) => this.store.addBenchRun({ ...run, cases, error }))
+      // A run the owner stopped is not a measurement; keep it out of the history.
+      .then(({ cases, error }) => (controller.signal.aborted ? undefined : this.store.addBenchRun({ ...run, cases, error })))
       .catch(() => {})
       .finally(() => {
+        this.controllers.delete(llmId);
         this.state.set(llmId, { running: false, stage: null, done: 0, total: CASES.length });
         changed();
       });
-    return { ok: true, message: "ベンチマークを開始しました（1〜2 分）" };
+    return { ok: true, message: "ベンチマークを開始しました" };
+  }
+
+  /** Abandon a running benchmark; the request in flight is cancelled. */
+  stop(llmId: string): { ok: boolean; message: string } {
+    const controller = this.controllers.get(llmId);
+    if (!controller) return { ok: false, message: "実行中のベンチマークはありません" };
+    controller.abort();
+    return { ok: true, message: "ベンチマークを中止しました" };
   }
 }

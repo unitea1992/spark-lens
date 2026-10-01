@@ -12,19 +12,19 @@ export interface Status {
 const LIMITS = { gpu: { warn: 80, critical: 90 }, cpu: { warn: 90, critical: 98 } };
 
 export function hostStatus(h: HostSnapshot): Status {
-  if (!h.online) return { tone: "critical", text: "応答なし" };
+  if (!h.online) return { tone: "critical", text: "オフライン" };
   const gpu = h.gpu?.tempC ?? 0;
   const cpu = h.cpuTempC ?? 0;
   if (gpu >= LIMITS.gpu.critical || cpu >= LIMITS.cpu.critical) return { tone: "critical", text: "高温" };
   if (gpu >= LIMITS.gpu.warn || cpu >= LIMITS.cpu.warn) return { tone: "warn", text: "温度高め" };
-  return { tone: "good", text: "稼働中" };
+  return { tone: "good", text: "オンライン" };
 }
 
-/** Process state and load, in the words used everywhere: 停止中 / 起動中 / 稼働中・アイドル / 稼働中・推論中. */
+/** Process state and load, in the words used everywhere: 停止中 / 起動中 / 稼働中 / アイドル, 稼働中 / 推論中. */
 export function llmStatus(l: LlmSnapshot): Status {
   if (l.state === "down") return { tone: "quiet", text: "停止中" };
   if (l.state === "starting") return { tone: "warn", text: "起動中" };
-  return (l.requestsRunning ?? 0) > 0 ? { tone: "busy", text: "稼働中・推論中" } : { tone: "good", text: "稼働中・アイドル" };
+  return (l.requestsRunning ?? 0) > 0 ? { tone: "busy", text: "稼働中 / 推論中" } : { tone: "good", text: "稼働中 / アイドル" };
 }
 
 export interface Alert {

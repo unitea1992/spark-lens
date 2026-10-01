@@ -15,7 +15,7 @@ test("dockerStatus translates the common shapes", () => {
   assert.equal(dockerStatus("Up 5 minutes"), "稼働 5 分");
   assert.equal(dockerStatus("Up About a minute"), "稼働 1 分");
   assert.equal(dockerStatus("Up 2 hours (healthy)"), "稼働 2 時間");
-  assert.equal(dockerStatus("Exited (143) 2 days ago"), "停止（2 日前・終了コード 143）");
+  assert.equal(dockerStatus("Exited (143) 2 days ago"), "2 日前に停止");
   assert.equal(dockerStatus("Created"), "Created");
 });
 

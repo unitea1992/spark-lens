@@ -96,7 +96,7 @@ test("a failing launcher is reported as failed", async () => {
     }
     const s = m.snapshots()[0]!;
     assert.equal(s.status, "failed");
-    assert.match(s.lastAction?.message ?? "", /終了コード 3/);
+    assert.match(s.lastAction?.message ?? "", /起動に失敗しました/);
   } finally {
     process.env.HOME = oldHome;
   }

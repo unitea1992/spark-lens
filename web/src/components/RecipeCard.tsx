@@ -92,7 +92,7 @@ function Upstream({
 }) {
   const [confirming, setConfirming] = useState(false);
   if (!up) return <p className="upstream upstream--quiet">upstream を確認しています…</p>;
-  const head = up.head ? `${up.head}${up.headDate ? `・${shortDate(up.headDate)}` : ""}` : "";
+  const head = up.head ? `${up.head}${up.headDate ? ` / ${shortDate(up.headDate)}` : ""}` : "";
   return (
     <div className={`upstream upstream--${up.state}`}>
       <div className="upstream__line">

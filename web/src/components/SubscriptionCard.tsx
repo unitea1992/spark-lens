@@ -13,7 +13,7 @@ function Window({ w, now }: { w: UsageWindow; now: number }) {
       ? "リセット時刻不明"
       : remaining <= 0
         ? "リセット予定時刻を経過"
-        : `あと ${duration(remaining)}・${when(w.resetsAt!, now)}`;
+        : `あと ${duration(remaining)} / ${when(w.resetsAt!, now)}`;
   return (
     <div className="stat">
       <div className="stat__line">

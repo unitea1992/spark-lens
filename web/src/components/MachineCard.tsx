@@ -69,7 +69,7 @@ export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) 
           <h3 className="card__title">{host.label}</h3>
           <p className="card__sub">
             {KIND_LABEL[host.kind]}
-            {host.hostname && host.hostname !== host.label ? `・${host.hostname}` : ""}
+            {host.hostname && host.hostname !== host.label ? ` / ${host.hostname}` : ""}
           </p>
         </div>
         <StatusPill tone={st.tone}>{st.text}</StatusPill>
@@ -187,7 +187,7 @@ export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) 
                 <span>{c.name}</span>
                 {/* Running or not is what matters here; the details stay in the tooltip. */}
                 <span title={dockerStatus(c.status)}>
-                  {c.state === "running" ? (/unhealthy/i.test(c.status) ? "稼働中（異常）" : "稼働中") : "停止"}
+                  {c.state === "running" ? (/unhealthy/i.test(c.status) ? "稼働中（異常）" : "稼働中") : "停止中"}
                 </span>
               </li>
             ))}
@@ -196,7 +196,10 @@ export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) 
       )}
 
       <p className="machine__foot">
-        {[host.os, host.cpuModel, host.latencyMs !== null ? `監視の応答 ${host.latencyMs} ms` : null].filter(Boolean).join("・")}
+        {host.os && <span>{host.os}</span>}
+        {host.cpuModel && <span>{host.cpuModel}</span>}
+        {/* Round trip of the dashboard's last check of this machine. */}
+        {host.latencyMs !== null && <span>遅延 {host.latencyMs} ms</span>}
       </p>
     </article>
   );

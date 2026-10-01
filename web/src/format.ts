@@ -61,7 +61,7 @@ export function dockerStatus(status: string): string {
   const up = /^Up (.+?)( \((healthy|unhealthy|health: starting)\))?$/i.exec(status);
   if (up) return `稼働 ${span(up[1]!)}${up[3] === "unhealthy" ? "（異常）" : ""}`;
   const exited = /^Exited \((\d+)\) (.+) ago$/i.exec(status);
-  if (exited) return `停止（${span(exited[2]!)}前・終了コード ${exited[1]}）`;
+  if (exited) return `${span(exited[2]!)}前に停止`;
   return status;
 }
 

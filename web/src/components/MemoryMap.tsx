@@ -37,7 +37,7 @@ export function MemoryMap({
   const kvUsed = kv * Math.min(1, Math.max(0, kvUsage ?? 0));
   const parts: Part[] = known
     ? [
-        { key: "weights", label: "重み", gib: weights },
+        { key: "weights", label: "モデル", gib: weights },
         { key: "kv-used", label: "KV 使用中", gib: kvUsed },
         { key: "kv-free", label: "KV 確保済み", gib: kv - kvUsed },
         { key: "other", label: "そのほか", gib: Math.max(0, used - weights - kv) },
@@ -53,7 +53,7 @@ export function MemoryMap({
       <figcaption className="memband__title">
         {continued ? null : "メモリの内訳"}
         <span className={continued ? "memband__more" : undefined}>
-          {host.label}・{total.toFixed(0)} GiB{continued ? "" : "・目盛りは 1 GiB"}
+          {host.label} / {total.toFixed(0)} GiB{continued ? "" : " / 目盛りは 1 GiB"}
         </span>
       </figcaption>
       <div

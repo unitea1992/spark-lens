@@ -3730,3 +3730,18 @@ section {
 .memband__title .memband__more {
   margin-left: 0;
 }
+
+/* Model facts: one row on wide screens. */
+@media (min-width: 900px) {
+  .factline {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+  }
+}
+
+.machine__foot {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}

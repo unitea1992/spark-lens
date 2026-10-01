@@ -35,8 +35,8 @@ function Row({ a, now, multiHost }: { a: AgentSnapshot; now: number; multiHost: 
       <div className="agent__meta">
         <span title={a.cwd ?? undefined}>{a.cwd ?? ""}</span>
         <span>
-          {multiHost ? `${a.hostLabel}・` : ""}
-          {a.detail ? `${a.detail}・` : ""}
+          {multiHost ? `${a.hostLabel} / ` : ""}
+          {a.detail ? `${a.detail} / ` : ""}
           {activity ? ago(activity, now) : ""}
         </span>
       </div>
@@ -56,7 +56,7 @@ export function AgentList({ agents, now, multiHost }: { agents: AgentSnapshot[];
       {current.length === 0 ? (
         <div className="card empty">
           <p>いま動いているエージェントはありません。</p>
-          <p className="muted">Claude Code・Codex・OpenCode を起動すると、ここに作業状況が並びます。</p>
+          <p className="muted">Claude Code、Codex、OpenCode を起動すると、ここに作業状況が並びます。</p>
         </div>
       ) : (
         <ul className="card agents">

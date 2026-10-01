@@ -66,6 +66,8 @@ export interface HttpOptions {
   recipes?: RecipeActions;
   /** Start a benchmark of one local model. */
   bench?: (llmId: string) => Promise<{ ok: boolean; message: string }>;
+  /** Stop a running benchmark. */
+  benchStop?: (llmId: string) => { ok: boolean; message: string };
   /** Minute averages for one series over the last day. */
   history?: (key: string) => { t: number; v: number }[];
   /** Called after a state-changing request so viewers see it at once. */
@@ -130,13 +132,17 @@ export class HttpServer {
       void this.recipe(req, res, recipe[1]!, recipe[2] as RecipeOp);
       return;
     }
-    const bench = /^\/api\/llms\/([a-z0-9][a-z0-9-]*)\/bench$/.exec(path);
+    const bench = /^\/api\/llms\/([a-z0-9][a-z0-9-]*)\/bench(\/stop)?$/.exec(path);
     if (bench) {
       const json = (status: number, body: unknown) =>
         void res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }).end(JSON.stringify(body));
       if (req.method !== "POST") return void res.writeHead(405, { Allow: "POST" }).end();
       if (req.headers[ACTION_HEADER] !== "1") return json(403, { ok: false, message: "この操作はダッシュボードの画面から行ってください" });
       if (!this.opts.bench) return json(404, { ok: false, message: "ベンチマークは使えません" });
+      if (bench[2]) {
+        const stopped = this.opts.benchStop?.(bench[1]!) ?? { ok: false, message: "ベンチマークは使えません" };
+        return json(stopped.ok ? 200 : 409, stopped);
+      }
       const run = this.opts.bench;
       void run(bench[1]!).then(
         (result) => json(result.ok ? 202 : 409, result),

@@ -82,6 +82,7 @@ async function main(): Promise<void> {
         : undefined,
     changed: () => http.broadcast(),
     history: (key) => history.points(key),
+    benchStop: (llmId) => bench.stop(llmId),
     bench: async (llmId) => {
       const cfg = config.llms.find((l) => l.id === llmId);
       const live = llms.snapshots().find((l) => l.id === llmId);

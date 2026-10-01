@@ -271,7 +271,7 @@ function Dashboard({ snapshot, now, stale, page }: { snapshot: Snapshot; now: nu
               作業中 <strong>{working}</strong>
               {waiting > 0 && (
                 <>
-                  ・入力待ち <strong className="warn-text">{waiting}</strong>
+                  {" / "}入力待ち <strong className="warn-text">{waiting}</strong>
                 </>
               )}
             </p>
@@ -281,7 +281,7 @@ function Dashboard({ snapshot, now, stale, page }: { snapshot: Snapshot; now: nu
       )}
 
       <footer className="foot">
-        Spark Lens {snapshot.version}・{snapshot.pollSeconds} 秒ごとに更新
+        Spark Lens {snapshot.version} / {snapshot.pollSeconds} 秒ごとに更新
       </footer>
     </main>
   );
