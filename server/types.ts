@@ -297,10 +297,17 @@ export interface ModelUsage {
   output: number | null;
   cached: number | null;
   total: number;
+  /** API-price equivalent in USD; null when the model has no reliable price. */
+  usd: number | null;
+  /** The dollar figure is an upper bound (the tool reports only a total). */
+  usdEstimate?: boolean;
 }
 
 export interface UsageSnapshot {
   generatedAt: number;
+  /** When the price list was fetched (epoch ms), and where from. */
+  pricesFetchedAt: number | null;
+  pricesSource: string | null;
   today: ModelUsage[];
   week: ModelUsage[];
   /** The last 30 days, today included. Claude Code keeps only about that much history. */
@@ -335,6 +342,37 @@ export interface UpstreamStatus {
   repoUrl: string | null;
 }
 
+export interface BenchCase {
+  key: "ttft" | "prose" | "code" | "prefill";
+  label: string;
+  ttftMs: number | null;
+  decodeTps: number | null;
+  prefillTps: number | null;
+  promptTokens: number | null;
+  completionTokens: number | null;
+}
+
+export interface BenchRun {
+  id: string;
+  llmId: string;
+  model: string;
+  /** Upstream commit of the recipe that served it, when known. */
+  commit: string | null;
+  repo: string | null;
+  at: number;
+  cases: BenchCase[];
+  error: string | null;
+}
+
+export interface BenchState {
+  running: boolean;
+  stage: string | null;
+  done: number;
+  total: number;
+  /** Newest first. */
+  runs: BenchRun[];
+}
+
 export interface RecipeSnapshot {
   id: string;
   label: string;
@@ -366,4 +404,6 @@ export interface Snapshot {
   agents: AgentSnapshot[];
   usage: UsageSnapshot;
   recipes: RecipeSnapshot[];
+  /** Benchmark state per llm id. */
+  bench: Record<string, BenchState>;
 }

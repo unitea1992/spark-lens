@@ -193,7 +193,7 @@ export class RecipeManager {
     if (known && (known.weightsGiB !== null || Date.now() - known.readAt < 60_000)) return;
     const res = await this.exec(
       this.hosts.get(r.host)!,
-      `grep -aoE "Model loading took [0-9.]+ ?GiB|Available KV cache memory: [0-9.]+ ?GiB|kv-cache-memory-bytes[ =][0-9]+" "${logPath(r.id)}" 2>/dev/null | tail -n 3`,
+      `grep -aoE "Model loading took [0-9.]+ ?GiB|Available KV cache memory: [0-9.]+ ?GiB|kv-cache-memory-bytes[ =][0-9]+|Load weight end\\.[^\\r]*mem usage=[0-9.]+ ?GB|KV Cache is allocated\\.[^\\r]*V size: [0-9.]+ ?GB" "${logPath(r.id)}" 2>/dev/null | tail -n 5`,
       10_000,
     );
     if (res.code === null || res.timedOut) return;

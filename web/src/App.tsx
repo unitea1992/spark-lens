@@ -202,7 +202,14 @@ function Dashboard({ snapshot, now, stale, page }: { snapshot: Snapshot; now: nu
               {active.length > 0 && (
                 <div className="grid grid--llm">
                   {active.map((l) => (
-                    <LlmPanel key={l.id} llm={l} hosts={snapshot.hosts} recipes={snapshot.recipes.filter((r) => r.llm === l.id)} now={now} />
+                    <LlmPanel
+                      key={l.id}
+                      llm={l}
+                      hosts={snapshot.hosts}
+                      recipes={snapshot.recipes.filter((r) => r.llm === l.id)}
+                      bench={snapshot.bench?.[l.id]}
+                      now={now}
+                    />
                   ))}
                 </div>
               )}

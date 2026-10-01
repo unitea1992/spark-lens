@@ -10,6 +10,8 @@ import { UsageCollector } from "./collectors/usage.ts";
 import { loadConfig, stateDir } from "./config.ts";
 import { HttpServer } from "./http.ts";
 import { RecipeManager } from "./recipes.ts";
+import { BenchRunner } from "./bench.ts";
+import { History } from "./history.ts";
 import { Store } from "./store.ts";
 import type { Snapshot } from "./types.ts";
 
@@ -26,6 +28,8 @@ async function main(): Promise<void> {
 
   const runtimeDir = join(process.env.XDG_RUNTIME_DIR || tmpdir(), "spark-lens");
   const store = new Store(stateDir());
+  const history = new History(store.history());
+  const bench = new BenchRunner(store);
   const hosts = new HostCollector(config.hosts, {
     procRegex: procRegex(config.agents.processes),
     pollSeconds: config.pollSeconds,
@@ -53,6 +57,7 @@ async function main(): Promise<void> {
     agents: agents.snapshots(),
     usage: usage.snapshot(),
     recipes: recipes.snapshots(),
+    bench: bench.snapshot(config.llms.map((l) => l.id)),
   });
 
   const http = new HttpServer({
@@ -76,7 +81,48 @@ async function main(): Promise<void> {
           }
         : undefined,
     changed: () => http.broadcast(),
+    history: (key) => history.points(key),
+    bench: async (llmId) => {
+      const cfg = config.llms.find((l) => l.id === llmId);
+      const live = llms.snapshots().find((l) => l.id === llmId);
+      if (!cfg || !live) return { ok: false, message: "モデルが見つかりません" };
+      if (live.state !== "up") return { ok: false, message: "モデルが稼働していません" };
+      let recipe = recipes.snapshots().find((r) => r.llm === llmId);
+      // Record which upstream version is being measured, even right after a restart.
+      if (recipe && !recipe.upstream) {
+        await recipes.checkUpstream(recipe.id);
+        recipe = recipes.snapshots().find((r) => r.llm === llmId);
+      }
+      return bench.start(
+        llmId,
+        {
+          baseUrl: cfg.baseUrl,
+          model: cfg.model ?? live.models[0] ?? "",
+          apiKey: cfg.apiKeyEnv ? process.env[cfg.apiKeyEnv] : undefined,
+          commit: recipe?.upstream?.head ?? null,
+          repo: recipe?.upstream?.repo ?? null,
+        },
+        () => http.broadcast(),
+      );
+    },
   });
+
+  // Keys are "host:<id>:<metric>" and "llm:<id>:<metric>", matching what the client asks for.
+  const recordHistory = () => {
+    const now = Date.now();
+    for (const h of hosts.snapshots()) {
+      if (!h.online) continue;
+      const mem = h.memTotalBytes && h.memUsedBytes !== null ? (h.memUsedBytes / h.memTotalBytes) * 100 : null;
+      history.record(`host:${h.id}:cpu`, h.cpuPct, now);
+      history.record(`host:${h.id}:gpu`, h.gpu?.utilPct, now);
+      history.record(`host:${h.id}:mem`, mem, now);
+      history.record(`host:${h.id}:temp`, h.maxTemp?.tempC, now);
+    }
+    for (const l of llms.snapshots()) {
+      if (l.state !== "up") continue;
+      history.record(`llm:${l.id}:genTps`, l.genTokensPerSec, now);
+    }
+  };
 
   // Agent sources are other tools' CLIs; asking them every few seconds costs
   // more than the answer is worth.
@@ -93,6 +139,7 @@ async function main(): Promise<void> {
       const pollAgents = tickCount++ % agentEvery === 0;
       await Promise.all([llms.poll(hosts.snapshots()), pollAgents ? agents.poll(hosts.processes()) : null]);
       await recipes.update(llms.snapshots());
+      recordHistory();
       http.broadcast();
     } catch (err) {
       log(`poll failed: ${(err as Error).message}`);
@@ -131,6 +178,7 @@ async function main(): Promise<void> {
     setInterval(pollSubscriptions, 30_000),
     setInterval(() => {
       try {
+        store.setHistory(history.dump());
         store.flush();
       } catch (err) {
         log(`could not save state: ${(err as Error).message}`);
@@ -141,6 +189,7 @@ async function main(): Promise<void> {
   const shutdown = () => {
     for (const t of timers) clearInterval(t);
     try {
+      store.setHistory(history.dump());
       store.flush();
     } catch {
       // Losing today's token tally is better than hanging on shutdown.

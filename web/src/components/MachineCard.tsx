@@ -89,7 +89,7 @@ export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) 
             key: "mem",
             label: "メモリ",
             value: memPct,
-            side: isSpark && host.gpuProcesses.length > 0 ? "モデルが確保" : usedOfTotal(host.memUsedBytes, host.memTotalBytes),
+            side: usedOfTotal(host.memUsedBytes, host.memTotalBytes),
             series: 2,
           },
           { key: "cpu", label: "CPU", value: host.cpuPct, side: temp(host.cpuTempC), series: 3 },
@@ -107,9 +107,6 @@ export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) 
           </div>
         ))}
       </div>
-      {isSpark && host.gpuProcesses.length > 0 && (
-        <p className="machine__note">メモリ {usedOfTotal(host.memUsedBytes, host.memTotalBytes)}（CPU と GPU で共用）</p>
-      )}
 
       <Sparkline
         values={isSpark ? host.history.gpu : host.history.cpu}
@@ -118,6 +115,7 @@ export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) 
         series={isSpark ? 1 : 3}
         label={isSpark ? "GPU 使用率" : "CPU 使用率"}
         format={(v) => `${v.toFixed(0)}%`}
+        historyKey={`host:${host.id}:${isSpark ? "gpu" : "cpu"}`}
       />
 
       {host.disks.map((d) => (

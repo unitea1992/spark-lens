@@ -31,3 +31,10 @@ test("memory plan comes from vLLM's start-up lines", () => {
   assert.ok(Math.abs((glm.kvGiB ?? 0) - 11) < 0.01);
   assert.deepEqual(parseMemoryPlan(""), { weightsGiB: null, kvGiB: null });
 });
+
+test("memory plan also reads SGLang's start-up lines", () => {
+  const plan = parseMemoryPlan(
+    "[TP0] Load weight end. type=Qwen, dtype=bf16, avail mem=40.1 GB, mem usage=61.90 GB.\n[TP0] KV Cache is allocated. #tokens: 500000, K size: 5.25 GB, V size: 5.25 GB",
+  );
+  assert.deepEqual(plan, { weightsGiB: 61.9, kvGiB: 10.5 });
+});

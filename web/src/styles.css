@@ -3329,103 +3329,6 @@ section {
     repeating-linear-gradient(90deg, color-mix(in srgb, var(--warn) 45%, transparent) 0 8px, transparent 8px 14px);
 }
 
-/* ------------------------------------------------------------ memory map */
-
-.memmap {
-  margin: 0;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  grid-template-areas: "title title" "grid legend";
-  gap: 10px 24px;
-  align-items: start;
-}
-
-.memmap__title {
-  grid-area: title;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--ink-3);
-}
-
-.memmap__title span {
-  margin-left: 10px;
-  font-weight: 400;
-}
-
-.memmap__grid {
-  grid-area: grid;
-  display: grid;
-  grid-template-columns: repeat(16, 11px);
-  gap: 3px;
-}
-
-.memmap__tile {
-  display: inline-block;
-  width: 11px;
-  height: 11px;
-  border-radius: 2px;
-  background: var(--track);
-}
-
-.memmap__tile--weights {
-  background: var(--series-1);
-}
-
-.memmap__tile--kv-used {
-  background: var(--series-2);
-}
-
-.memmap__tile--kv-free {
-  background: color-mix(in srgb, var(--series-2) 30%, var(--surface));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--series-2) 55%, transparent);
-}
-
-.memmap__tile--runtime {
-  background: color-mix(in srgb, var(--series-1) 35%, var(--surface));
-}
-
-.memmap__tile--system {
-  background: color-mix(in srgb, var(--ink-3) 55%, transparent);
-}
-
-.memmap__tile--free {
-  background: var(--track);
-}
-
-.memmap__legend {
-  grid-area: legend;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 12.5px;
-  color: var(--ink-2);
-}
-
-.memmap__legend li {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.memmap__legend strong {
-  margin-left: auto;
-  font-family: var(--font-figure);
-  font-size: 14px;
-  color: var(--ink);
-  font-variant-numeric: tabular-nums;
-}
-
-@media (max-width: 720px) {
-  .memmap {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "title" "grid" "legend";
-  }
-
-  .memmap__grid {
-    grid-template-columns: repeat(auto-fill, 11px);
-  }
-}
-
 /* --------------------------------------------------------- odds and ends */
 
 .upstream__repo {
@@ -3458,12 +3361,270 @@ section {
   transition: width 0.4s linear;
 }
 
-.memmap {
-  grid-template-columns: auto minmax(0, 340px);
+
+/* ----------------------------------------------------------- memory band */
+
+.memband {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.memband__title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+
+.memband__title span {
+  margin-left: 10px;
+  font-weight: 400;
+}
+
+.memband__bar {
+  position: relative;
+  display: flex;
+  height: 14px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--track);
+}
+
+/* A hairline notch every GiB keeps the "count the blocks" reading. */
+.memband__bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(90deg, transparent 0 calc(var(--notch) - 1px), color-mix(in srgb, var(--surface) 70%, transparent) calc(var(--notch) - 1px) var(--notch));
+  pointer-events: none;
+}
+
+.memband__seg {
+  height: 100%;
+  transition: width 0.6s ease;
+}
+
+.memband__seg--weights {
+  background: var(--series-1);
+}
+
+.memband__seg--kv-used {
+  background: var(--series-2);
+}
+
+.memband__seg--kv-free {
+  background: color-mix(in srgb, var(--series-2) 32%, var(--surface));
+}
+
+.memband__seg--other {
+  background: color-mix(in srgb, var(--ink-3) 50%, transparent);
+}
+
+.memband__seg--free {
+  background: transparent;
+}
+
+.memband__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.memband__legend li {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.memband__legend strong {
+  font-family: var(--font-figure);
+  font-size: 14px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.memband__legend span {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.memband__key {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  align-self: center;
+}
+
+.memband__key.memband__seg--free {
+  background: var(--track);
+}
+
+.spark__legend {
+  align-items: center;
+}
+
+.spark__readout {
+  margin-left: auto;
+}
+
+.spark__range {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: 10px;
+}
+
+.spark__range button {
+  position: relative;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  background: none;
+  border: 0;
+  padding: 2px 5px;
+  cursor: pointer;
+}
+
+.spark__range button[aria-pressed="true"] {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.spark__range button[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  right: 5px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--series-1) 55%, transparent);
+}
+
+.spark > .spark--empty {
+  margin-top: 4px;
+}
+
+/* ------------------------------------------------------------ benchmark */
+
+.bench {
+  margin-top: 4px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bench__head {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+
+.bench__head h4 {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.bench__running {
+  font-size: 12.5px;
+  color: var(--series-1);
+}
+
+.bench__notice,
+.bench__meta {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.bench__figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
+  gap: 10px 24px;
+}
+
+.bench__figures dt {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.bench__figures dd {
+  font-family: var(--font-figure);
+  font-size: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.bench__figures small {
+  margin-left: 4px;
+  font-family: var(--font);
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--ink-3);
+}
+
+.bench__figures em {
+  margin-left: 8px;
+  font-style: normal;
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.bench__up {
+  color: var(--good);
+}
+
+.bench__down {
+  color: var(--critical);
+}
+
+.bench__history {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.bench__history th {
+  text-align: left;
+  font-weight: 500;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  padding: 4px 8px 4px 0;
+}
+
+.bench__history td {
+  padding: 4px 8px 4px 0;
+  border-top: 1px solid var(--line);
+  color: var(--ink-2);
 }
 
 @media (max-width: 720px) {
-  .memmap {
-    grid-template-columns: minmax(0, 1fr);
+  .bench__history {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
   }
+}
+
+.usage__price {
+  flex: none;
+  min-width: 5.5em;
+  text-align: right;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.usage__price--unknown {
+  color: var(--ink-3);
+}
+
+.usage__usd {
+  font-variant-numeric: tabular-nums;
 }

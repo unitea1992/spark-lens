@@ -52,11 +52,21 @@ export interface MemoryPlan {
 }
 
 export function parseMemoryPlan(log: string): MemoryPlan {
+  // vLLM
   const weights = /Model loading took ([0-9.]+) ?GiB/.exec(log);
   const kv = /Available KV cache memory: ([0-9.]+) ?GiB/.exec(log);
   const kvBytes = /kv-cache-memory-bytes[ =]([0-9]+)/.exec(log);
+  // SGLang: "Load weight end. ... mem usage=61.90 GB" and "KV Cache is allocated. ... K size: 5.25 GB, V size: 5.25 GB"
+  const sgWeights = /Load weight end\.[^\n]*?mem usage=([0-9.]+) ?GB/.exec(log);
+  const sgKv = /KV Cache is allocated\.[^\n]*?K size: ([0-9.]+) ?GB, V size: ([0-9.]+) ?GB/.exec(log);
   return {
-    weightsGiB: weights ? Number(weights[1]) : null,
-    kvGiB: kv ? Number(kv[1]) : kvBytes ? Number(kvBytes[1]) / 1024 ** 3 : null,
+    weightsGiB: weights ? Number(weights[1]) : sgWeights ? Number(sgWeights[1]) : null,
+    kvGiB: kv
+      ? Number(kv[1])
+      : kvBytes
+        ? Number(kvBytes[1]) / 1024 ** 3
+        : sgKv
+          ? Number(sgKv[1]) + Number(sgKv[2])
+          : null,
   };
 }

@@ -1,9 +1,10 @@
-import type { HostSnapshot, LlmSnapshot, RecipeSnapshot } from "../../../server/types.ts";
+import type { BenchState, HostSnapshot, LlmSnapshot, RecipeSnapshot } from "../../../server/types.ts";
 import { ago, count, duration, pct, shortHost } from "../format.ts";
 import { llmStatus } from "../status.ts";
 import { levelFor, Meter } from "./Meter.tsx";
 import { RecipeControls } from "./RecipeCard.tsx";
 import { Sparkline } from "./Sparkline.tsx";
+import { BenchPanel } from "./BenchPanel.tsx";
 import { MemoryMap } from "./MemoryMap.tsx";
 import { StartProgress } from "./StartProgress.tsx";
 import { StatusPill } from "./StatusPill.tsx";
@@ -25,8 +26,10 @@ export function LlmPanel({
   llm,
   hosts,
   recipes,
+  bench,
   now,
 }: {
+  bench?: BenchState;
   llm: LlmSnapshot;
   hosts: HostSnapshot[];
   recipes: RecipeSnapshot[];
@@ -110,8 +113,8 @@ export function LlmPanel({
           {(() => {
             const r = recipes.find((x) => x.memory);
             const head = hosts.find((h) => h.id === (r?.host ?? llm.nodes[0]));
-            return head && r?.memory ? (
-              <MemoryMap host={head} weightsGiB={r.memory.weightsGiB} kvGiB={r.memory.kvGiB} kvUsage={llm.kvCacheUsage} />
+            return head ? (
+              <MemoryMap host={head} weightsGiB={r?.memory?.weightsGiB ?? null} kvGiB={r?.memory?.kvGiB ?? null} kvUsage={llm.kvCacheUsage} />
             ) : null;
           })()}
 
@@ -121,6 +124,7 @@ export function LlmPanel({
             series={1}
             label="生成速度"
             format={(v) => `${v.toFixed(1)} トークン/秒`}
+            historyKey={`llm:${llm.id}:genTps`}
           />
 
           <dl className="factline">
@@ -136,6 +140,8 @@ export function LlmPanel({
             <Fact label="連続稼働" value={llm.upSince ? duration((now - llm.upSince) / 1000) : "–"} />
             <Fact label="API の場所" value={`${shortHost(llm.baseUrl)}/v1`} />
           </dl>
+
+          <BenchPanel llmId={llm.id} state={bench} />
         </>
       )}
 

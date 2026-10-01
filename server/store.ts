@@ -13,6 +13,10 @@ interface StateFile {
   tokens: Record<string, Record<string, DayTotals>>;
   /** Last subscription readings, so a restart does not hit the usage APIs at once. */
   subscriptions?: Record<string, SubscriptionSnapshot>;
+  /** Minute averages of live figures for the last day (see history.ts). */
+  history?: Record<string, { m: number; sum: number; n: number }[]>;
+  /** Benchmark runs, newest first. */
+  benchRuns?: import("./types.ts").BenchRun[];
   /** Seconds the last successful start of each recipe took. */
   startSeconds?: Record<string, number>;
 }
@@ -60,6 +64,24 @@ export class Store {
 
   setSubscriptions(snapshots: Record<string, SubscriptionSnapshot>): void {
     this.state.subscriptions = snapshots;
+    this.dirty = true;
+  }
+
+  history(): Record<string, { m: number; sum: number; n: number }[]> {
+    return this.state.history ?? {};
+  }
+
+  setHistory(dump: Record<string, { m: number; sum: number; n: number }[]>): void {
+    this.state.history = dump;
+    this.dirty = true;
+  }
+
+  benchRuns(): import("./types.ts").BenchRun[] {
+    return this.state.benchRuns ?? [];
+  }
+
+  addBenchRun(run: import("./types.ts").BenchRun): void {
+    this.state.benchRuns = [run, ...(this.state.benchRuns ?? [])].slice(0, 100);
     this.dirty = true;
   }
 

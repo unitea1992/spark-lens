@@ -3,7 +3,9 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { stateDir } from "../config.ts";
 import { run } from "../exec.ts";
+import { applyPrices, PriceBook } from "../pricing.ts";
 import { localDate, type Store } from "../store.ts";
 import type { LlmConfig, ModelUsage, UsageSnapshot } from "../types.ts";
 
@@ -221,6 +223,7 @@ function rows(tallies: Map<string, Tally>[], localSources: Set<string>): ModelUs
         output: split ? t.output : null,
         cached: split ? t.cached : null,
         total: t.input + t.output + t.cached + t.totalOnly,
+        usd: null,
       };
     })
     .filter((r) => r.total > 0)
@@ -228,9 +231,10 @@ function rows(tallies: Map<string, Tally>[], localSources: Set<string>): ModelUs
 }
 
 export class UsageCollector {
-  private current: UsageSnapshot = { generatedAt: 0, today: [], week: [], month: [] };
+  private current: UsageSnapshot = { generatedAt: 0, pricesFetchedAt: null, pricesSource: null, today: [], week: [], month: [] };
   private busy = false;
   private readonly claude = new ClaudeSource();
+  private readonly prices = new PriceBook(stateDir(), { log: (m) => console.error(`[usage] ${m}`) });
   private readonly opencodeBin: string | null;
 
   private readonly llms: LlmConfig[];
@@ -251,6 +255,9 @@ export class UsageCollector {
     if (this.busy) return;
     this.busy = true;
     try {
+      // Prices refresh in the background; this poll uses whatever is cached.
+      await this.prices.loadCache();
+      void this.prices.refreshIfStale();
       const byDay: DayModel = new Map();
       await this.claude.collect(byDay);
       codexThreads(byDay);
@@ -272,17 +279,36 @@ export class UsageCollector {
           ["0", String(WEEK_DAYS), String(MONTH_DAYS)].map((d) => run(this.opencodeBin!, ["stats", "--days", d, "--json", "--models"], { timeoutMs: 15_000 })),
         );
         const add2 = (list: ModelUsage[], stdout: string) => {
+          // OpenCode lists a model once per reasoning variant; show it once.
+          const byModel = new Map<string, ModelUsage>();
           for (const m of parseOpencodeStats(stdout)) {
             const total = m.input + m.output + m.cached;
-            if (total > 0) list.push({ model: m.model, source: "OpenCode", local: false, input: m.input, output: m.output, cached: m.cached, total });
+            if (total <= 0) continue;
+            const cur = byModel.get(m.model);
+            if (cur) {
+              cur.input = (cur.input ?? 0) + m.input;
+              cur.output = (cur.output ?? 0) + m.output;
+              cur.cached = (cur.cached ?? 0) + m.cached;
+              cur.total += total;
+            } else byModel.set(m.model, { model: m.model, source: "OpenCode", local: false, input: m.input, output: m.output, cached: m.cached, total, usd: null });
           }
+          list.push(...byModel.values());
           list.sort((a, b) => b.total - a.total);
         };
         if (d0?.code === 0) add2(today, d0.stdout);
         if (d7?.code === 0) add2(week, d7.stdout);
         if (d30?.code === 0) add2(month, d30.stdout);
       }
-      this.current = { generatedAt: Date.now(), today, week, month };
+      const table = this.prices.current();
+      for (const list of [today, week, month]) applyPrices(list, table);
+      this.current = {
+        generatedAt: Date.now(),
+        pricesFetchedAt: table?.fetchedAt ?? null,
+        pricesSource: table ? "models.dev" : null,
+        today,
+        week,
+        month,
+      };
     } finally {
       this.busy = false;
     }

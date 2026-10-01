@@ -64,6 +64,10 @@ export interface HttpOptions {
   allowedHosts: string[];
   snapshot: () => Snapshot;
   recipes?: RecipeActions;
+  /** Start a benchmark of one local model. */
+  bench?: (llmId: string) => Promise<{ ok: boolean; message: string }>;
+  /** Minute averages for one series over the last day. */
+  history?: (key: string) => { t: number; v: number }[];
   /** Called after a state-changing request so viewers see it at once. */
   changed?: () => void;
 }
@@ -126,6 +130,20 @@ export class HttpServer {
       void this.recipe(req, res, recipe[1]!, recipe[2] as RecipeOp);
       return;
     }
+    const bench = /^\/api\/llms\/([a-z0-9][a-z0-9-]*)\/bench$/.exec(path);
+    if (bench) {
+      const json = (status: number, body: unknown) =>
+        void res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }).end(JSON.stringify(body));
+      if (req.method !== "POST") return void res.writeHead(405, { Allow: "POST" }).end();
+      if (req.headers[ACTION_HEADER] !== "1") return json(403, { ok: false, message: "この操作はダッシュボードの画面から行ってください" });
+      if (!this.opts.bench) return json(404, { ok: false, message: "ベンチマークは使えません" });
+      const run = this.opts.bench;
+      void run(bench[1]!).then(
+        (result) => json(result.ok ? 202 : 409, result),
+        () => json(500, { ok: false, message: "開始できませんでした" }),
+      );
+      return;
+    }
     if (req.method !== "GET" && req.method !== "HEAD") {
       res.writeHead(405, { Allow: "GET, HEAD" }).end();
       return;
@@ -138,6 +156,13 @@ export class HttpServer {
       res
         .writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" })
         .end(req.method === "HEAD" ? undefined : JSON.stringify(this.opts.snapshot()));
+      return;
+    }
+    if (path === "/api/history") {
+      const key = new URL(req.url ?? "/", "http://x").searchParams.get("key") ?? "";
+      res
+        .writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" })
+        .end(JSON.stringify(this.opts.history && /^[\w:.-]{1,80}$/.test(key) ? this.opts.history(key) : []));
       return;
     }
     if (path === "/api/stream") {
