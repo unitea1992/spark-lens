@@ -15,13 +15,6 @@ const PERIOD_LABELS: Record<string, string> = {
   USAGE_PERIOD_TYPE_MONTHLY: "月間",
 };
 
-const PRODUCT_LABELS: Record<string, string> = {
-  GrokBuild: "Build",
-  GrokChat: "チャット",
-  GrokImagine: "Imagine",
-  GrokVoice: "音声",
-};
-
 /** The SuperGrok login, else the older sign-in entry. Keys are OIDC scope URLs. */
 export function pickGrokCredential(auth: unknown): { token: string; expiresAt: number | null } | null {
   if (auth === null || typeof auth !== "object") return null;
@@ -33,9 +26,9 @@ export function pickGrokCredential(auth: unknown): { token: string; expiresAt: n
   return { token: e.key, expiresAt: parseTime(e.expires_at) };
 }
 
-export function parseGrokBilling(body: unknown): { windows: UsageWindow[]; notes: string[] } {
+export function parseGrokBilling(body: unknown): UsageWindow[] {
   const config = (body as Record<string, unknown> | null)?.config;
-  if (config === null || typeof config !== "object") return { windows: [], notes: [] };
+  if (config === null || typeof config !== "object") return [];
   const c = config as Record<string, unknown>;
   const period = (c.currentPeriod ?? {}) as Record<string, unknown>;
   const start = parseTime(period.start ?? c.billingPeriodStart);
@@ -48,17 +41,10 @@ export function parseGrokBilling(body: unknown): { windows: UsageWindow[]; notes
     if (typeof used === "number" && typeof cap === "number" && cap > 0) usedPct = clampPct((used / cap) * 100);
   }
   // A period without a percentage is unknown usage, not zero.
-  if (usedPct === null || end === null) return { windows: [], notes: [] };
+  if (usedPct === null || end === null) return [];
   const windowSec = start !== null && end > start ? Math.round((end - start) / 1000) : null;
   const label = (typeof period.type === "string" && PERIOD_LABELS[period.type]) || "利用枠";
-  const notes: string[] = [];
-  const products = Array.isArray(c.productUsage) ? c.productUsage : [];
-  const parts = products
-    .map((p) => p as Record<string, unknown>)
-    .filter((p) => typeof p.product === "string" && typeof p.usagePercent === "number" && p.usagePercent > 0)
-    .map((p) => `${PRODUCT_LABELS[p.product as string] ?? p.product} ${Math.round(p.usagePercent as number)}%`);
-  if (parts.length > 0) notes.push(`内訳: ${parts.join(" / ")}`);
-  return { windows: [{ id: "credits", label, usedPct, resetsAt: end, windowSec }], notes };
+  return [{ id: "credits", label, usedPct, resetsAt: end, windowSec }];
 }
 
 export const grok: Provider = {
@@ -87,8 +73,8 @@ export const grok: Provider = {
     const plan = settings.status === 200 && typeof tier === "string" && tier !== "" ? tier : null;
     if (res.status === 401 || res.status === 403) return failed("stale", expired, plan);
     if (res.status !== 200) return httpFailure(res.status, "Grok", plan);
-    const { windows, notes } = parseGrokBilling(res.body);
+    const windows = parseGrokBilling(res.body);
     if (windows.length === 0) return failed("error", "使用率が公開されていないため表示できません。", plan);
-    return { plan, status: "ok", message: null, windows, notes };
+    return { plan, status: "ok", message: null, windows, notes: [] };
   },
 };

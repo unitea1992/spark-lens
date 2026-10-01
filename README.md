@@ -171,7 +171,7 @@ CPU は `scaling_max_freq`、GPU は systemd のユニットに書かれた `nvi
 
 バーの上の縦線は「期間がどこまで進んだか」を示します。バーが縦線より右にあれば、均等に使うペースより速く消費しています。その下には、ここまでの使い方が続いた場合に期間終了時に何 % になるか（上限に届きそうなら、あと何時間で届くか）を表示します。
 
-プラン名は、Claude Code はログイン情報（`subscriptionType` と `rateLimitTier`）、Codex は使用状況 API の `plan_type` から取得します。OpenCode Go は Go プラン専用の API なので常に「Go」です。Grok はプラン表示（`subscription_tier_display`）を読みます。Grok の利用枠はチャット・画像・音声・Build で共有される週間の枠で、使っている機能の内訳も表示します。Codex のリセット券は枚数と期限を表示します。Claude のリセット券は Claude Code のログインで読める API に含まれないため表示できません。
+プラン名は、Claude Code はログイン情報（`subscriptionType` と `rateLimitTier`）、Codex は使用状況 API の `plan_type` から取得します。OpenCode Go は Go プラン専用の API なので常に「Go」です。Grok はプラン表示（`subscription_tier_display`）を読みます。Grok の利用枠は、チャット・画像・音声・Build で共有される週間の枠です。Codex のリセット券は枚数と期限を表示します。Claude のリセット券は Claude Code のログインで読める API に含まれないため表示できません。
 
 #### ほかのサービスを足す
 

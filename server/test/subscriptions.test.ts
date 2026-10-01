@@ -197,8 +197,8 @@ test("collector waits its interval, backs off on throttling and restores from ca
   assert.equal(calls, 2);
 });
 
-test("Grok: reads the weekly credit window and the product breakdown", () => {
-  const { windows, notes } = parseGrokBilling({
+test("Grok: reads the weekly credit window", () => {
+  const windows = parseGrokBilling({
     config: {
       currentPeriod: { type: "USAGE_PERIOD_TYPE_WEEKLY", start: "2026-09-27T03:34:37.807064+00:00", end: "2026-10-04T03:34:37.807064+00:00" },
       creditUsagePercent: 64.0,
@@ -214,11 +214,10 @@ test("Grok: reads the weekly credit window and the product breakdown", () => {
   });
   assert.deepEqual(windows.map((w) => [w.label, w.usedPct, w.windowSec]), [["週間", 64, 7 * 86400]]);
   assert.equal(windows[0]?.resetsAt, Date.parse("2026-10-04T03:34:37.807Z"));
-  assert.deepEqual(notes, ["内訳: Imagine 64%"]);
 });
 
 test("Grok: a period without a percentage is unknown, not zero", () => {
-  const { windows } = parseGrokBilling({
+  const windows = parseGrokBilling({
     config: { currentPeriod: { type: "USAGE_PERIOD_TYPE_WEEKLY", start: "2026-09-27T00:00:00Z", end: "2026-10-04T00:00:00Z" } },
   });
   assert.deepEqual(windows, []);
