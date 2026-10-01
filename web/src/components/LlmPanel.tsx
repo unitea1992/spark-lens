@@ -1,18 +1,29 @@
-import type { HostSnapshot, LlmSnapshot } from "../../../server/types.ts";
-import { count, duration, pct, shortHost } from "../format.ts";
+import type { HostSnapshot, LlmSnapshot, RecipeSnapshot } from "../../../server/types.ts";
+import { ago, count, dockerStatus, duration, pct, shortHost } from "../format.ts";
 import { levelFor, Meter } from "./Meter.tsx";
+import { llmStatus } from "./Overview.tsx";
+import { RecipeControls } from "./RecipeCard.tsx";
 import { Sparkline } from "./Sparkline.tsx";
-import { StatusPill, type Tone } from "./StatusPill.tsx";
+import { StatusPill } from "./StatusPill.tsx";
 
-function status(llm: LlmSnapshot): { tone: Tone; text: string } {
-  if (llm.state === "down") return { tone: "quiet", text: "停止中" };
-  if (llm.state === "starting") return { tone: "warn", text: "起動中" };
-  return (llm.requestsRunning ?? 0) > 0 ? { tone: "busy", text: "推論中" } : { tone: "good", text: "待機中" };
+function rate(v: number | null | undefined): string {
+  return v === null || v === undefined ? "–" : v.toFixed(1);
 }
 
-export function LlmPanel({ llm, hosts, now }: { llm: LlmSnapshot; hosts: HostSnapshot[]; now: number }) {
-  const st = status(llm);
+export function LlmPanel({
+  llm,
+  hosts,
+  recipes,
+  now,
+}: {
+  llm: LlmSnapshot;
+  hosts: HostSnapshot[];
+  recipes: RecipeSnapshot[];
+  now: number;
+}) {
+  const st = llmStatus(llm);
   const up = llm.state === "up";
+  const running = (llm.requestsRunning ?? 0) > 0;
   const kv = llm.kvCacheUsage === null ? null : llm.kvCacheUsage * 100;
   const nodes = llm.nodes.map((id) => hosts.find((h) => h.id === id)).filter((h): h is HostSnapshot => Boolean(h));
   const spec = llm.spec;
@@ -27,6 +38,10 @@ export function LlmPanel({ llm, hosts, now }: { llm: LlmSnapshot; hosts: HostSna
         </div>
         <StatusPill tone={st.tone}>{st.text}</StatusPill>
       </header>
+
+      {recipes.map((r) => (
+        <RecipeControls key={r.id} recipe={r} now={now} showName={recipes.length > 1} />
+      ))}
 
       {(!up || llm.detail) && (
         <p className={`notice ${llm.state === "starting" || llm.detail ? "notice--warn" : ""}`}>
@@ -43,17 +58,24 @@ export function LlmPanel({ llm, hosts, now }: { llm: LlmSnapshot; hosts: HostSna
         {up && (
           <div className="llm__col">
             <div className="llm__headline">
-              <div className="bignum">
-                <span className="bignum__value">{llm.genTokensPerSec === null ? "–" : llm.genTokensPerSec.toFixed(1)}</span>
-                <span className="bignum__unit">トークン/秒</span>
-              </div>
+              {running ? (
+                <div className="bignum">
+                  <span className="bignum__value">{rate(llm.genTokensPerSec)}</span>
+                  <span className="bignum__unit">トークン/秒</span>
+                </div>
+              ) : (
+                <div className="idle">
+                  <span className="idle__word">アイドル</span>
+                  <span className="idle__sub">{llm.lastActiveAt ? `最後の推論 ${ago(llm.lastActiveAt, now)}` : "リクエストを待っています"}</span>
+                </div>
+              )}
               <dl className="pairs">
                 <div>
-                  <dt>処理中</dt>
+                  <dt>実行中</dt>
                   <dd>{llm.requestsRunning ?? "–"}</dd>
                 </div>
                 <div>
-                  <dt>順番待ち</dt>
+                  <dt>待ち</dt>
                   <dd>{llm.requestsWaiting ?? "–"}</dd>
                 </div>
               </dl>
@@ -68,9 +90,7 @@ export function LlmPanel({ llm, hosts, now }: { llm: LlmSnapshot; hosts: HostSna
             <div className="stat">
               <div className="stat__line">
                 <span>会話メモリ（KV キャッシュ）</span>
-                <span>
-                  <strong>{pct(kv, 1)}</strong>
-                </span>
+                <strong>{pct(kv, 1)}</strong>
               </div>
               <Meter value={kv} level={levelFor(kv, 85, 95)} label="KV キャッシュ使用率" />
             </div>
@@ -87,19 +107,18 @@ export function LlmPanel({ llm, hosts, now }: { llm: LlmSnapshot; hosts: HostSna
             </div>
             {up && spec && (
               <div>
-                <dt>投機的デコード（ドラフト）</dt>
+                <dt>投機的デコード</dt>
                 <dd>
                   採用率 {spec.acceptRate === null ? "–" : pct(spec.acceptRate * 100)}
-                  {spec.meanLength !== null ? `・検証 1 回あたり平均 ${spec.meanLength.toFixed(1)} トークン` : ""}
+                  {spec.meanLength !== null ? `・平均 ${spec.meanLength.toFixed(1)} トークン/検証` : ""}
                 </dd>
               </div>
             )}
-            {up && spec && (spec.draftTokensPerSec !== null || spec.acceptedTokensPerSec !== null) && (
+            {up && spec && running && (spec.draftTokensPerSec !== null || spec.acceptedTokensPerSec !== null) && (
               <div>
-                <dt>投機的デコードの速度</dt>
+                <dt>ドラフト／採用（トークン/秒）</dt>
                 <dd>
-                  ドラフト {spec.draftTokensPerSec === null ? "–" : spec.draftTokensPerSec.toFixed(1)}／採用{" "}
-                  {spec.acceptedTokensPerSec === null ? "–" : spec.acceptedTokensPerSec.toFixed(1)} トークン/秒
+                  {rate(spec.draftTokensPerSec)} ／ {rate(spec.acceptedTokensPerSec)}
                 </dd>
               </div>
             )}
@@ -112,7 +131,7 @@ export function LlmPanel({ llm, hosts, now }: { llm: LlmSnapshot; hosts: HostSna
                 return (
                   <li key={h.id}>
                     <span className="nodes__name">{h.label}</span>
-                    <span className="nodes__meta">{container ? container.status : h.online ? "コンテナなし" : "応答なし"}</span>
+                    <span className="nodes__meta">{container ? dockerStatus(container.status) : h.online ? "コンテナなし" : "応答なし"}</span>
                     <span className="nodes__value">GPU {pct(h.gpu?.utilPct)}</span>
                   </li>
                 );

@@ -1,12 +1,10 @@
 import type { HostSnapshot, NetInfo } from "../../../server/types.ts";
-import { ago, bytes, duration, pct, rate, ratioPct, usedOfTotal } from "../format.ts";
+import { ago, bytes, dockerStatus, duration, pct, rate, ratioPct, usedOfTotal } from "../format.ts";
 import { LensDial } from "./LensDial.tsx";
 import { levelFor, Meter } from "./Meter.tsx";
 import { Sparkline } from "./Sparkline.tsx";
+import { hostStatus } from "./Overview.tsx";
 import { StatusPill, type Tone } from "./StatusPill.tsx";
-
-const TEMP_WARN = 80;
-const TEMP_CRITICAL = 90;
 
 const KIND_LABEL: Record<HostSnapshot["kind"], string> = {
   spark: "DGX Spark",
@@ -14,9 +12,6 @@ const KIND_LABEL: Record<HostSnapshot["kind"], string> = {
   server: "サーバー",
 };
 
-function hottest(host: HostSnapshot): number {
-  return Math.max(host.gpu?.tempC ?? 0, host.cpuTempC ?? 0);
-}
 
 function temp(value: number | null | undefined): string {
   return value === null || value === undefined ? "温度不明" : `${value.toFixed(0)}℃`;
@@ -32,13 +27,6 @@ function byLinkSpeed(a: NetInfo, b: NetInfo): number {
   return (a.speedMbps ?? Infinity) - (b.speedMbps ?? Infinity) || a.iface.localeCompare(b.iface);
 }
 
-function status(host: HostSnapshot): { tone: Tone; text: string } {
-  if (!host.online) return { tone: "critical", text: "応答なし" };
-  const hot = hottest(host);
-  if (hot >= TEMP_CRITICAL) return { tone: "critical", text: "高温" };
-  if (hot >= TEMP_WARN) return { tone: "warn", text: "温度高め" };
-  return { tone: "good", text: "稼働中" };
-}
 
 export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) {
   const memPct = ratioPct(host.memUsedBytes, host.memTotalBytes);
@@ -46,7 +34,7 @@ export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) 
   const isSpark = host.kind === "spark";
   const centerGpu = isSpark && gpu?.tempC !== null && gpu?.tempC !== undefined;
   const centerTemp = centerGpu ? gpu!.tempC : (host.cpuTempC ?? gpu?.tempC ?? null);
-  const st = status(host);
+  const st = hostStatus(host);
   const running = host.containers.filter((c) => c.state === "running");
   const links = host.net.filter((n) => n.up).sort(byLinkSpeed);
 
@@ -100,7 +88,10 @@ export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) 
             </dt>
             <dd>
               <strong>{pct(memPct)}</strong>
-              <span>{usedOfTotal(host.memUsedBytes, host.memTotalBytes)}</span>
+              <span>
+                {usedOfTotal(host.memUsedBytes, host.memTotalBytes)}
+                {isSpark && host.gpuProcesses.length > 0 ? "・モデルが確保" : ""}
+              </span>
             </dd>
           </div>
           <div className="legend__row">
@@ -230,7 +221,7 @@ export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) 
             {[...running, ...host.containers.filter((c) => c.state !== "running")].map((c) => (
               <li key={c.name} className={c.state === "running" ? "" : "rows--quiet"}>
                 <span className="rows__name">{c.name}</span>
-                <span className="rows__value">{c.status}</span>
+                <span className="rows__value">{dockerStatus(c.status)}</span>
               </li>
             ))}
           </ul>

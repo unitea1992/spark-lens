@@ -68,6 +68,8 @@ type Partial = Omit<AgentSnapshot, "host" | "hostLabel" | "toolLabel">;
 
 // ------------------------------------------------------------ Claude Code
 
+const CLAUDE_KINDS: Record<string, string> = { bg: "バックグラウンド", background: "バックグラウンド", headless: "非対話" };
+
 const CLAUDE_STATUS: Record<string, AgentStatus> = { busy: "working", idle: "idle", waiting: "waiting" };
 
 export async function claudeSessions(dir = join(homedir(), ".claude", "sessions")): Promise<Partial[]> {
@@ -100,7 +102,7 @@ export async function claudeSessions(dir = join(homedir(), ".claude", "sessions"
         startedAt: typeof s.startedAt === "number" ? s.startedAt : null,
         lastActivity: typeof s.statusUpdatedAt === "number" ? s.statusUpdatedAt : typeof s.updatedAt === "number" ? s.updatedAt : null,
         cpuPct: null,
-        detail: s.kind === "interactive" ? null : clip(String(s.kind ?? "")),
+        detail: s.kind === "interactive" || s.kind === undefined ? null : (CLAUDE_KINDS[String(s.kind)] ?? clip(String(s.kind))),
       });
     } catch {
       // Half-written or foreign file: skip it.

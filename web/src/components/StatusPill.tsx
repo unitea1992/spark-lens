@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 
-export type Tone = "good" | "warn" | "critical" | "busy" | "quiet";
+import type { Tone } from "../tone.ts";
+
+export type { Tone };
 
 // Status is never colour alone: each tone carries its own glyph next to the label.
 const GLYPH: Record<Tone, string> = {

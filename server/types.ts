@@ -194,6 +194,8 @@ export interface LlmSnapshot {
   contextLength: number | null;
   /** Epoch ms since the endpoint has been continuously healthy. */
   upSince: number | null;
+  /** Epoch ms of the last poll that saw a request running or tokens flowing. */
+  lastActiveAt: number | null;
   latencyMs: number | null;
   requestsRunning: number | null;
   requestsWaiting: number | null;

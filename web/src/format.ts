@@ -32,12 +32,37 @@ export function rate(bytesPerSec: number | null): string {
   return `${bits.toFixed(0)} b/s`;
 }
 
+/** Up to three significant digits with a K/M/B suffix: 9.26K, 850K, 90.2M. */
 export function count(value: number | null | undefined): string {
   if (value === null || value === undefined) return "–";
-  if (value >= 1e9) return `${(value / 1e9).toFixed(2)}B`;
-  if (value >= 1e6) return `${(value / 1e6).toFixed(2)}M`;
-  if (value >= 1e4) return `${(value / 1e3).toFixed(1)}K`;
-  return Math.round(value).toLocaleString("ja-JP");
+  const units: [number, string][] = [
+    [1e9, "B"],
+    [1e6, "M"],
+    [1e3, "K"],
+  ];
+  for (const [size, suffix] of units) {
+    if (Math.abs(value) >= size) {
+      const v = value / size;
+      const digits = v >= 100 ? 0 : v >= 10 ? 1 : 2;
+      return `${Number(v.toFixed(digits))}${suffix}`;
+    }
+  }
+  return String(Math.round(value));
+}
+
+/** Docker's "Up 5 minutes" / "Exited (0) 2 days ago" in Japanese. */
+export function dockerStatus(status: string): string {
+  const unit: Record<string, string> = { second: "秒", minute: "分", hour: "時間", day: "日", week: "週間", month: "か月", year: "年" };
+  const span = (s: string) =>
+    s
+      .replace(/^(About an?|an?) (second|minute|hour|day|week|month|year)s?$/i, (_m, _a, u: string) => `1 ${unit[u.toLowerCase()]}`)
+      .replace(/^Less than a second$/i, "1 秒未満")
+      .replace(/^(\d+) (second|minute|hour|day|week|month|year)s?$/i, (_m, n: string, u: string) => `${n} ${unit[u.toLowerCase()]}`);
+  const up = /^Up (.+?)( \((healthy|unhealthy|health: starting)\))?$/i.exec(status);
+  if (up) return `稼働 ${span(up[1]!)}${up[3] === "unhealthy" ? "（異常）" : ""}`;
+  const exited = /^Exited \((\d+)\) (.+) ago$/i.exec(status);
+  if (exited) return `停止（${span(exited[2]!)}前・終了コード ${exited[1]}）`;
+  return status;
 }
 
 /** "3日 4時間", "2時間 5分", "40秒" */
@@ -69,6 +94,11 @@ const MD = new Intl.DateTimeFormat("ja-JP", { month: "numeric", day: "numeric", 
 
 export function clock(at: number): string {
   return TIME.format(at);
+}
+
+/** Just the time when it is today, otherwise with the date. */
+export function when(at: number, now: number): string {
+  return new Date(at).toDateString() === new Date(now).toDateString() ? HM.format(at) : `${MD.format(at)} ${HM.format(at)}`;
 }
 
 /** Reset time: just the time when it is today, otherwise with the date. */

@@ -1,15 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { RecipeSnapshot } from "../../../server/types.ts";
 import { ago } from "../format.ts";
-import { StatusPill, type Tone } from "./StatusPill.tsx";
-
-const STATUS: Record<RecipeSnapshot["status"], { tone: Tone; text: string }> = {
-  running: { tone: "good", text: "稼働中" },
-  starting: { tone: "warn", text: "起動中" },
-  stopping: { tone: "warn", text: "停止中…" },
-  stopped: { tone: "quiet", text: "停止" },
-  failed: { tone: "critical", text: "起動失敗" },
-};
 
 async function act(id: string, op: "start" | "stop"): Promise<string> {
   try {
@@ -41,7 +32,7 @@ function LogViewer({ id, hasServerLog, live }: { id: string; hasServerLog: boole
       }
     };
     void load();
-    // Follow along while something is happening; otherwise a manual refresh is enough.
+    // Follow along while something is happening; otherwise one read is enough.
     const timer = live ? setInterval(load, 3000) : null;
     return () => {
       stopped = true;
@@ -81,13 +72,20 @@ function LogViewer({ id, hasServerLog, live }: { id: string; hasServerLog: boole
   );
 }
 
-export function RecipeCard({ recipe, now }: { recipe: RecipeSnapshot; now: number }) {
+/**
+ * Start/stop for one recipe. Only the action that makes sense right now is
+ * offered; the model's own status shows whether it is running.
+ */
+export function RecipeControls({ recipe, now, showName }: { recipe: RecipeSnapshot; now: number; showName?: boolean }) {
   const [confirming, setConfirming] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [showLogs, setShowLogs] = useState(false);
-  const st = STATUS[recipe.status];
   const live = recipe.status === "starting" || recipe.status === "stopping";
   const last = recipe.lastAction;
+  const stopMode = recipe.canStop || recipe.status === "running" || recipe.status === "stopping";
+
+  // A fresh message from the server replaces the click acknowledgement.
+  useEffect(() => setNotice(null), [last?.message, last?.finishedAt]);
 
   const run = async (op: "start" | "stop") => {
     setConfirming(false);
@@ -95,53 +93,51 @@ export function RecipeCard({ recipe, now }: { recipe: RecipeSnapshot; now: numbe
     if (op === "start") setShowLogs(true);
   };
 
+  const reason =
+    recipe.status === "starting"
+      ? "起動処理中です"
+      : recipe.status === "stopping"
+        ? "停止処理中です"
+        : recipe.blockedBy
+          ? `${recipe.blockedBy} が同じマシンで動いています。先にそちらを停止してください`
+          : null;
+
   return (
-    <article className="card recipe">
-      <header className="card__head">
-        <div>
-          <h3 className="card__title">{recipe.label}</h3>
-          <p className="card__sub">{recipe.hostLabel} で実行</p>
-        </div>
-        <StatusPill tone={st.tone}>{st.text}</StatusPill>
-      </header>
-
-      {(notice || last?.message) && (
-        <p className={`notice ${last?.ok === false ? "notice--critical" : ""}`}>
-          {notice ?? last?.message}
-          {last && <span className="notice__detail">{ago(last.finishedAt ?? last.startedAt, now)}</span>}
-        </p>
-      )}
-
-      <div className="recipe__actions">
+    <div className="recipe">
+      <div className="recipe__bar">
+        {showName && <span className="recipe__name">{recipe.label}</span>}
+        <span className="recipe__where">実行先: {recipe.hostLabel}</span>
+        <button type="button" className="btn btn--quiet" aria-expanded={showLogs} onClick={() => setShowLogs((v) => !v)}>
+          {showLogs ? "ログを閉じる" : "ログ"}
+        </button>
         {confirming ? (
-          <>
-            <span className="recipe__ask">推論中のリクエストも止まります。停止しますか？</span>
+          <span className="recipe__confirm">
+            <span>推論中のリクエストも止まります。</span>
             <button type="button" className="btn btn--danger" onClick={() => run("stop")}>
               停止する
             </button>
             <button type="button" className="btn" onClick={() => setConfirming(false)}>
               やめる
             </button>
-          </>
+          </span>
+        ) : stopMode ? (
+          <button type="button" className="btn btn--outline-danger" disabled={!recipe.canStop} onClick={() => setConfirming(true)}>
+            {recipe.status === "stopping" ? "停止中…" : "停止する"}
+          </button>
         ) : (
-          <>
-            <button type="button" className="btn btn--primary" disabled={!recipe.canStart} onClick={() => run("start")}>
-              起動
-            </button>
-            <button type="button" className="btn" disabled={!recipe.canStop} onClick={() => setConfirming(true)}>
-              停止
-            </button>
-            <button type="button" className="btn btn--quiet" aria-expanded={showLogs} onClick={() => setShowLogs((v) => !v)}>
-              {showLogs ? "ログを閉じる" : "ログを見る"}
-            </button>
-          </>
+          <button type="button" className="btn btn--primary" disabled={!recipe.canStart} onClick={() => run("start")}>
+            {recipe.status === "starting" ? "起動中…" : "起動する"}
+          </button>
         )}
       </div>
-      {recipe.blockedBy && !recipe.canStart && recipe.status === "stopped" && (
-        <p className="muted">{recipe.blockedBy} が同じマシンで動いているため、起動するにはそちらを先に停止してください。</p>
+      {!recipe.canStart && !recipe.canStop && reason && <p className="muted recipe__reason">{reason}</p>}
+      {(notice || (last?.message && last.ok === false)) && (
+        <p className={`notice ${last?.ok === false && !notice ? "notice--critical" : ""}`}>
+          {notice ?? last?.message}
+          {last && !notice && <span className="notice__detail">{ago(last.finishedAt ?? last.startedAt, now)}</span>}
+        </p>
       )}
-
       {showLogs && <LogViewer id={recipe.id} hasServerLog={recipe.hasServerLog} live={live} />}
-    </article>
+    </div>
   );
 }

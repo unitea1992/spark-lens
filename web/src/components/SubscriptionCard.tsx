@@ -1,41 +1,36 @@
 import type { SubscriptionSnapshot, UsageWindow } from "../../../server/types.ts";
-import { ago, duration, pct, resetAt, shortDate } from "../format.ts";
-import { elapsedPct, pace } from "../pace.ts";
+import { ago, duration, pct, shortDate, when } from "../format.ts";
+import { elapsedPct, pace, paceLabel, subscriptionStatus } from "../pace.ts";
 import { levelFor, Meter } from "./Meter.tsx";
 import { StatusPill } from "./StatusPill.tsx";
 
 function Window({ w, now }: { w: UsageWindow; now: number }) {
-  const elapsed = elapsedPct(w, now);
   const remaining = w.resetsAt === null ? null : (w.resetsAt - now) / 1000;
   const p = pace(w, now);
+  const left = w.idle
+    ? "未使用（使い始めた時点から数えます）"
+    : remaining === null
+      ? "リセット時刻不明"
+      : remaining <= 0
+        ? "リセット予定時刻を経過"
+        : `あと ${duration(remaining)}（${when(w.resetsAt!, now)}）`;
   return (
     <div className="stat">
       <div className="stat__line">
         <span>{w.label}</span>
-        <span>
-          <strong>{pct(w.usedPct)}</strong>
-        </span>
+        <strong>{pct(w.usedPct)}</strong>
       </div>
       <Meter
         value={w.usedPct}
         level={levelFor(w.usedPct, 80, 95)}
-        marker={elapsed}
+        marker={elapsedPct(w, now)}
         markerLabel="期間の経過位置（均等に使った場合の目安）"
         label={`${w.label}の使用率`}
       />
-      <p className="stat__foot">
-        {w.idle
-          ? "未使用（次に使い始めた時点から数え始めます）"
-          : remaining !== null && remaining <= 0
-            ? "リセット予定時刻を経過（次回の取得で更新）"
-            : `${resetAt(w.resetsAt, now)}${remaining !== null ? `・あと ${duration(remaining)}` : ""}`}
+      <p className="stat__foot stat__foot--split">
+        <span>{left}</span>
+        {p && <span className={`pace pace--${p.tone}`}>{paceLabel(p)}</span>}
       </p>
-      {p && (
-        <p className={`pace pace--${p.tone}`}>
-          <span className="pace__dot" aria-hidden="true" />
-          {p.text}
-        </p>
-      )}
     </div>
   );
 }
@@ -43,8 +38,7 @@ function Window({ w, now }: { w: UsageWindow; now: number }) {
 const SOON_MS = 3 * 86400_000;
 
 export function SubscriptionCard({ sub, now }: { sub: SubscriptionSnapshot; now: number }) {
-  const known = sub.windows.filter((w) => w.usedPct !== null);
-  const worst = Math.max(0, ...known.map((w) => w.usedPct!));
+  const st = subscriptionStatus(sub, now);
   return (
     <article className="card sub">
       <header className="card__head">
@@ -52,23 +46,7 @@ export function SubscriptionCard({ sub, now }: { sub: SubscriptionSnapshot; now:
           <h3 className="card__title">{sub.label}</h3>
           <p className="card__sub">{sub.plan ?? "プラン不明"}</p>
         </div>
-        {sub.status === "ok" ? (
-          known.length === 0 ? (
-            <StatusPill tone="quiet">使用率不明</StatusPill>
-          ) : worst >= 100 ? (
-            <StatusPill tone="critical">上限に到達</StatusPill>
-          ) : worst >= 95 ? (
-            <StatusPill tone="critical">上限間近</StatusPill>
-          ) : worst >= 80 ? (
-            <StatusPill tone="warn">残りわずか</StatusPill>
-          ) : (
-            <StatusPill tone="good">余裕あり</StatusPill>
-          )
-        ) : sub.status === "unconfigured" ? (
-          <StatusPill tone="quiet">未接続</StatusPill>
-        ) : (
-          <StatusPill tone="warn">{sub.status === "stale" ? "要ログイン" : "取得失敗"}</StatusPill>
-        )}
+        <StatusPill tone={st.tone}>{st.text}</StatusPill>
       </header>
 
       {sub.message && <p className={`notice ${sub.status === "unconfigured" ? "" : "notice--warn"}`}>{sub.message}</p>}

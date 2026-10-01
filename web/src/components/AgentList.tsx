@@ -5,7 +5,7 @@ import { StatusPill, type Tone } from "./StatusPill.tsx";
 const STATUS: Record<AgentStatus, { tone: Tone; text: string }> = {
   working: { tone: "busy", text: "作業中" },
   waiting: { tone: "warn", text: "入力待ち" },
-  idle: { tone: "quiet", text: "待機中" },
+  idle: { tone: "quiet", text: "アイドル" },
   unknown: { tone: "quiet", text: "不明" },
 };
 
