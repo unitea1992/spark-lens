@@ -156,6 +156,18 @@ CPU は `scaling_max_freq`、GPU は systemd のユニットに書かれた `nvi
 
 認証情報は各ツールが保存しているものをその都度読むだけで、Spark Lens は複製も更新もしません。ログインの期限が切れたときは、そのツールを一度起動すれば元に戻ります。
 
+> [!IMPORTANT]
+> **利用枠の取得について**
+>
+> `claude-code` と `codex` は、各ツールが開発機に保存しているログイン情報（`~/.claude/.credentials.json`、`~/.codex/auth.json`）を読み、Claude Code と Codex が自身の画面で使っている使用状況のエンドポイント（`api.anthropic.com/api/oauth/usage`、`chatgpt.com/backend-api/wham/usage`）を呼びます。どちらも公開・文書化された API ではありません。
+>
+> - 呼ぶのは使用状況の読み取りだけです。モデルの利用、リセット券の使用、ログイン情報の更新・複製・外部送信は行いません。
+> - 取得は 5 分おきで、混雑やエラーの応答を受けたら 10〜60 分空けます。
+> - Anthropic の規約と Claude Code の文書は、サブスクリプションのログイン情報を Anthropic 製以外のツールで使うことを制限しています。同様の取得は ccstatusline などでも広く行われていますが、各社が認めたものではありません。仕様変更で取れなくなる可能性もあります。
+> - 使うかどうかはご自身で判断してください。使わない場合は `subscriptions` から外せば、ログイン情報は一切読みません。
+>
+> 規約に沿った代わりの情報源として、Claude Code はステータスラインのコマンドに `rate_limits`（5 時間・週間）を渡し、Codex は会話記録（`~/.codex/sessions`）に使用率を書き残します。モデル別の枠や claude.ai での利用分は含まれないため、Spark Lens は現状これらを使っていません。
+
 バーの上の縦線は「期間がどこまで進んだか」を示します。バーが縦線より右にあれば、均等に使うペースより速く消費しています。その下には、ここまでの使い方が続いた場合に期間終了時に何 % になるか（上限に届きそうなら、あと何時間で届くか）を表示します。
 
 プラン名は、Claude Code はログイン情報（`subscriptionType` と `rateLimitTier`）、Codex は使用状況 API の `plan_type` から取得します。OpenCode Go は Go プラン専用の API なので常に「Go」です。Codex のリセット券は枚数と期限を表示します。Claude のリセット券は Claude Code のログインで読める API に含まれないため表示できません。
