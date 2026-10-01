@@ -257,3 +257,37 @@ test("a lost start reply keeps the start in flight, and an unreachable host afte
     process.env.HOME = oldHome;
   }
 });
+
+test("a failed stop of a starting launcher keeps its machines held", async () => {
+  const home = mkdtempSync(join(tmpdir(), "sl-stopfail-"));
+  const work = join(home, "work");
+  const { mkdirSync } = await import("node:fs");
+  mkdirSync(work);
+  const oldHome = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    const m = new RecipeManager(
+      [
+        { id: "a", label: "A", host: "local", dir: work, start: "sleep 2", stop: "true", llm: "m", group: "g" },
+        { id: "b", label: "B", host: "local", dir: work, start: "true", stop: "true", group: "g" },
+      ],
+      [{ id: "local", label: "Local", kind: "server", local: true }],
+      join(home, "ctl"),
+    );
+    await m.update([llm("down")]);
+    assert.equal((await m.start("a")).ok, true);
+    const target = m as unknown as { exec: (...args: unknown[]) => Promise<unknown> };
+    const real = target.exec.bind(m);
+    target.exec = async () => ({ code: 255, stdout: "", stderr: "", timedOut: false });
+    assert.equal((await m.stop("a")).ok, false);
+    target.exec = real;
+    assert.equal(m.snapshots()[0]?.status, "starting");
+    assert.equal((await m.start("b")).ok, false);
+    for (let i = 0; i < 50 && m.snapshots()[0]?.status === "starting"; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      await m.update([llm("down")]);
+    }
+  } finally {
+    process.env.HOME = oldHome;
+  }
+});

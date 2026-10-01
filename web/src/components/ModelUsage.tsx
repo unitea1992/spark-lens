@@ -34,7 +34,6 @@ export function ModelUsage({ usage }: { usage: UsageSnapshot }) {
   const local = rows.filter((r) => r.local).reduce((a, r) => a + r.total, 0);
   const sum = (list: Row[]) => list.reduce((a, r) => a + (r.usd ?? 0), 0);
   const priced = rows.some((r) => r.usd !== null);
-  const unpriced = rows.filter((r) => r.usd === null).length;
   const fetched = usage.pricesFetchedAt ? new Date(usage.pricesFetchedAt).toLocaleDateString("ja-JP") : null;
 
   return (
@@ -51,7 +50,6 @@ export function ModelUsage({ usage }: { usage: UsageSnapshot }) {
                 <>
                   {" ・ "}API 換算 <strong className="usage__usd">{usd(sum(rows))}</strong>
                   {local > 0 ? `（うちローカル ${usd(sum(rows.filter((r) => r.local)))}）` : ""}
-                  {unpriced > 0 ? `・料金不明 ${unpriced} 件を除く` : ""}
                 </>
               )}
             </>
@@ -98,7 +96,8 @@ export function ModelUsage({ usage }: { usage: UsageSnapshot }) {
           </h4>
           <ul>
             <li>同じトークン数を API 料金で使った場合の目安です。</li>
-            <li>ローカルモデルは同じモデルの API 料金で換算し、料金がないものは「料金不明」とします。</li>
+            <li>ローカルモデルは、同じモデルの API 料金で換算します。</li>
+            <li>料金がないモデルは「料金不明」とし、合計に含めません。</li>
             <li>Codex は合計しか分からないため、入力料金で計算した上限（「約」）です。</li>
             <li>キャッシュ書き込みは入力として数えているため、全体として概算です。</li>
           </ul>

@@ -278,10 +278,13 @@ export class UsageCollector {
         const [d0, d7, d30] = await Promise.all(
           ["0", String(WEEK_DAYS), String(MONTH_DAYS)].map((d) => run(this.opencodeBin!, ["stats", "--days", d, "--json", "--models"], { timeoutMs: 15_000 })),
         );
+        const localIds = new Set(this.llms.map((l) => l.model?.toLowerCase()).filter((id): id is string => Boolean(id)));
         const add2 = (list: ModelUsage[], stdout: string) => {
           // OpenCode lists a model once per reasoning variant; show it once.
           const byModel = new Map<string, ModelUsage>();
           for (const m of parseOpencodeStats(stdout)) {
+            // A local model used through OpenCode is already counted by the model's own row.
+            if (localIds.has(m.model.toLowerCase())) continue;
             const total = m.input + m.output + m.cached;
             if (total <= 0) continue;
             const cur = byModel.get(m.model);

@@ -382,6 +382,11 @@ export class RecipeManager {
     this.actions.set(id, action);
     const res = await this.exec(this.hosts.get(r.host)!, stopScript(r, launcher), 300_000);
     const ok = res.code === 0 && !res.timedOut;
+    if (!ok && current && current.finishedAt === null && current.kind === "start") {
+      // The launcher may still be running; keep following it rather than freeing its machines.
+      this.actions.set(id, current);
+      return { ok: false, message: res.timedOut ? "停止処理がタイムアウトしました" : `停止に失敗しました（終了コード ${res.code}）` };
+    }
     Object.assign(action, {
       finishedAt: Date.now(),
       ok,
