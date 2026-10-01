@@ -101,3 +101,33 @@ test("a failing launcher is reported as failed", async () => {
     process.env.HOME = oldHome;
   }
 });
+
+test("switching stops the recipe holding the machines, then starts the requested one", async () => {
+  const home = mkdtempSync(join(tmpdir(), "sl-recipe-"));
+  const marks = join(home, "marks");
+  const oldHome = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    const m = new RecipeManager(
+      [
+        { id: "a", label: "A", host: "local", dir: home, start: `echo start-a >> ${marks}`, stop: `echo stop-a >> ${marks}`, llm: "ma", group: "g" },
+        { id: "b", label: "B", host: "local", dir: home, start: `echo start-b >> ${marks}`, stop: `echo stop-b >> ${marks}`, llm: "mb", group: "g" },
+      ],
+      [{ id: "local", label: "Local", kind: "server", local: true }],
+      join(home, "ctl"),
+    );
+    await m.update([{ id: "ma", state: "up" } as LlmSnapshot, { id: "mb", state: "down" } as LlmSnapshot]);
+    assert.equal(m.snapshots()[1]?.blockedBy, "A");
+    const res = await m.switchTo("b");
+    assert.equal(res.ok, true);
+    for (let i = 0; i < 40; i++) {
+      const { readFileSync, existsSync } = await import("node:fs");
+      if (existsSync(marks) && readFileSync(marks, "utf8").includes("start-b")) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    const { readFileSync } = await import("node:fs");
+    assert.deepEqual(readFileSync(marks, "utf8").trim().split("\n"), ["stop-a", "start-b"]);
+  } finally {
+    process.env.HOME = oldHome;
+  }
+});

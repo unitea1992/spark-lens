@@ -114,6 +114,7 @@ function parseLlm(raw: unknown, i: number, hostIds: Set<string>): LlmConfig {
     containers: stringList(o.containers, `${where}.containers`) ?? [],
     apiKeyEnv: optString(o.apiKeyEnv, `${where}.apiKeyEnv`),
     engine: parseEngine(o.engine, `${where}.engine`),
+    model: optString(o.model, `${where}.model`),
   };
 }
 

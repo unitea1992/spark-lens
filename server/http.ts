@@ -54,6 +54,7 @@ export interface RecipeActions {
   logs(id: string, source: "launcher" | "server"): Promise<{ ok: boolean; text: string }>;
   check(id: string): Promise<{ ok: boolean; message: string }>;
   update(id: string): Promise<{ ok: boolean; message: string }>;
+  switchTo(id: string): Promise<{ ok: boolean; message: string }>;
 }
 
 export interface HttpOptions {
@@ -67,7 +68,7 @@ export interface HttpOptions {
   changed?: () => void;
 }
 
-const RECIPE_ROUTE = /^\/api\/recipes\/([a-z0-9][a-z0-9-]*)\/(start|stop|logs|check|update)$/;
+const RECIPE_ROUTE = /^\/api\/recipes\/([a-z0-9][a-z0-9-]*)\/(start|stop|logs|check|update|switch)$/;
 
 /**
  * Requests that change something must carry this header. A browser only sends
@@ -76,7 +77,7 @@ const RECIPE_ROUTE = /^\/api\/recipes\/([a-z0-9][a-z0-9-]*)\/(start|stop|logs|ch
  */
 export const ACTION_HEADER = "x-spark-lens";
 
-type RecipeOp = "start" | "stop" | "logs" | "check" | "update";
+type RecipeOp = "start" | "stop" | "logs" | "check" | "update" | "switch";
 
 export class HttpServer {
   private readonly server: Server;
@@ -170,7 +171,16 @@ export class HttpServer {
         return json(200, await actions.logs(id, source));
       }
       // Answer as soon as the action is accepted; progress arrives over the stream.
-      const result = op === "start" ? actions.start(id) : op === "stop" ? actions.stop(id) : op === "check" ? actions.check(id) : actions.update(id);
+      const result =
+        op === "start"
+          ? actions.start(id)
+          : op === "stop"
+            ? actions.stop(id)
+            : op === "check"
+              ? actions.check(id)
+              : op === "switch"
+                ? actions.switchTo(id)
+                : actions.update(id);
       this.opts.changed?.();
       const done = await Promise.race([result, new Promise<null>((r) => setTimeout(() => r(null), 1500))]);
       void result.finally(() => this.opts.changed?.());
@@ -179,6 +189,7 @@ export class HttpServer {
         stop: "停止しています",
         check: "確認しています",
         update: "更新しています",
+        switch: "切り替えています",
       };
       return json(done && !done.ok ? 409 : 202, done ?? { ok: true, message: pending[op] });
     } catch {

@@ -139,17 +139,22 @@ export class LlmCollector {
       const health = await this.get(state, cheapHealth ? "/health" : "/v1/models", !cheapHealth);
       const latencyMs = Math.round(performance.now() - started);
 
-      if (!health || health.status !== 200) {
-        const running = containers.filter((c) => c.state === "running").length;
+      // Not answering, or answering as some other model that shares the port.
+      const markDown = (other: string | null) => {
+        // The same container name may run on every node, so count machines.
+        const nodes = new Set(containers.filter((c) => c.state === "running").map((c) => c.host));
+        const running = nodes.size;
         const starting = running > 0;
         state.snapshot = {
           ...state.snapshot,
           state: starting ? "starting" : "down",
           detail: starting
-            ? `コンテナ ${running}/${wanted.size} 起動済み・モデル読み込み中`
-            : health
-              ? `応答異常（HTTP ${health.status}）`
-              : "停止中",
+            ? `${running}/${Math.max(nodeIds.size, running)} 台でコンテナが起動済み`
+            : other
+              ? `このポートでは ${other} が動いています`
+              : health && health.status !== 200
+                ? `応答異常（HTTP ${health.status}）`
+                : "停止中",
           upSince: null,
           latencyMs: null,
           requestsRunning: null,
@@ -165,6 +170,10 @@ export class LlmCollector {
         if (!config.engine || config.engine === "auto") state.engine = null;
         push(state.snapshot.history.genTps, null);
         push(state.snapshot.history.running, null);
+      };
+
+      if (!health || health.status !== 200) {
+        markDown(null);
         return;
       }
 
@@ -194,6 +203,10 @@ export class LlmCollector {
         } catch {
           // A plain-text /health.
         }
+      }
+      if (config.model && modelsRes?.status === 200 && !models.includes(config.model)) {
+        markDown(models[0] ?? "別のモデル");
+        return;
       }
       const metricsText = metricsRes?.status === 200 ? await metricsRes.text() : null;
       if (!state.engine) state.engine = engineFromOwner(owner) ?? (metricsText ? engineFromMetrics(metricsText) : null);

@@ -3,7 +3,7 @@ import type { RecipeSnapshot } from "../../../server/types.ts";
 import { ago, shortDate } from "../format.ts";
 import type { UpstreamStatus } from "../../../server/types.ts";
 
-async function act(id: string, op: "start" | "stop" | "check" | "update"): Promise<string> {
+export async function act(id: string, op: "start" | "stop" | "check" | "update" | "switch"): Promise<string> {
   try {
     const res = await fetch(`/api/recipes/${id}/${op}`, { method: "POST", headers: { "X-Spark-Lens": "1" } });
     const body = (await res.json()) as { message?: string };
@@ -15,7 +15,7 @@ async function act(id: string, op: "start" | "stop" | "check" | "update"): Promi
 
 type Source = "launcher" | "server";
 
-function LogViewer({ id, hasServerLog, live }: { id: string; hasServerLog: boolean; live: boolean }) {
+export function LogViewer({ id, hasServerLog, live }: { id: string; hasServerLog: boolean; live: boolean }) {
   const [source, setSource] = useState<Source>("launcher");
   const [text, setText] = useState("読み込み中…");
   const pre = useRef<HTMLPreElement>(null);
@@ -168,9 +168,10 @@ export function RecipeControls({ recipe, now, showName }: { recipe: RecipeSnapsh
     if (op === "start" || op === "update") setShowLogs(true);
   };
 
+  // While starting, the progress bar says it all.
   const reason =
     recipe.status === "starting"
-      ? "起動処理中です"
+      ? null
       : recipe.status === "stopping"
         ? "停止処理中です"
         : recipe.status === "updating"

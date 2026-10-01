@@ -3132,3 +3132,199 @@ section {
     font-size: 28px;
   }
 }
+
+/* --------------------------------------------------------- recipe list */
+
+.rlist {
+  padding: 4px 24px;
+  gap: 0;
+}
+
+.rrow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+}
+
+.rrow:first-child {
+  border-top: 0;
+}
+
+.rrow__main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  min-width: 0;
+}
+
+.rrow__name {
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.rrow__meta {
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+
+.rrow__up {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.rrow__up--accent {
+  color: var(--series-1);
+  font-weight: 600;
+}
+
+.rrow__up--warn {
+  color: var(--warn);
+}
+
+.rrow__actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.rrow__confirm {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.rrow__notice,
+.rrow > .logs {
+  grid-column: 1 / -1;
+}
+
+.rrow__notice {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.rrow__notice--bad {
+  color: var(--critical);
+}
+
+.link-button:disabled {
+  color: var(--ink-3);
+  cursor: not-allowed;
+}
+
+.cluster__more {
+  padding: 0 6px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+@media (max-width: 720px) {
+  .rlist {
+    padding: 2px 16px;
+  }
+
+  .rrow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rrow__actions {
+    justify-content: flex-end;
+  }
+}
+
+/* ------------------------------------------------------- start progress */
+
+.startbar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.startbar__line {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.startbar__stage {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.startbar__pct {
+  font-family: var(--font-figure);
+  font-size: 26px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.startbar__track {
+  position: relative;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--track);
+  overflow: hidden;
+}
+
+.startbar__fill {
+  height: 100%;
+  border-radius: 4px;
+  background:
+    linear-gradient(90deg, transparent 0, color-mix(in srgb, white 45%, transparent) 50%, transparent 100%) 0 0 / 120px 100% no-repeat,
+    var(--series-1);
+  transition: width 1s ease;
+}
+
+.startbar__track--unknown .startbar__fill {
+  width: 30%;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .startbar__fill {
+    animation: startbar-sheen 1.6s linear infinite;
+  }
+
+  .startbar__track--unknown .startbar__fill {
+    animation: startbar-sweep 1.4s ease-in-out infinite;
+  }
+}
+
+@keyframes startbar-sheen {
+  from {
+    background-position: -120px 0, 0 0;
+  }
+  to {
+    background-position: calc(100% + 120px) 0, 0 0;
+  }
+}
+
+@keyframes startbar-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(340%);
+  }
+}
+
+.startbar__time {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* In the schematic, a starting model's rail fills as it loads. */
+.band--starting .band__rail {
+  background:
+    linear-gradient(90deg, var(--warn) 0 var(--progress, 0%), transparent var(--progress, 0%)),
+    repeating-linear-gradient(90deg, color-mix(in srgb, var(--warn) 45%, transparent) 0 8px, transparent 8px 14px);
+}

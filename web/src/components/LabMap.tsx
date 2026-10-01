@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import type { HostSnapshot, LlmSnapshot, Snapshot } from "../../../server/types.ts";
+import type { HostSnapshot, LlmSnapshot, RecipeSnapshot, Snapshot } from "../../../server/types.ts";
 import { ago, pct, rate, ratioPct } from "../format.ts";
 import { hostStatus, llmStatus } from "../status.ts";
 import { layout } from "../lab.ts";
@@ -92,13 +92,17 @@ function Fabric({ a, b }: { a: HostSnapshot; b: HostSnapshot }) {
   );
 }
 
-function Band({ llm, now }: { llm: LlmSnapshot; now: number }) {
+function Band({ llm, now, progress }: { llm: LlmSnapshot; now: number; progress: RecipeSnapshot["progress"] }) {
   const st = llmStatus(llm);
   const running = (llm.requestsRunning ?? 0) > 0;
   const kind = llm.state === "down" ? "down" : llm.state === "starting" ? "starting" : running ? "busy" : "idle";
   return (
     <div className={`band band--${kind}`}>
-      <span className="band__rail" aria-hidden="true" />
+      <span
+        className="band__rail"
+        aria-hidden="true"
+        style={kind === "starting" && progress ? ({ "--progress": `${progress.pct}%` } as CSSProperties) : undefined}
+      />
       <div className="band__row">
       <span className="band__name">{llm.label}</span>
       <span className="band__state">{st.text}</span>
@@ -109,6 +113,11 @@ function Band({ llm, now }: { llm: LlmSnapshot; now: number }) {
           </span>
         )}
         {kind === "idle" && llm.lastActiveAt !== null && <span>最後の推論 {ago(llm.lastActiveAt, now)}</span>}
+        {kind === "starting" && progress && (
+          <span>
+            <strong>{progress.pct}%</strong>・{progress.stage}
+          </span>
+        )}
         {(kind === "busy" || kind === "idle") && (
           <>
             <span>
@@ -160,9 +169,16 @@ export function LabMap({ snapshot, now }: { snapshot: Snapshot; now: number }) {
               </div>
               {c.llms.length > 0 && (
                 <div className="cluster__bands">
-                  {c.llms.map((l) => (
-                    <Band key={l.id} llm={l} now={now} />
-                  ))}
+                  {c.llms
+                    .filter((l, i) => l.state !== "down" || (i === 0 && c.llms.every((x) => x.state === "down")))
+                    .map((l) => (
+                      <Band key={l.id} llm={l} now={now} progress={snapshot.recipes.find((r) => r.llm === l.id && r.progress)?.progress ?? null} />
+                    ))}
+                  {c.llms.filter((l) => l.state === "down").length > (c.llms.every((x) => x.state === "down") ? 1 : 0) && (
+                    <p className="cluster__more">
+                      ほか {c.llms.filter((l) => l.state === "down").length - (c.llms.every((x) => x.state === "down") ? 1 : 0)} モデルは停止中
+                    </p>
+                  )}
                 </div>
               )}
             </div>

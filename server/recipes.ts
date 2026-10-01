@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { run } from "./exec.ts";
 import { shDir, shq } from "./recipes-shell.ts";
 import { checkScript, parseCheck, pullScript } from "./upstream.ts";
+import { parseProgress, startedAt, type StartProgress } from "./progress.ts";
 import type { HostConfig, LlmSnapshot, RecipeConfig, RecipeSnapshot, UpstreamStatus } from "./types.ts";
 
 // Starting, stopping and reading the logs of model "recipes" — upstream
@@ -85,9 +86,17 @@ export class RecipeManager {
   private readonly controlDir: string;
   private readonly actions = new Map<string, Action>();
   private readonly upstream = new Map<string, UpstreamStatus>();
+  private readonly progress = new Map<string, StartProgress & { startedAt: number | null }>();
+  private readonly durations: { get(id: string): number | null; set(id: string, sec: number): void } | null;
   private llms: LlmSnapshot[] = [];
 
-  constructor(recipes: RecipeConfig[], hosts: HostConfig[], controlDir: string) {
+  constructor(
+    recipes: RecipeConfig[],
+    hosts: HostConfig[],
+    controlDir: string,
+    durations: { get(id: string): number | null; set(id: string, sec: number): void } | null = null,
+  ) {
+    this.durations = durations;
     this.recipes = recipes;
     this.hosts = new Map(hosts.map((h) => [h.id, h]));
     this.controlDir = controlDir;
@@ -153,6 +162,19 @@ export class RecipeManager {
         hasServerLog: Boolean(r.logs),
         blockedBy: blocker?.label ?? null,
         upstream: this.upstream.get(r.id) ?? null,
+        progress: (() => {
+          if (status !== "starting") return null;
+          const p = this.progress.get(r.id);
+          const own = a?.kind === "start" && a.finishedAt === null ? a.startedAt : null;
+          const since = own ?? p?.startedAt ?? null;
+          if (since === null) return null;
+          return {
+            pct: p?.pct ?? 3,
+            stage: p?.stage ?? "準備しています",
+            startedAt: since,
+            expectedSec: this.durations?.get(r.id) ?? null,
+          };
+        })(),
         canUpdate: !inFlight && (this.upstream.get(r.id)?.state === "behind"),
         lastAction: a ? { kind: a.kind, startedAt: a.startedAt, finishedAt: a.finishedAt, ok: a.ok, message: a.message } : null,
       };
@@ -165,15 +187,31 @@ export class RecipeManager {
     await Promise.all(
       this.recipes.map(async (r) => {
         const a = this.actions.get(r.id);
-        if (!a || a.finishedAt !== null || a.kind !== "start") return;
+        if (!a || a.finishedAt !== null || a.kind !== "start") {
+          // Started elsewhere, or before this dashboard restarted: follow the log anyway.
+          if (this.llmState(r) === "starting") {
+            const res = await this.exec(this.hosts.get(r.host)!, `tail -n 400 "${logPath(r.id)}" 2>/dev/null; head -n 1 "${logPath(r.id)}" 2>/dev/null`, 10_000);
+            if (res.code === 0) {
+              const text = cleanLog(res.stdout);
+              this.progress.set(r.id, { ...parseProgress(text), startedAt: startedAt(text) });
+            }
+          } else {
+            this.progress.delete(r.id);
+          }
+          return;
+        }
         // The model answering is success, even while the launcher still warms up.
         if (this.llmState(r) === "up") {
           Object.assign(a, { finishedAt: Date.now(), ok: true, message: "起動しました" });
+          this.durations?.set(r.id, (Date.now() - a.startedAt) / 1000);
+          this.progress.delete(r.id);
           return;
         }
         const host = this.hosts.get(r.host)!;
-        const res = await this.exec(host, `tail -n 3 "${logPath(r.id)}" 2>/dev/null; kill -0 ${a.pid ?? 0} 2>/dev/null && echo ALIVE`, 10_000);
+        const res = await this.exec(host, `tail -n 400 "${logPath(r.id)}" 2>/dev/null; kill -0 ${a.pid ?? 0} 2>/dev/null && echo ALIVE`, 10_000);
         if (res.code === null || res.timedOut) return;
+        const text = cleanLog(res.stdout);
+        this.progress.set(r.id, { ...parseProgress(text), startedAt: null });
         if (res.stdout.includes("ALIVE")) return;
         const exit = /=== spark-lens: exit (\d+)/.exec(res.stdout);
         const code = exit ? Number(exit[1]) : null;
@@ -224,6 +262,26 @@ export class RecipeManager {
       message: ok ? "停止しました" : res.timedOut ? "停止処理がタイムアウトしました" : `停止に失敗しました（終了コード ${res.code}）`,
     });
     return { ok, message: action.message! };
+  }
+
+  /**
+   * Make this recipe the one running on its machines: stop whichever recipe
+   * of the same group is running, then start this one.
+   */
+  async switchTo(id: string): Promise<{ ok: boolean; message: string }> {
+    const r = this.recipes.find((x) => x.id === id);
+    if (!r) return { ok: false, message: "レシピが見つかりません" };
+    const current = this.actions.get(id);
+    if (current && current.finishedAt === null) return { ok: false, message: "ほかの操作が進行中です" };
+    const other = this.blocker(r);
+    if (other) {
+      const stopped = await this.stop(other.id);
+      if (!stopped.ok) return { ok: false, message: `${other.label} を停止できませんでした` };
+      // Seen as stopped from here on, without waiting for the next poll.
+      if (other.llm) this.llms = this.llms.map((l) => (l.id === other.llm ? { ...l, state: "down" } : l));
+    }
+    const started = await this.start(id);
+    return started.ok ? { ok: true, message: other ? `${other.label} を停止し、起動しています` : started.message } : started;
   }
 
   /** Fetch and compare one recipe's checkout with its upstream. */

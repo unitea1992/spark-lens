@@ -4,6 +4,7 @@ import { llmStatus } from "../status.ts";
 import { levelFor, Meter } from "./Meter.tsx";
 import { RecipeControls } from "./RecipeCard.tsx";
 import { Sparkline } from "./Sparkline.tsx";
+import { StartProgress } from "./StartProgress.tsx";
 import { StatusPill } from "./StatusPill.tsx";
 
 function rate(v: number | null | undefined): string {
@@ -29,7 +30,9 @@ export function LlmPanel({
   recipes: RecipeSnapshot[];
   now: number;
 }) {
-  const st = llmStatus(llm);
+  // A start the dashboard is running counts as starting before the server answers.
+  const launching = recipes.some((r) => r.status === "starting" || r.status === "updating");
+  const st = launching && llm.state === "down" ? { tone: "warn" as const, text: "起動中" } : llmStatus(llm);
   const up = llm.state === "up";
   const running = (llm.requestsRunning ?? 0) > 0;
   const kv = llm.kvCacheUsage === null ? null : llm.kvCacheUsage * 100;
@@ -55,8 +58,10 @@ export function LlmPanel({
         ))}
       </header>
 
-      {llm.state === "starting" && <p className="notice notice--warn">モデルを読み込んでいます。完了すると表示が自動で切り替わります。</p>}
-      {llm.detail && llm.state !== "down" && <p className="notice notice--warn">{llm.detail}</p>}
+      {(llm.state === "starting" || recipes.some((r) => r.progress)) && (
+        <StartProgress progress={recipes.find((r) => r.progress)?.progress ?? null} now={now} />
+      )}
+      {llm.detail && llm.state === "up" && <p className="notice notice--warn">{llm.detail}</p>}
 
       {up && (
         <>
@@ -124,7 +129,7 @@ export function LlmPanel({
         </>
       )}
 
-      {llm.state === "down" && (
+      {llm.state === "down" && !launching && (
         <p className="model__down">
           停止中です。{recipes.some((r) => r.canStart) ? "「起動する」で立ち上げられます。" : ""}
           {llm.tokensToday.generation > 0 ? ` 今日の出力 ${count(llm.tokensToday.generation)} トークン。` : ""}

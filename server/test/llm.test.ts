@@ -163,3 +163,37 @@ test("a stopped endpoint on an unreachable host reads as down, not starting", as
   await llm.poll([host(true)]);
   assert.equal(llm.snapshots()[0]?.state, "starting");
 });
+
+test("a model sharing its port with another reads as down while the other is served", async () => {
+  const { createServer } = await import("node:http");
+  const { LlmCollector } = await import("../collectors/llm.ts");
+  const { Store } = await import("../store.ts");
+  const { mkdtempSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const server = createServer((req, res) => {
+    if (req.url === "/health") return void res.end("");
+    if (req.url === "/v1/models") return void res.end(JSON.stringify({ data: [{ id: "glm", owned_by: "vllm" }] }));
+    res.end("vllm:num_requests_running 0\n");
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+  const port = (server.address() as { port: number }).port;
+  try {
+    const store = new Store(mkdtempSync(join(tmpdir(), "sl-store-")));
+    const llm = new LlmCollector(
+      [
+        { id: "glm", label: "GLM", baseUrl: `http://127.0.0.1:${port}`, model: "glm", engine: "vllm" },
+        { id: "qwen", label: "Qwen", baseUrl: `http://127.0.0.1:${port}`, model: "qwen", engine: "vllm" },
+      ],
+      store,
+      5,
+    );
+    await llm.poll([]);
+    const [glm, qwen] = llm.snapshots();
+    assert.equal(glm?.state, "up");
+    assert.equal(qwen?.state, "down");
+    assert.match(qwen?.detail ?? "", /glm/);
+  } finally {
+    server.close();
+  }
+});

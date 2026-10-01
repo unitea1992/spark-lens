@@ -26,6 +26,11 @@ export interface LlmConfig {
   containers?: string[];
   /** Name of an environment variable holding the bearer token, if the server needs one. */
   apiKeyEnv?: string;
+  /**
+   * Model id the server must report in /v1/models. Needed when several
+   * recipes share one port: only the one actually served counts as up.
+   */
+  model?: string;
   /** Inference engine; "auto" (default) detects it from the server's responses. */
   engine?: "auto" | "vllm" | "sglang" | "tensorfold";
 }
@@ -339,6 +344,8 @@ export interface RecipeSnapshot {
   blockedBy: string | null;
   upstream: UpstreamStatus | null;
   canUpdate: boolean;
+  /** While starting: how far it has got, and how long the last good start took. */
+  progress: { pct: number; stage: string; startedAt: number; expectedSec: number | null } | null;
   lastAction: { kind: "start" | "stop" | "update"; startedAt: number; finishedAt: number | null; ok: boolean | null; message: string | null } | null;
 }
 

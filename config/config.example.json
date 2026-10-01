@@ -37,7 +37,8 @@
       "containers": [
         "glm53-exl3-head",
         "glm53-exl3-worker"
-      ]
+      ],
+      "model": "GLM-5.3-Flash-EXL3"
     }
   ],
   "subscriptions": [

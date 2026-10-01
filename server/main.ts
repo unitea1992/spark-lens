@@ -38,7 +38,10 @@ async function main(): Promise<void> {
   });
   const agents = new AgentCollector(config.agents.processes);
   const usage = new UsageCollector(config.llms, store);
-  const recipes = new RecipeManager(config.recipes, config.hosts, runtimeDir);
+  const recipes = new RecipeManager(config.recipes, config.hosts, runtimeDir, {
+    get: (id) => store.startSeconds(id),
+    set: (id, sec) => store.setStartSeconds(id, sec),
+  });
 
   const snapshot = (): Snapshot => ({
     generatedAt: Date.now(),
@@ -69,6 +72,7 @@ async function main(): Promise<void> {
               return up ? { ok: up.state !== "error", message: up.state === "behind" ? `${up.behind} 件の更新があります` : up.message ?? "確認しました" } : { ok: false, message: "レシピが見つかりません" };
             },
             update: (id) => recipes.updateRecipe(id),
+            switchTo: (id) => recipes.switchTo(id),
           }
         : undefined,
     changed: () => http.broadcast(),

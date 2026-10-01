@@ -13,6 +13,8 @@ interface StateFile {
   tokens: Record<string, Record<string, DayTotals>>;
   /** Last subscription readings, so a restart does not hit the usage APIs at once. */
   subscriptions?: Record<string, SubscriptionSnapshot>;
+  /** Seconds the last successful start of each recipe took. */
+  startSeconds?: Record<string, number>;
 }
 
 const KEEP_DAYS = 60;
@@ -58,6 +60,15 @@ export class Store {
 
   setSubscriptions(snapshots: Record<string, SubscriptionSnapshot>): void {
     this.state.subscriptions = snapshots;
+    this.dirty = true;
+  }
+
+  startSeconds(id: string): number | null {
+    return this.state.startSeconds?.[id] ?? null;
+  }
+
+  setStartSeconds(id: string, seconds: number): void {
+    (this.state.startSeconds ??= {})[id] = Math.round(seconds);
     this.dirty = true;
   }
 
