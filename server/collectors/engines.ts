@@ -142,6 +142,35 @@ function tensorfold(p: Prom): MetricsSample {
   };
 }
 
+/**
+ * TensorFold builds without /metrics still keep running totals in /health.
+ * Only counters and the running count are there: no queue, KV or TTFT.
+ */
+export function metricsFromTensorfoldHealth(body: unknown): MetricsSample | null {
+  if (body === null || typeof body !== "object") return null;
+  const h = body as Record<string, unknown>;
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const generationTokens = num(h.completion_tokens_total);
+  if (generationTokens === null) return null;
+  return {
+    running: num(h.requests_running),
+    waiting: null,
+    kvUsage: null,
+    promptTokens: num(h.prompt_tokens_total),
+    generationTokens,
+    ttftSum: null,
+    ttftCount: null,
+    prefixHits: null,
+    prefixQueries: null,
+    requests: null,
+    draftTokens: null,
+    acceptedTokens: null,
+    drafts: null,
+    acceptRateGauge: null,
+    acceptLengthGauge: null,
+  };
+}
+
 const ADAPTERS: Record<Engine, (p: Prom) => MetricsSample> = { vllm, sglang, tensorfold };
 
 export function parseMetrics(text: string, engine: Engine): MetricsSample {

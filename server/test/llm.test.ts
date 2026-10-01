@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { engineFromMetrics, engineFromOwner, parseProm } from "../collectors/engines.ts";
+import { engineFromMetrics, engineFromOwner, metricsFromTensorfoldHealth, parseProm } from "../collectors/engines.ts";
 import { counterDelta, parseMetrics, specStats } from "../collectors/llm.ts";
 
 const METRICS = `# HELP vllm:num_requests_running Number of requests currently running.
@@ -232,4 +232,23 @@ test("two recipes serving the same model name are told apart by their containers
   } finally {
     server.close();
   }
+});
+
+test("TensorFold without /metrics: counters come from /health", () => {
+  const m = metricsFromTensorfoldHealth({
+    ok: true,
+    backend: "tensorfold",
+    busy: true,
+    requests_running: 1,
+    prompt_tokens_total: 18962,
+    completion_tokens_total: 3594,
+    prefill_seconds_total: 11.58,
+    context_length: 262144,
+  });
+  assert.equal(m?.running, 1);
+  assert.equal(m?.promptTokens, 18962);
+  assert.equal(m?.generationTokens, 3594);
+  assert.equal(m?.kvUsage, null);
+  // An older /health with no counters is not a reading.
+  assert.equal(metricsFromTensorfoldHealth({ ok: true, context_length: 262144 }), null);
 });

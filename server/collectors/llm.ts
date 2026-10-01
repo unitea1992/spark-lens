@@ -1,6 +1,6 @@
 import type { Store } from "../store.ts";
 import type { HostSnapshot, LlmConfig, LlmSnapshot, SpecStats } from "../types.ts";
-import { ENGINE_LABELS, engineFromMetrics, engineFromOwner, parseMetrics, type Engine, type MetricsSample } from "./engines.ts";
+import { ENGINE_LABELS, engineFromMetrics, engineFromOwner, metricsFromTensorfoldHealth, parseMetrics, type Engine, type MetricsSample } from "./engines.ts";
 
 export { parseMetrics } from "./engines.ts";
 
@@ -198,9 +198,11 @@ export class LlmCollector {
           // Keep the previous list.
         }
       }
+      let healthBody: unknown = null;
       if (healthJson) {
         try {
-          const h = (await healthJson.json()) as { context_length?: unknown };
+          healthBody = await healthJson.json();
+          const h = healthBody as { context_length?: unknown };
           if (typeof h.context_length === "number") contextLength = h.context_length;
         } catch {
           // A plain-text /health.
@@ -221,7 +223,11 @@ export class LlmCollector {
       const engine: Engine = state.engine ?? "vllm";
 
       const now = Date.now();
-      const metrics = metricsText ? parseMetrics(metricsText, engine) : null;
+      const metrics = metricsText
+        ? parseMetrics(metricsText, engine)
+        : engine === "tensorfold"
+          ? metricsFromTensorfoldHealth(healthBody)
+          : null;
       const prev = state.prev;
       let genTps: number | null = null;
       let promptTps: number | null = null;
@@ -244,7 +250,11 @@ export class LlmCollector {
       state.snapshot = {
         ...state.snapshot,
         state: "up",
-        detail: metricsText === null ? "メトリクスを取得できません（SGLang は --enable-metrics が必要です）" : null,
+        detail: metrics
+          ? null
+          : engine === "sglang"
+            ? "メトリクスを取得できません（SGLang は --enable-metrics が必要です）"
+            : "メトリクスを取得できません",
         engine: state.engine ? ENGINE_LABELS[state.engine] : null,
         models,
         contextLength,
