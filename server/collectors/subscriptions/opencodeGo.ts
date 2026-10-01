@@ -1,6 +1,6 @@
 import { run } from "../../exec.ts";
 import type { UsageWindow } from "../../types.ts";
-import { clampPct, failed, getJson, option, parseTime, unconfigured, type Provider, type UsageReport } from "./provider.ts";
+import { clampPct, failed, getJson, httpFailure, option, parseTime, unconfigured, type Provider, type UsageReport } from "./provider.ts";
 
 const USAGE_URL = "https://opencode.ai/zen/go/v1/usage";
 const KEY_ENV = "OPENCODE_GO_API_KEY";
@@ -8,7 +8,8 @@ const KEY_ENV = "OPENCODE_GO_API_KEY";
 const WINDOWS: [string, string, number | null][] = [
   ["rolling", "5時間", 5 * 3600],
   ["weekly", "週間", 7 * 86400],
-  ["monthly", "月間", null],
+  // Calendar-month billing; 30 days is close enough for pacing.
+  ["monthly", "月間", 30 * 86400],
 ];
 
 export function parseOpencodeGoUsage(body: unknown): UsageWindow[] {
@@ -64,9 +65,7 @@ export const opencodeGo: Provider = {
     }
     const res = await getJson(USAGE_URL, { Authorization: `Bearer ${key}`, Accept: "application/json", "User-Agent": "spark-lens" });
     if (res.status === 401 || res.status === 403) return failed("stale", "API キーが無効です。opencode auth login で接続し直してください。", "Go");
-    if (res.status !== 200) {
-      return failed("error", res.status === 0 ? "opencode.ai に接続できません。" : `使用状況を取得できません（HTTP ${res.status}）。`, "Go");
-    }
+    if (res.status !== 200) return httpFailure(res.status, "opencode.ai", "Go");
     const windows = parseOpencodeGoUsage(res.body);
     if (windows.length === 0) return failed("error", "使用状況の形式を読み取れませんでした。", "Go");
     return { plan: "Go", status: "ok", message: null, windows, notes: [] };

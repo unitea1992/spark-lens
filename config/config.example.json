@@ -11,6 +11,7 @@
       "id": "glm-5-3-flash",
       "label": "GLM-5.3 Flash",
       "baseUrl": "http://spark-1:8888",
+      "engine": "vllm",
       "nodes": ["spark-1", "spark-2"],
       "containers": ["glm53-exl3-head", "glm53-exl3-worker"]
     }

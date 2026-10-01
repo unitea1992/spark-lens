@@ -6,6 +6,7 @@ import { AgentCollector, procRegex } from "./collectors/agents.ts";
 import { HostCollector } from "./collectors/hosts.ts";
 import { LlmCollector } from "./collectors/llm.ts";
 import { SubscriptionCollector } from "./collectors/subscriptions/index.ts";
+import { UsageCollector } from "./collectors/usage.ts";
 import { loadConfig, stateDir } from "./config.ts";
 import { HttpServer } from "./http.ts";
 import { Store } from "./store.ts";
@@ -30,8 +31,12 @@ async function main(): Promise<void> {
     runtimeDir,
   });
   const llms = new LlmCollector(config.llms, store, config.pollSeconds);
-  const subscriptions = new SubscriptionCollector(config.subscriptions);
+  const subscriptions = new SubscriptionCollector(config.subscriptions, {
+    intervalSec: config.subscriptionPollSeconds,
+    cache: { load: () => store.subscriptions(), save: (s) => store.setSubscriptions(s) },
+  });
   const agents = new AgentCollector(config.agents.processes);
+  const usage = new UsageCollector(config.llms, store);
 
   const snapshot = (): Snapshot => ({
     generatedAt: Date.now(),
@@ -41,6 +46,7 @@ async function main(): Promise<void> {
     llms: llms.snapshots(),
     subscriptions: subscriptions.snapshots(),
     agents: agents.snapshots(),
+    usage: usage.snapshot(),
   });
 
   const http = new HttpServer({
@@ -73,6 +79,13 @@ async function main(): Promise<void> {
     }
   };
 
+  const pollUsage = () => {
+    usage.poll().then(
+      () => http.broadcast(),
+      (err: Error) => log(`usage poll failed: ${err.message}`),
+    );
+  };
+
   const pollSubscriptions = () => {
     subscriptions.poll().then(
       () => http.broadcast(),
@@ -85,9 +98,12 @@ async function main(): Promise<void> {
 
   void tick();
   pollSubscriptions();
+  pollUsage();
   const timers = [
+    setInterval(pollUsage, 60_000),
     setInterval(tick, config.pollSeconds * 1000),
-    setInterval(pollSubscriptions, config.subscriptionPollSeconds * 1000),
+    // Each service has its own schedule (and back-off); this only checks who is due.
+    setInterval(pollSubscriptions, 30_000),
     setInterval(() => {
       try {
         store.flush();

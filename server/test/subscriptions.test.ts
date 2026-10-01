@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseClaudeUsage } from "../collectors/subscriptions/claudeCode.ts";
-import { parseCodexUsage } from "../collectors/subscriptions/codex.ts";
+import { parseCodexResets, parseCodexUsage } from "../collectors/subscriptions/codex.ts";
 import { parseCommandReport } from "../collectors/subscriptions/command.ts";
 import { SubscriptionCollector } from "../collectors/subscriptions/index.ts";
 import { parseOpencodeGoUsage } from "../collectors/subscriptions/opencodeGo.ts";
@@ -56,7 +56,7 @@ test("Codex: reads both windows, the plan and extras", () => {
   assert.deepEqual(windows.map((w) => [w.label, w.usedPct]), [["5時間", 0], ["週間", 21]]);
   // Seconds since the epoch become milliseconds.
   assert.equal(windows[0]?.resetsAt, 1790803468000);
-  assert.deepEqual(notes, ["リセット券 3 枚"]);
+  assert.deepEqual(notes, []);
 });
 
 test("Codex: tolerates a plan without a secondary window", () => {
@@ -114,7 +114,7 @@ const OK: UsageReport = {
 test("collector keeps the last good numbers through a failed poll", async () => {
   const collector = new SubscriptionCollector(
     [{ type: "fake" }],
-    [fake([OK, { plan: null, status: "error", message: "down", windows: [], notes: [] }])],
+    { providers: [fake([OK, { plan: null, status: "error", message: "down", windows: [], notes: [] }])], intervalSec: 0 },
   );
   await collector.poll();
   const first = collector.snapshots()[0]!;
@@ -137,7 +137,7 @@ test("collector reports an unknown type and survives a throwing provider", async
       throw new Error("Authorization: Bearer secret-token");
     },
   };
-  const collector = new SubscriptionCollector([{ type: "nope" }, { type: "boom" }, { type: "boom" }], [boom]);
+  const collector = new SubscriptionCollector([{ type: "nope" }, { type: "boom" }, { type: "boom" }], { providers: [boom] });
   await collector.poll();
   const [unknown, b1, b2] = collector.snapshots();
   assert.equal(unknown?.status, "error");
@@ -146,4 +146,52 @@ test("collector reports an unknown type and survives a throwing provider", async
   // The thrown text must not reach the client.
   assert.doesNotMatch(JSON.stringify(collector.snapshots()), /secret-token/);
   assert.deepEqual([b1?.id, b2?.id], ["boom", "boom-2"]);
+});
+
+test("Codex: lists usable reset tickets, soonest expiry first", () => {
+  const tickets = parseCodexResets({
+    credits: [
+      { status: "available", is_supported_by_plan: true, title: "Full reset (Weekly + 5 hr)", expires_at: "2026-10-22T20:15:30Z" },
+      { status: "redeemed", title: "Full reset (Weekly + 5 hr)", expires_at: "2026-10-01T00:00:00Z" },
+      { status: "available", is_supported_by_plan: true, title: "Full reset (Weekly + 5 hr)", expires_at: "2026-10-04T23:46:14Z" },
+      { status: "available", is_supported_by_plan: false, title: "Other", expires_at: null },
+    ],
+  });
+  assert.deepEqual(tickets.map((t) => t.expiresAt), [Date.parse("2026-10-04T23:46:14Z"), Date.parse("2026-10-22T20:15:30Z")]);
+  assert.equal(tickets[0]?.label, "週間＋5時間の全リセット");
+  assert.deepEqual(parseCodexResets({}), []);
+});
+
+test("Claude Code: a 5-hour window that has not started is marked idle", () => {
+  const [w] = parseClaudeUsage({ limits: [{ kind: "session", group: "session", percent: 0, resets_at: null }] });
+  assert.equal(w?.idle, true);
+  assert.equal(w?.resetsAt, null);
+});
+
+test("collector waits its interval, backs off on throttling and restores from cache", async () => {
+  let calls = 0;
+  const throttled: UsageReport = { plan: null, status: "error", message: "busy", windows: [], notes: [], backoff: true };
+  const provider: Provider = {
+    type: "fake",
+    defaultLabel: "Fake",
+    fetch: async () => (calls++ === 0 ? OK : throttled),
+  };
+  let saved: Record<string, import("../types.ts").SubscriptionSnapshot> = {};
+  const cache = { load: () => saved, save: (s: typeof saved) => (saved = s) };
+  const c = new SubscriptionCollector([{ type: "fake" }], { providers: [provider], intervalSec: 300, cache });
+  const t0 = Date.now();
+  await c.poll(t0);
+  assert.equal(calls, 1);
+  await c.poll(t0 + 60_000); // not due yet
+  assert.equal(calls, 1);
+  await c.poll(t0 + 301_000);
+  assert.equal(calls, 2);
+  assert.match(c.snapshots()[0]?.message ?? "", /busy/);
+  await c.poll(t0 + 602_000); // backing off for at least ten minutes
+  assert.equal(calls, 2);
+  // A restart picks up the last good reading and does not fetch straight away.
+  const again = new SubscriptionCollector([{ type: "fake" }], { providers: [provider], intervalSec: 300, cache });
+  assert.equal(again.snapshots()[0]?.windows[0]?.usedPct, 10);
+  await again.poll();
+  assert.equal(calls, 2);
 });

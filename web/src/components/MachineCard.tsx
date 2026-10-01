@@ -1,4 +1,4 @@
-import type { HostSnapshot } from "../../../server/types.ts";
+import type { HostSnapshot, NetInfo } from "../../../server/types.ts";
 import { ago, bytes, duration, pct, rate, ratioPct, usedOfTotal } from "../format.ts";
 import { LensDial } from "./LensDial.tsx";
 import { levelFor, Meter } from "./Meter.tsx";
@@ -14,27 +14,29 @@ const KIND_LABEL: Record<HostSnapshot["kind"], string> = {
   server: "サーバー",
 };
 
-// hwmon chip names, translated to the part they sit on.
-const SENSOR_NAMES: [RegExp, string][] = [
-  [/^gpu$|^amdgpu$|^nouveau$/, "GPU"],
-  [/^(k10temp|coretemp|zenpower|cpu_thermal)$/, "CPU"],
-  [/^acpitz$/, "本体"],
-  [/^nvme$/, "SSD"],
-  [/^mlx5$/, "高速ネットワーク"],
-  [/^(r8169|igc|igb|e1000e)/, "有線 LAN"],
-  [/^(iwlwifi|mt79|ath)/, "Wi-Fi"],
-  [/^spd5118$/, "メモリ"],
-];
+function hottest(host: HostSnapshot): number {
+  return Math.max(host.gpu?.tempC ?? 0, host.cpuTempC ?? 0);
+}
 
-function sensorName(chip: string): string {
-  return SENSOR_NAMES.find(([re]) => re.test(chip))?.[1] ?? chip;
+function temp(value: number | null | undefined): string {
+  return value === null || value === undefined ? "温度不明" : `${value.toFixed(0)}℃`;
+}
+
+function clock(cur: number | null | undefined, max: number | null | undefined): string {
+  if (cur === null || cur === undefined) return "–";
+  return max ? `${Math.round(cur)} / ${Math.round(max)} MHz` : `${Math.round(cur)} MHz`;
+}
+
+/** Slowest link first, so the management port leads and fast fabric ports group together. */
+function byLinkSpeed(a: NetInfo, b: NetInfo): number {
+  return (a.speedMbps ?? Infinity) - (b.speedMbps ?? Infinity) || a.iface.localeCompare(b.iface);
 }
 
 function status(host: HostSnapshot): { tone: Tone; text: string } {
   if (!host.online) return { tone: "critical", text: "応答なし" };
-  const hottest = host.maxTemp?.tempC ?? 0;
-  if (hottest >= TEMP_CRITICAL) return { tone: "critical", text: "高温" };
-  if (hottest >= TEMP_WARN) return { tone: "warn", text: "温度高め" };
+  const hot = hottest(host);
+  if (hot >= TEMP_CRITICAL) return { tone: "critical", text: "高温" };
+  if (hot >= TEMP_WARN) return { tone: "warn", text: "温度高め" };
   return { tone: "good", text: "稼働中" };
 }
 
@@ -42,11 +44,11 @@ export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) 
   const memPct = ratioPct(host.memUsedBytes, host.memTotalBytes);
   const gpu = host.gpu;
   const isSpark = host.kind === "spark";
-  const temp = isSpark ? (gpu?.tempC ?? host.cpuTempC) : (host.cpuTempC ?? gpu?.tempC ?? null);
-  const tempSource = isSpark && gpu?.tempC !== null && gpu?.tempC !== undefined ? "GPU 温度" : "CPU 温度";
+  const centerGpu = isSpark && gpu?.tempC !== null && gpu?.tempC !== undefined;
+  const centerTemp = centerGpu ? gpu!.tempC : (host.cpuTempC ?? gpu?.tempC ?? null);
   const st = status(host);
   const running = host.containers.filter((c) => c.state === "running");
-  const links = host.net.filter((n) => n.up);
+  const links = host.net.filter((n) => n.up).sort(byLinkSpeed);
 
   return (
     <article className={`card machine${host.online ? "" : " machine--offline"}`}>
@@ -76,9 +78,9 @@ export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) 
             { key: "mem", label: "メモリ", value: memPct },
             { key: "cpu", label: "CPU", value: host.cpuPct },
           ]}
-          center={temp === null ? "–" : temp.toFixed(0)}
+          center={centerTemp === null ? "–" : centerTemp.toFixed(0)}
           unit="°C"
-          caption={tempSource}
+          caption={centerGpu ? "GPU 温度" : "CPU 温度"}
         />
         <dl className="legend">
           <div className="legend__row">
@@ -88,10 +90,7 @@ export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) 
             </dt>
             <dd>
               <strong>{pct(gpu?.utilPct)}</strong>
-              <span>
-                {gpu?.powerW !== null && gpu?.powerW !== undefined ? `${gpu.powerW.toFixed(1)} W` : "–"}
-                {gpu?.clockMhz ? `・${gpu.clockMhz} MHz` : ""}
-              </span>
+              <span>{temp(gpu?.tempC)}</span>
             </dd>
           </div>
           <div className="legend__row">
@@ -101,10 +100,7 @@ export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) 
             </dt>
             <dd>
               <strong>{pct(memPct)}</strong>
-              <span>
-                {usedOfTotal(host.memUsedBytes, host.memTotalBytes)}
-                {isSpark ? "（GPU と共用）" : ""}
-              </span>
+              <span>{usedOfTotal(host.memUsedBytes, host.memTotalBytes)}</span>
             </dd>
           </div>
           <div className="legend__row">
@@ -114,10 +110,7 @@ export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) 
             </dt>
             <dd>
               <strong>{pct(host.cpuPct)}</strong>
-              <span>
-                {host.ncpu ? `${host.ncpu} コア` : "–"}
-                {host.load ? `・負荷 ${host.load[0].toFixed(1)}` : ""}
-              </span>
+              <span>{temp(host.cpuTempC)}</span>
             </dd>
           </div>
         </dl>
@@ -153,23 +146,34 @@ export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) 
         <summary>詳細</summary>
         <dl className="facts">
           <div>
-            <dt>連続稼働</dt>
+            <dt>稼働時間</dt>
             <dd>{duration(host.uptimeSec)}</dd>
           </div>
           <div>
-            <dt>最も熱いセンサー</dt>
-            <dd>
-              {host.maxTemp ? `${sensorName(host.maxTemp.chip)} ${host.maxTemp.tempC.toFixed(0)}°C` : "–"}
-            </dd>
+            <dt>GPU 電力</dt>
+            <dd>{gpu?.powerW !== null && gpu?.powerW !== undefined ? `${gpu.powerW.toFixed(1)} W` : "–"}</dd>
           </div>
           <div>
-            <dt>CPU クロック</dt>
+            <dt>GPU クロック（上限）</dt>
+            <dd>{clock(gpu?.clockMhz, gpu?.clockMaxMhz)}</dd>
+          </div>
+          <div>
+            <dt>CPU クロック（上限）</dt>
+            <dd>{clock(host.clockMhz, host.clockMaxMhz)}</dd>
+          </div>
+          <div>
+            <dt>ロードアベレージ（1 分）</dt>
             <dd>
-              {host.clockMhz !== null && host.clockMaxMhz !== null
-                ? `${Math.round(host.clockMhz)} / ${Math.round(host.clockMaxMhz)} MHz`
-                : "–"}
+              {host.load ? host.load[0].toFixed(1) : "–"}
+              {host.ncpu ? `（${host.ncpu} コア）` : ""}
             </dd>
           </div>
+          {isSpark && (
+            <div>
+              <dt>メモリ</dt>
+              <dd>CPU と GPU で共用</dd>
+            </div>
+          )}
           <div>
             <dt>スワップ</dt>
             <dd>{host.swapTotalBytes ? `${bytes(host.swapUsedBytes)} / ${bytes(host.swapTotalBytes)}` : "なし"}</dd>

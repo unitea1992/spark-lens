@@ -3,9 +3,9 @@
 自宅・小規模のローカル AI 環境を、ブラウザ 1 画面で見渡すためのダッシュボードです。
 
 - **マシン** — 開発機と DGX Spark の GPU・メモリ・CPU・温度・ストレージ・ネットワーク・コンテナ
-- **ローカル LLM** — vLLM など OpenAI 互換サーバーの稼働状態、生成速度、処理中の件数、今日のトークン数
+- **ローカル LLM** — vLLM・SGLang・TensorFold の稼働状態、生成速度、処理中の件数、先読み（投機的デコード）の効き具合、今日のトークン数
 - **クラウド利用枠** — Claude Code・Codex・OpenCode Go の使用率とリセット時刻
-- **エージェント** — いま動いている coding agent と、その作業内容
+- **エージェント** — いま動いている coding agent と、その作業内容、モデル別のトークン利用量
 
 監視される側のマシンには何もインストールしません。Spark Lens は開発機で動き、Spark へは数秒おきに SSH で短いスクリプトを流すだけなので、Spark の GPU とメモリは推論のために空いたままです。
 
@@ -84,11 +84,16 @@ tailscale serve --bg --https=8686 http://127.0.0.1:8686
 ```
 
 - `baseUrl` — OpenAI 互換サーバーのアドレス（`/v1` は付けない）。`/health`・`/v1/models`・`/metrics` を読みます
+- `engine` — `vllm`・`sglang`・`tensorfold`。省略（`auto`）すると応答から自動で判別します。SGLang は起動時に `--enable-metrics` を付けないと速度などの数値が出ません
 - `nodes` — そのモデルが載っているマシンの `id`
 - `containers` — モデルを動かすコンテナ名。API がまだ応答しなくてもコンテナが起動していれば「起動中」と表示します
 - `apiKeyEnv` — API キーが必要なサーバーの場合、キーを入れた環境変数の名前（キー自体は設定ファイルに書きません）
 
 上の例は [GLM-5.3 Flash EXL3 on DGX Spark](https://github.com/MiaAI-Lab/GLM-5.3-Flash-EXL3-2x-DGX-Sparks) を 2 台構成で動かした場合の値です。
+
+### マシンのクロック上限
+
+CPU は `scaling_max_freq`、GPU は systemd のユニットに書かれた `nvidia-smi -lgc 最小,最大` を読み、上限を絞っている場合はその値を上限として表示します。
 
 ### クラウド利用枠（`subscriptions`）
 
@@ -101,7 +106,9 @@ tailscale serve --bg --https=8686 http://127.0.0.1:8686
 
 認証情報は各ツールが保存しているものをその都度読むだけで、Spark Lens は複製も更新もしません。ログインの期限が切れたときは、そのツールを一度起動すれば元に戻ります。
 
-バーの上の縦線は「期間がどこまで進んだか」を示します。バーが縦線より右にあれば、均等に使うペースより速く消費しています。
+バーの上の縦線は「期間がどこまで進んだか」を示します。バーが縦線より右にあれば、均等に使うペースより速く消費しています。その下には、ここまでの使い方が続いた場合に期間終了時に何 % になるか（上限に届きそうなら、あと何時間で届くか）を表示します。
+
+プラン名は、Claude Code はログイン情報（`subscriptionType` と `rateLimitTier`）、Codex は使用状況 API の `plan_type` から取得します。OpenCode Go は Go プラン専用の API なので常に「Go」です。Codex のリセット券は枚数と期限を表示します。Claude のリセット券は Claude Code のログインで読める API に含まれないため表示できません。
 
 #### ほかのサービスを足す
 
@@ -132,6 +139,8 @@ tailscale serve --bg --https=8686 http://127.0.0.1:8686
 | OpenCode | 常駐サーバーへの問い合わせ（`opencode api`） |
 | Orca | `orca worktree ps`（Orca 上で動くエージェント全般） |
 
+「モデル別の利用量」は、Claude Code（`~/.claude/projects/`）、Codex（`~/.codex/` のスレッド記録）、OpenCode（`opencode stats`）の記録と、ローカル LLM のトークン数を合わせて、今日と直近 7 日間で集計します。Codex は合計トークンしか記録していないため内訳は出ません。
+
 SSH 先のマシンでは、`claude`・`codex`・`opencode` のプロセスを検出します。ほかのプロセスも拾いたいときは規則を足します。`match` は各マシンの awk で評価されるため、POSIX 拡張正規表現の範囲で書いてください（`\d` や `(?:…)` は使えません）。
 
 ```json
@@ -159,7 +168,10 @@ SSH 先のマシンでは、`claude`・`codex`・`opencode` のプロセスを�
 pnpm dev        # サーバーを変更監視つきで起動（:8686）
 pnpm dev:web    # 画面をホットリロードで起動（API は :8686 に中継）
 pnpm check      # 型チェック・テスト・ビルド
+pnpm scan:secrets   # gitleaks（Docker）で履歴と作業ツリーの秘密情報を走査
 ```
+
+GitHub Actions でも push と pull request のたびに同じ走査を行います。
 
 ## アンインストール
 

@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { UsageWindow } from "../../types.ts";
-import { clampPct, failed, getJson, option, parseTime, unconfigured, type Provider, type UsageReport } from "./provider.ts";
+import { clampPct, failed, getJson, httpFailure, option, parseTime, unconfigured, type Provider, type UsageReport } from "./provider.ts";
 
 // Claude Code keeps its subscription login here and refreshes it itself. This
 // provider only ever reads the current access token: refreshing from a second
@@ -52,12 +52,15 @@ export function parseClaudeUsage(body: unknown): UsageWindow[] {
       const kind = typeof l.kind === "string" ? l.kind : `limit-${i}`;
       const scope = scopeName(l.scope);
       const base = LIMIT_LABELS[kind] ?? kind;
+      const resetsAt = parseTime(l.resets_at);
       windows.push({
         id: scope ? `${kind}:${scope}` : kind,
         label: scope ? `${base}（${scope}）` : base,
         usedPct: clampPct(l.percent),
-        resetsAt: parseTime(l.resets_at),
+        resetsAt,
         windowSec: kind === "session" ? 5 * 3600 : l.group === "weekly" ? 7 * 86400 : null,
+        // The 5-hour window only starts with the next message.
+        idle: resetsAt === null,
       });
     });
     return windows;
@@ -72,7 +75,8 @@ export function parseClaudeUsage(body: unknown): UsageWindow[] {
   for (const [key, label, windowSec] of named) {
     const b = o[key] as Bucket | null | undefined;
     if (!b || typeof b !== "object") continue;
-    windows.push({ id: key, label, usedPct: clampPct(b.utilization), resetsAt: parseTime(b.resets_at), windowSec });
+    const resetsAt = parseTime(b.resets_at);
+    windows.push({ id: key, label, usedPct: clampPct(b.utilization), resetsAt, windowSec, idle: resetsAt === null });
   }
   return windows;
 }
@@ -111,9 +115,7 @@ export const claudeCode: Provider = {
     if (res.status === 401 || res.status === 403) {
       return failed("stale", "ログインの有効期限が切れています。Claude Code を一度起動すると更新されます。", plan);
     }
-    if (res.status !== 200) {
-      return failed("error", res.status === 0 ? "Anthropic に接続できません。" : `使用状況を取得できません（HTTP ${res.status}）。`, plan);
-    }
+    if (res.status !== 200) return httpFailure(res.status, "Anthropic", plan);
     const windows = parseClaudeUsage(res.body);
     if (windows.length === 0) return failed("error", "使用状況の形式を読み取れませんでした。", plan);
     return { plan, status: "ok", message: null, windows, notes: extraUsageNote(res.body) };

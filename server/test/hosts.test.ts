@@ -14,7 +14,7 @@ cpu_model=Cortex-X925+Cortex-A725
 @@cpu
 cpu  449881 10969 2283299 344656881 30207 0 12433 0 0 0
 @@freq
-40000000 56160000 20
+40000000 40000000 20 56160000
 @@mem
 MemTotal:       127532364 kB
 MemAvailable:   123000000 kB
@@ -29,6 +29,8 @@ mlx5|asic|50000
 mt7925_phy0||0
 @@gpu
 nvidia|NVIDIA GB10|0|43|3.60|[N/A]|[N/A]|208|3003
+@@gpucap
+2200
 @@gpuproc
 4242|VLLM::Worker_TP0|[N/A]
 @@net
@@ -47,7 +49,9 @@ test("parses a DGX Spark probe", () => {
   assert.ok(s);
   assert.equal(s.host.hostname, "spark-1");
   assert.equal(s.cpu.length, 10);
-  assert.deepEqual(s.freq, { curKhz: 40000000, maxKhz: 56160000, cores: 20 });
+  assert.deepEqual(s.freq, { curKhz: 40000000, maxKhz: 40000000, cores: 20, hwMaxKhz: 56160000 });
+  // A persisted clock lock lowers the GPU's reported maximum.
+  assert.equal(s.gpu?.clockMaxMhz, 2200);
   assert.equal(s.mem.MemTotal, 127532364 * 1024);
   assert.equal(s.disks[0]?.mount, "/");
   // The disconnected Wi-Fi sensor reporting 0 is dropped.
@@ -96,4 +100,9 @@ test("cpuPercent measures the busy share between two readings", () => {
   assert.equal(cpuPercent(before, after), 50);
   assert.equal(cpuPercent(before, before), null);
   assert.equal(cpuPercent([], after), null);
+});
+
+test("reads the old three-field frequency line", () => {
+  const s = parseProbe("@@freq\n100 200 2\n@@end\n");
+  assert.deepEqual(s?.freq, { curKhz: 100, maxKhz: 200, cores: 2, hwMaxKhz: 200 });
 });

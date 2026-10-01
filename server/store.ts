@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { SubscriptionSnapshot } from "./types.ts";
 
 interface DayTotals {
   prompt: number;
@@ -10,6 +11,8 @@ interface StateFile {
   version: 1;
   /** llm id -> local date (YYYY-MM-DD) -> tokens counted that day */
   tokens: Record<string, Record<string, DayTotals>>;
+  /** Last subscription readings, so a restart does not hit the usage APIs at once. */
+  subscriptions?: Record<string, SubscriptionSnapshot>;
 }
 
 const KEEP_DAYS = 60;
@@ -47,6 +50,15 @@ export class Store {
 
   tokensOn(llm: string, at = new Date()): DayTotals {
     return this.state.tokens[llm]?.[localDate(at)] ?? { prompt: 0, generation: 0 };
+  }
+
+  subscriptions(): Record<string, SubscriptionSnapshot> {
+    return this.state.subscriptions ?? {};
+  }
+
+  setSubscriptions(snapshots: Record<string, SubscriptionSnapshot>): void {
+    this.state.subscriptions = snapshots;
+    this.dirty = true;
   }
 
   flush(): void {

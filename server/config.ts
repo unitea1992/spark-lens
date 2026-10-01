@@ -85,6 +85,12 @@ function parseHost(raw: unknown, i: number): HostConfig {
   return { id, label: optString(o.label, `${where}.label`) ?? id, kind, local, ssh, mounts };
 }
 
+function parseEngine(value: unknown, where: string): LlmConfig["engine"] {
+  if (value === undefined) return "auto";
+  if (value === "auto" || value === "vllm" || value === "sglang" || value === "tensorfold") return value;
+  fail(`${where} must be auto, vllm, sglang or tensorfold`);
+}
+
 function parseLlm(raw: unknown, i: number, hostIds: Set<string>): LlmConfig {
   const where = `llms[${i}]`;
   const o = asObject(raw, where);
@@ -107,6 +113,7 @@ function parseLlm(raw: unknown, i: number, hostIds: Set<string>): LlmConfig {
     nodes,
     containers: stringList(o.containers, `${where}.containers`) ?? [],
     apiKeyEnv: optString(o.apiKeyEnv, `${where}.apiKeyEnv`),
+    engine: parseEngine(o.engine, `${where}.engine`),
   };
 }
 

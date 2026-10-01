@@ -1,61 +1,11 @@
 import type { Store } from "../store.ts";
-import type { HostSnapshot, LlmConfig, LlmSnapshot } from "../types.ts";
+import type { HostSnapshot, LlmConfig, LlmSnapshot, SpecStats } from "../types.ts";
+import { ENGINE_LABELS, engineFromMetrics, engineFromOwner, parseMetrics, type Engine, type MetricsSample } from "./engines.ts";
+
+export { parseMetrics } from "./engines.ts";
 
 const HISTORY_POINTS = 120;
 const REQUEST_TIMEOUT_MS = 3000;
-
-/** Sum of every series of one metric, ignoring labels. null when the metric is absent. */
-export function promSum(text: string, name: string): number | null {
-  let total: number | null = null;
-  for (const line of text.split("\n")) {
-    if (!line.startsWith(name)) continue;
-    const next = line.charAt(name.length);
-    if (next !== "{" && next !== " ") continue;
-    const value = Number(line.slice(line.lastIndexOf(" ") + 1));
-    if (Number.isFinite(value)) total = (total ?? 0) + value;
-  }
-  return total;
-}
-
-function firstOf(text: string, names: string[]): number | null {
-  for (const name of names) {
-    const v = promSum(text, name);
-    if (v !== null) return v;
-  }
-  return null;
-}
-
-export interface MetricsSample {
-  running: number | null;
-  waiting: number | null;
-  kvUsage: number | null;
-  promptTokens: number | null;
-  generationTokens: number | null;
-  ttftSum: number | null;
-  ttftCount: number | null;
-  prefixHits: number | null;
-  prefixQueries: number | null;
-  requests: number | null;
-  draftTokens: number | null;
-  acceptedTokens: number | null;
-}
-
-export function parseMetrics(text: string): MetricsSample {
-  return {
-    running: promSum(text, "vllm:num_requests_running"),
-    waiting: promSum(text, "vllm:num_requests_waiting"),
-    kvUsage: firstOf(text, ["vllm:kv_cache_usage_perc", "vllm:gpu_cache_usage_perc"]),
-    promptTokens: firstOf(text, ["vllm:prompt_tokens_total", "vllm:prompt_tokens"]),
-    generationTokens: firstOf(text, ["vllm:generation_tokens_total", "vllm:generation_tokens"]),
-    ttftSum: promSum(text, "vllm:time_to_first_token_seconds_sum"),
-    ttftCount: promSum(text, "vllm:time_to_first_token_seconds_count"),
-    prefixHits: firstOf(text, ["vllm:prefix_cache_hits_total", "vllm:prefix_cache_hits"]),
-    prefixQueries: firstOf(text, ["vllm:prefix_cache_queries_total", "vllm:prefix_cache_queries"]),
-    requests: firstOf(text, ["vllm:request_success_total", "vllm:request_success"]),
-    draftTokens: promSum(text, "vllm:spec_decode_num_draft_tokens_total"),
-    acceptedTokens: promSum(text, "vllm:spec_decode_num_accepted_tokens_total"),
-  };
-}
 
 /**
  * Growth of a monotonic counter between two samples. A counter that went
@@ -72,6 +22,34 @@ interface LlmState {
   snapshot: LlmSnapshot;
   prev: { at: number; metrics: MetricsSample } | null;
   busy: boolean;
+  /** Configured engine, or the one detected while the server was up. */
+  engine: Engine | null;
+}
+
+/**
+ * Speculative-decoding figures for the last interval. null when the server
+ * is not drafting at all.
+ */
+export function specStats(prev: MetricsSample | null, next: MetricsSample, dt: number): SpecStats | null {
+  const drafted = next.draftTokens;
+  const hasCounters = drafted !== null && drafted > 0;
+  const hasGauges = next.acceptRateGauge !== null || next.acceptLengthGauge !== null;
+  if (!hasCounters && !hasGauges) return null;
+  const rate = (a: number | null, b: number | null) =>
+    prev && dt > 0 && a !== null && b !== null ? counterDelta(b, a) / dt : null;
+  let acceptRate = next.acceptRateGauge;
+  let meanLength = next.acceptLengthGauge;
+  if (hasCounters && next.acceptedTokens !== null) {
+    acceptRate = next.acceptedTokens / drafted!;
+    // Each verify round also yields one token of the target's own.
+    if (next.drafts !== null && next.drafts > 0) meanLength = next.acceptedTokens / next.drafts + 1;
+  }
+  return {
+    acceptRate,
+    meanLength,
+    draftTokensPerSec: rate(next.draftTokens, prev?.draftTokens ?? null),
+    acceptedTokensPerSec: rate(next.acceptedTokens, prev?.acceptedTokens ?? null),
+  };
 }
 
 function push<T>(arr: T[], value: T): void {
@@ -89,9 +67,11 @@ export class LlmCollector {
       config,
       prev: null,
       busy: false,
+      engine: config.engine && config.engine !== "auto" ? config.engine : null,
       snapshot: {
         id: config.id,
         label: config.label,
+        engine: config.engine && config.engine !== "auto" ? ENGINE_LABELS[config.engine] : null,
         state: "down",
         detail: null,
         baseUrl: config.baseUrl,
@@ -107,7 +87,7 @@ export class LlmCollector {
         promptTokensPerSec: null,
         ttftSec: null,
         prefixCacheHitRate: null,
-        draftAcceptRate: null,
+        spec: null,
         tokensToday: store.tokensOn(config.id),
         tokensTotal: null,
         requestsTotal: null,
@@ -150,8 +130,12 @@ export class LlmCollector {
           h.containers.filter((c) => wanted.has(c.name)).map((c) => ({ host: h.id, name: c.name, state: c.state, status: c.status })),
         );
 
+      // vLLM and TensorFold have a cheap /health. SGLang's /health runs a
+      // one-token generation, so an unknown or SGLang server is asked for its
+      // model list instead.
       const started = performance.now();
-      const health = await this.get(state, "/health", false);
+      const cheapHealth = state.engine === "vllm" || state.engine === "tensorfold";
+      const health = await this.get(state, cheapHealth ? "/health" : "/v1/models", !cheapHealth);
       const latencyMs = Math.round(performance.now() - started);
 
       if (!health || health.status !== 200) {
@@ -177,26 +161,45 @@ export class LlmCollector {
           tokensToday: this.store.tokensOn(config.id),
         };
         state.prev = null;
+        if (!config.engine || config.engine === "auto") state.engine = null;
         push(state.snapshot.history.genTps, null);
         push(state.snapshot.history.running, null);
         return;
       }
 
-      const [modelsRes, metricsRes] = await Promise.all([this.get(state, "/v1/models", true), this.get(state, "/metrics", false)]);
+      const [modelsRes, metricsRes, healthJson] = await Promise.all([
+        cheapHealth ? this.get(state, "/v1/models", true) : Promise.resolve(health),
+        this.get(state, "/metrics", false),
+        // TensorFold reports its context window only in its /health body.
+        state.engine === "tensorfold" && cheapHealth ? Promise.resolve(health) : Promise.resolve(null),
+      ]);
       let models = state.snapshot.models;
       let contextLength = state.snapshot.contextLength;
+      let owner: unknown = null;
       if (modelsRes?.status === 200) {
         try {
-          const data = ((await modelsRes.json()) as { data?: { id?: string; max_model_len?: number }[] }).data ?? [];
+          const data = ((await modelsRes.json()) as { data?: { id?: string; max_model_len?: number; owned_by?: string }[] }).data ?? [];
           models = data.map((m) => m.id).filter((id): id is string => typeof id === "string");
-          contextLength = data.find((m) => typeof m.max_model_len === "number")?.max_model_len ?? null;
+          owner = data[0]?.owned_by;
+          contextLength = data.find((m) => typeof m.max_model_len === "number")?.max_model_len ?? contextLength;
         } catch {
           // Keep the previous list.
         }
       }
+      if (healthJson) {
+        try {
+          const h = (await healthJson.json()) as { context_length?: unknown };
+          if (typeof h.context_length === "number") contextLength = h.context_length;
+        } catch {
+          // A plain-text /health.
+        }
+      }
+      const metricsText = metricsRes?.status === 200 ? await metricsRes.text() : null;
+      if (!state.engine) state.engine = engineFromOwner(owner) ?? (metricsText ? engineFromMetrics(metricsText) : null);
+      const engine: Engine = state.engine ?? "vllm";
 
       const now = Date.now();
-      const metrics = metricsRes?.status === 200 ? parseMetrics(await metricsRes.text()) : null;
+      const metrics = metricsText ? parseMetrics(metricsText, engine) : null;
       const prev = state.prev;
       let genTps: number | null = null;
       let promptTps: number | null = null;
@@ -213,12 +216,14 @@ export class LlmCollector {
         const dCount = counterDelta(prev.metrics.ttftCount, metrics.ttftCount);
         if (dCount > 0) ttft = counterDelta(prev.metrics.ttftSum, metrics.ttftSum) / dCount;
       }
+      const spec = metrics ? specStats(prev?.metrics ?? null, metrics, prev ? (now - prev.at) / 1000 : 0) : null;
       if (metrics) state.prev = { at: now, metrics };
 
       state.snapshot = {
         ...state.snapshot,
         state: "up",
-        detail: null,
+        detail: metricsText === null ? "メトリクスを取得できません（SGLang は --enable-metrics が必要です）" : null,
+        engine: state.engine ? ENGINE_LABELS[state.engine] : null,
         models,
         contextLength,
         upSince: state.snapshot.upSince ?? now,
@@ -233,10 +238,7 @@ export class LlmCollector {
           metrics && metrics.prefixQueries !== null && metrics.prefixQueries > 0 && metrics.prefixHits !== null
             ? metrics.prefixHits / metrics.prefixQueries
             : null,
-        draftAcceptRate:
-          metrics && metrics.draftTokens !== null && metrics.draftTokens > 0 && metrics.acceptedTokens !== null
-            ? metrics.acceptedTokens / metrics.draftTokens
-            : null,
+        spec,
         tokensToday: this.store.tokensOn(config.id),
         tokensTotal:
           metrics && metrics.promptTokens !== null && metrics.generationTokens !== null

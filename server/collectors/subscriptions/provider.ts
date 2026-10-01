@@ -1,4 +1,4 @@
-import type { SubscriptionConfig, SubscriptionStatus, UsageWindow } from "../../types.ts";
+import type { ResetTicket, SubscriptionConfig, SubscriptionStatus, UsageWindow } from "../../types.ts";
 
 /** What a provider returns from one poll. */
 export interface UsageReport {
@@ -8,6 +8,18 @@ export interface UsageReport {
   message: string | null;
   windows: UsageWindow[];
   notes: string[];
+  tickets?: ResetTicket[];
+  /** The service asked us to slow down or is unreachable: wait longer before the next try. */
+  backoff?: boolean;
+}
+
+/** A non-200 answer from a usage API, worded for the user. */
+export function httpFailure(status: number, service: string, plan: string | null = null): UsageReport {
+  if (status === 0) return { ...failed("error", `${service} に接続できません。しばらくして自動で再取得します。`, plan), backoff: true };
+  if (status === 429 || status >= 500) {
+    return { ...failed("error", `${service} が混み合っているため取得を控えています。しばらくして自動で再取得します。`, plan), backoff: true };
+  }
+  return failed("error", `使用状況を取得できません（HTTP ${status}）。`, plan);
 }
 
 export interface Provider {

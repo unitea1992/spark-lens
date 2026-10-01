@@ -3,6 +3,7 @@ import type { Snapshot } from "../../server/types.ts";
 import { AgentList } from "./components/AgentList.tsx";
 import { LlmPanel } from "./components/LlmPanel.tsx";
 import { MachineCard } from "./components/MachineCard.tsx";
+import { ModelUsage } from "./components/ModelUsage.tsx";
 import { SubscriptionCard } from "./components/SubscriptionCard.tsx";
 import { clock } from "./format.ts";
 import { useSnapshot, type Link } from "./useSnapshot.ts";
@@ -151,7 +152,7 @@ function Dashboard({ snapshot, now, stale }: { snapshot: Snapshot; now: number; 
         {snapshot.subscriptions.some((x) => x.windows.length > 0) && (
           <p className="section__hint">
             <span className="tick" aria-hidden="true" />
-            縦線は期間の経過位置です。バーが縦線より右にあれば、均等に使うペースより速く消費しています。
+            縦線は期間の経過位置です。バーが縦線より右なら、均等に使うより速いペースです。
           </p>
         )}
         {snapshot.subscriptions.length === 0 ? (
@@ -171,6 +172,8 @@ function Dashboard({ snapshot, now, stale }: { snapshot: Snapshot; now: number; 
       <section id="agents" aria-labelledby="h-agents">
         <h2 id="h-agents">エージェント</h2>
         <AgentList agents={snapshot.agents} now={now} multiHost={snapshot.hosts.length > 1} />
+        <h3 className="subhead">モデル別の利用量</h3>
+        <ModelUsage usage={snapshot.usage} />
       </section>
 
       <footer className="foot">

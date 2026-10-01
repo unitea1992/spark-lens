@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { counterDelta, parseMetrics, promSum } from "../collectors/llm.ts";
+import { engineFromMetrics, engineFromOwner, parseProm } from "../collectors/engines.ts";
+import { counterDelta, parseMetrics, specStats } from "../collectors/llm.ts";
 
 const METRICS = `# HELP vllm:num_requests_running Number of requests currently running.
 # TYPE vllm:num_requests_running gauge
@@ -21,7 +22,7 @@ vllm:request_success_total{finished_reason="length",engine="0",model_name="m"} 2
 `;
 
 test("reads the vLLM metrics the dashboard shows", () => {
-  const m = parseMetrics(METRICS);
+  const m = parseMetrics(METRICS, "vllm");
   assert.equal(m.running, 2);
   assert.equal(m.waiting, 1);
   assert.equal(m.kvUsage, 0.125);
@@ -38,18 +39,101 @@ test("reads the vLLM metrics the dashboard shows", () => {
 });
 
 test("a metric that is absent reads as unknown, not zero", () => {
-  const m = parseMetrics("vllm:num_requests_running 0\n");
+  const m = parseMetrics("vllm:num_requests_running 0\n", "vllm");
   assert.equal(m.running, 0);
   assert.equal(m.generationTokens, null);
 });
 
 test("falls back to the older KV cache gauge name", () => {
-  assert.equal(parseMetrics('vllm:gpu_cache_usage_perc{model_name="m"} 0.5\n').kvUsage, 0.5);
+  assert.equal(parseMetrics('vllm:gpu_cache_usage_perc{model_name="m"} 0.5\n', "vllm").kvUsage, 0.5);
 });
 
-test("promSum does not match a longer metric name sharing the prefix", () => {
-  const text = "vllm:prompt_tokens_total 5\nvllm:prompt_tokens_total_extra 100\nvllm:prompt_tokens_by_source_total 9\n";
-  assert.equal(promSum(text, "vllm:prompt_tokens_total"), 5);
+test("parseProm keeps metrics that share a prefix apart and reads labels", () => {
+  const p = parseProm('# HELP x\nvllm:prompt_tokens_total 5\nvllm:prompt_tokens_total_extra 100\nm{a="1",b="x,y"} 2\nbad line\n');
+  assert.equal(p.get("vllm:prompt_tokens_total")?.[0]?.value, 5);
+  assert.equal(p.get("vllm:prompt_tokens_total_extra")?.[0]?.value, 100);
+  assert.deepEqual(p.get("m")?.[0]?.labels, { a: "1", b: "x,y" });
+});
+
+const SGLANG = `# TYPE sglang:num_running_reqs gauge
+sglang:num_running_reqs{model_name="m",tp_rank="0"} 3.0
+sglang:num_running_reqs{model_name="m",tp_rank="1"} 3.0
+sglang:num_queue_reqs{model_name="m",tp_rank="0"} 1.0
+sglang:token_usage{model_name="m",tp_rank="0"} 0.25
+sglang:token_usage{model_name="m",tp_rank="1"} 0.30
+sglang:prompt_tokens_total{model_name="m",is_streaming="true"} 600.0
+sglang:prompt_tokens_total{model_name="m",is_streaming="false"} 400.0
+sglang:generation_tokens_total{model_name="m",is_streaming="true"} 900.0
+sglang:cached_tokens_total{model_name="m",cache_source="device"} 300.0
+sglang:cached_tokens_total{model_name="m",cache_source="host"} 100.0
+sglang:time_to_first_token_seconds_sum{model_name="m",is_streaming="true"} 2.0
+sglang:time_to_first_token_seconds_count{model_name="m",is_streaming="true"} 4.0
+sglang:num_requests_total{model_name="m",is_streaming="true"} 12.0
+sglang:spec_accept_rate{model_name="m",tp_rank="0"} 0.6
+sglang:spec_accept_length{model_name="m",tp_rank="0"} 3.2
+sglang:spec_verify_calls_total{model_name="m"} 50.0
+`;
+
+test("SGLang: gauges repeated per rank are not double counted", () => {
+  const m = parseMetrics(SGLANG, "sglang");
+  assert.equal(m.running, 3);
+  assert.equal(m.waiting, 1);
+  assert.equal(m.kvUsage, 0.3);
+  assert.equal(m.promptTokens, 1000);
+  assert.equal(m.generationTokens, 900);
+  assert.equal(m.prefixHits, 400);
+  assert.equal(m.prefixQueries, 1000);
+  assert.equal(m.requests, 12);
+  assert.equal(m.ttftSum, 2);
+  const spec = specStats(null, m, 0);
+  assert.deepEqual(spec, { acceptRate: 0.6, meanLength: 3.2, draftTokensPerSec: null, acceptedTokensPerSec: null });
+});
+
+const TENSORFOLD = `tensorfold:requests_running 1
+tensorfold:requests_waiting 0
+tensorfold:kv_cache_usage_ratio{pool="0"} 0.1
+tensorfold:kv_cache_usage_ratio{pool="1"} 0.4
+tensorfold:prompt_tokens_total 50
+tensorfold:generation_tokens_total 70
+tensorfold:time_to_first_token_seconds_sum 1.5
+tensorfold:time_to_first_token_seconds_count 3
+tensorfold:request_latency_seconds_count 3
+tensorfold:mtp_drafted_total 200
+tensorfold:mtp_accepted_total 150
+`;
+
+test("TensorFold: reads its own names and has no prefix cache metric", () => {
+  const m = parseMetrics(TENSORFOLD, "tensorfold");
+  assert.equal(m.running, 1);
+  assert.equal(m.kvUsage, 0.4);
+  assert.equal(m.generationTokens, 70);
+  assert.equal(m.requests, 3);
+  assert.equal(m.prefixHits, null);
+  assert.equal(specStats(null, m, 0)?.acceptRate, 0.75);
+});
+
+test("speculative decoding: rates over the interval and mean accepted length", () => {
+  const base = parseMetrics(METRICS, "vllm");
+  const before = { ...base, draftTokens: 1000, acceptedTokens: 400, drafts: 100 };
+  const after = { ...base, draftTokens: 1700, acceptedTokens: 750, drafts: 200 };
+  const s = specStats(before, after, 5);
+  assert.equal(s?.draftTokensPerSec, 140);
+  assert.equal(s?.acceptedTokensPerSec, 70);
+  assert.ok(Math.abs((s?.acceptRate ?? 0) - 750 / 1700) < 1e-9);
+  assert.equal(s?.meanLength, 750 / 200 + 1);
+  // A server that never drafted reports nothing.
+  assert.equal(specStats(null, { ...base, draftTokens: null, acceptedTokens: null }, 5), null);
+});
+
+test("engine detection from owned_by and from metric prefixes", () => {
+  assert.equal(engineFromOwner("vllm"), "vllm");
+  assert.equal(engineFromOwner("SGLang"), "sglang");
+  assert.equal(engineFromOwner("tensorfold"), "tensorfold");
+  assert.equal(engineFromOwner("openai"), null);
+  assert.equal(engineFromMetrics(SGLANG), "sglang");
+  assert.equal(engineFromMetrics(TENSORFOLD), "tensorfold");
+  assert.equal(engineFromMetrics(METRICS), "vllm");
+  assert.equal(engineFromMetrics("process_cpu_seconds_total 1\n"), null);
 });
 
 test("counterDelta treats a counter that went backwards as a restart", () => {

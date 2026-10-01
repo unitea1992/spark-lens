@@ -1,11 +1,13 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { UsageWindow } from "../../types.ts";
-import { clampPct, failed, getJson, option, parseTime, unconfigured, type Provider, type UsageReport } from "./provider.ts";
+import type { ResetTicket, UsageWindow } from "../../types.ts";
+import { clampPct, failed, getJson, httpFailure, option, parseTime, unconfigured, type Provider, type UsageReport } from "./provider.ts";
 
 // Same read-only rule as Claude Code: the Codex CLI owns token refresh.
 const USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
+// Read-only list of granted limit resets. (Redeeming one is a separate POST this code never makes.)
+const RESETS_URL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits";
 
 const PLAN_NAMES: Record<string, string> = {
   free: "Free",
@@ -52,13 +54,26 @@ export function parseCodexUsage(body: unknown): { plan: string | null; windows: 
 
   const notes: string[] = [];
   if (limit.limit_reached === true) notes.push("上限に達しています");
-  const resets = o.rate_limit_reset_credits as Record<string, unknown> | undefined;
-  if (resets && typeof resets.available_count === "number" && resets.available_count > 0) {
-    notes.push(`リセット券 ${resets.available_count} 枚`);
-  }
   const credits = o.credits as Record<string, unknown> | undefined;
   if (credits?.has_credits === true && typeof credits.balance === "string") notes.push(`クレジット残高 ${credits.balance}`);
   return { plan, windows, notes };
+}
+
+const TICKET_LABELS: Record<string, string> = { "Full reset (Weekly + 5 hr)": "週間＋5時間の全リセット" };
+
+export function parseCodexResets(body: unknown): ResetTicket[] {
+  const credits = (body as Record<string, unknown> | null)?.credits;
+  if (!Array.isArray(credits)) return [];
+  const tickets: ResetTicket[] = [];
+  for (const raw of credits) {
+    if (raw === null || typeof raw !== "object") continue;
+    const c = raw as Record<string, unknown>;
+    if (c.status !== "available" || c.is_supported_by_plan === false) continue;
+    const title = typeof c.title === "string" ? c.title : "リセット";
+    tickets.push({ label: TICKET_LABELS[title] ?? title, expiresAt: parseTime(c.expires_at) });
+  }
+  // Soonest to expire first: that is the one to use.
+  return tickets.sort((a, b) => (a.expiresAt ?? Infinity) - (b.expiresAt ?? Infinity));
 }
 
 export const codex: Provider = {
@@ -77,20 +92,19 @@ export const codex: Provider = {
     if (typeof tokens.access_token !== "string" || typeof tokens.account_id !== "string") {
       return unconfigured("Codex が ChatGPT アカウントでログインされていません（API キー利用では使用枠を取得できません）。");
     }
-    const res = await getJson(USAGE_URL, {
+    const headers = {
       Authorization: `Bearer ${tokens.access_token}`,
       "chatgpt-account-id": tokens.account_id,
       Accept: "application/json",
       "User-Agent": "spark-lens",
-    });
+    };
+    const [res, resets] = await Promise.all([getJson(USAGE_URL, headers), getJson(RESETS_URL, headers)]);
     if (res.status === 401 || res.status === 403) {
       return failed("stale", "ログインの有効期限が切れています。Codex を一度起動すると更新されます。");
     }
-    if (res.status !== 200) {
-      return failed("error", res.status === 0 ? "ChatGPT に接続できません。" : `使用状況を取得できません（HTTP ${res.status}）。`);
-    }
+    if (res.status !== 200) return httpFailure(res.status, "ChatGPT");
     const { plan, windows, notes } = parseCodexUsage(res.body);
     if (windows.length === 0) return failed("error", "使用状況の形式を読み取れませんでした。", plan);
-    return { plan, status: "ok", message: null, windows, notes };
+    return { plan, status: "ok", message: null, windows, notes, tickets: resets.status === 200 ? parseCodexResets(resets.body) : [] };
   },
 };

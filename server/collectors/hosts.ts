@@ -19,7 +19,8 @@ const HISTORY_POINTS = 120;
 export interface ProbeSample {
   host: Record<string, string>;
   cpu: number[];
-  freq: { curKhz: number; maxKhz: number; cores: number } | null;
+  /** maxKhz is the allowed maximum (a cap when one is set); hwMaxKhz the hardware one. */
+  freq: { curKhz: number; maxKhz: number; cores: number; hwMaxKhz: number } | null;
   mem: Record<string, number>;
   disks: DiskInfo[];
   temps: TempReading[];
@@ -111,7 +112,9 @@ export function parseProbe(text: string): ProbeSample | null {
 
   const freqRow = ((s.get("freq") ?? [])[0] ?? "").split(/\s+/).map(Number);
   const freq =
-    freqRow.length === 3 && freqRow[2]! > 0 ? { curKhz: freqRow[0]!, maxKhz: freqRow[1]!, cores: freqRow[2]! } : null;
+    freqRow.length >= 3 && freqRow[2]! > 0
+      ? { curKhz: freqRow[0]!, maxKhz: freqRow[1]!, cores: freqRow[2]!, hwMaxKhz: freqRow[3] ?? freqRow[1]! }
+      : null;
 
   const mem: Record<string, number> = {};
   for (const line of s.get("mem") ?? []) {
@@ -175,7 +178,11 @@ export function parseProbe(text: string): ProbeSample | null {
     ];
   });
 
-  return { host, cpu, freq, mem, disks, temps, gpu: parseGpu(s.get("gpu") ?? []), gpuProcesses, net, containers, procs };
+  const gpu = parseGpu(s.get("gpu") ?? []);
+  const cap = num((s.get("gpucap") ?? [])[0]);
+  if (gpu && cap !== null && cap > 0 && (gpu.clockMaxMhz === null || cap < gpu.clockMaxMhz)) gpu.clockMaxMhz = cap;
+
+  return { host, cpu, freq, mem, disks, temps, gpu, gpuProcesses, net, containers, procs };
 }
 
 /** Busy share of CPU time between two /proc/stat readings, 0..100. */
@@ -326,7 +333,9 @@ export class HostCollector {
             ],
             { input, timeoutMs: this.timeoutMs },
           );
-      const sample = result.code === 0 ? parseProbe(result.stdout) : null;
+      // Judge the run by its output, not the exit status: Tailscale SSH now and
+      // then ends a session that ran to completion with status 255.
+      const sample = result.timedOut ? null : parseProbe(result.stdout);
       if (!sample) {
         state.failures += 1;
         const reason = result.code === 0 ? "probe output was incomplete" : describeFailure(result.stderr, result.timedOut, result.code);

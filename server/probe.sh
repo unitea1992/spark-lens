@@ -38,15 +38,18 @@ echo "@@cpu"
 head -n 1 /proc/stat
 
 echo "@@freq"
-# <sum of current kHz> <sum of max kHz> <cores counted>
-cur=0; max=0; n=0
+# <sum of current kHz> <sum of allowed max kHz> <cores counted> <sum of hardware max kHz>
+# The allowed max (scaling_max_freq) reflects a clock cap when one is set.
+cur=0; lim=0; hw=0; n=0
 for d in /sys/devices/system/cpu/cpu[0-9]*/cpufreq; do
     [ -r "$d/scaling_cur_freq" ] || continue
     read -r c < "$d/scaling_cur_freq"
     read -r m < "$d/cpuinfo_max_freq"
-    cur=$((cur + c)); max=$((max + m)); n=$((n + 1))
+    l="$m"
+    [ -r "$d/scaling_max_freq" ] && read -r l < "$d/scaling_max_freq"
+    cur=$((cur + c)); lim=$((lim + l)); hw=$((hw + m)); n=$((n + 1))
 done
-echo "$cur $max $n"
+echo "$cur $lim $n $hw"
 
 echo "@@mem"
 grep -E '^(MemTotal|MemAvailable|SwapTotal|SwapFree):' /proc/meminfo
@@ -91,6 +94,11 @@ for card in /sys/class/drm/card[0-9]*; do
     total="$(cat "$dev/mem_info_vram_total" 2>/dev/null)"
     echo "amd|$(basename "$card")|$busy|$temp|$power|$used|$total"
 done
+
+echo "@@gpucap"
+# Upper bound of a GPU clock lock (nvidia-smi -lgc MIN,MAX) persisted in a
+# systemd unit, if any. nvidia-smi itself has no query for the active lock.
+grep -rhoE -- '(-lgc|--lock-gpu-clocks)[ =]+[0-9]+,[0-9]+' /etc/systemd/system 2>/dev/null | head -n 1 | sed -E 's/.*,//'
 
 echo "@@gpuproc"
 # <pid>|<process name>|<used MiB>

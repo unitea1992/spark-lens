@@ -5,7 +5,7 @@ import { StatusPill, type Tone } from "./StatusPill.tsx";
 const STATUS: Record<AgentStatus, { tone: Tone; text: string }> = {
   working: { tone: "busy", text: "作業中" },
   waiting: { tone: "warn", text: "入力待ち" },
-  idle: { tone: "quiet", text: "待機" },
+  idle: { tone: "quiet", text: "待機中" },
   unknown: { tone: "quiet", text: "不明" },
 };
 
@@ -67,7 +67,7 @@ export function AgentList({ agents, now, multiHost }: { agents: AgentSnapshot[];
       )}
       {earlier.length > 0 && (
         <details className="earlier">
-          <summary>1 時間以上前に終わったセッション（{earlier.length} 件）</summary>
+          <summary>最後の動きから 1 時間以上たったセッション（{earlier.length} 件）</summary>
           <ul className="card agents">
             {earlier.map((a) => (
               <Row key={a.id} a={a} now={now} multiHost={multiHost} />

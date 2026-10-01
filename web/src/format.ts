@@ -78,6 +78,11 @@ export function resetAt(at: number | null, now: number): string {
   return sameDay ? `${HM.format(at)} にリセット` : `${MD.format(at)} ${HM.format(at)} にリセット`;
 }
 
+/** "10/4(土) 08:46" */
+export function shortDate(at: number): string {
+  return `${MD.format(at)} ${HM.format(at)}`;
+}
+
 export function shortHost(url: string): string {
   try {
     return new URL(url).host;

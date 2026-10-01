@@ -1,53 +1,50 @@
 import type { SubscriptionSnapshot, UsageWindow } from "../../../server/types.ts";
-import { ago, duration, pct, resetAt } from "../format.ts";
+import { ago, duration, pct, resetAt, shortDate } from "../format.ts";
+import { elapsedPct, pace } from "../pace.ts";
 import { levelFor, Meter } from "./Meter.tsx";
 import { StatusPill } from "./StatusPill.tsx";
 
-/** Share of the window that has already passed, 0..100. */
-function elapsedPct(w: UsageWindow, now: number): number | null {
-  if (!w.windowSec || w.resetsAt === null) return null;
-  const remaining = (w.resetsAt - now) / 1000;
-  if (remaining < 0 || remaining > w.windowSec) return null;
-  return (1 - remaining / w.windowSec) * 100;
-}
-
-function paceNote(w: UsageWindow, elapsed: number | null): string | null {
-  if (elapsed === null || w.usedPct === null || w.usedPct < 5) return null;
-  // More than a fifth ahead of an even spend is worth saying out loud.
-  return w.usedPct > elapsed + 20 ? "ペース速め" : null;
-}
-
 function Window({ w, now }: { w: UsageWindow; now: number }) {
   const elapsed = elapsedPct(w, now);
-  const level = levelFor(w.usedPct, 80, 95);
   const remaining = w.resetsAt === null ? null : (w.resetsAt - now) / 1000;
-  const pace = paceNote(w, elapsed);
+  const p = pace(w, now);
   return (
     <div className="stat">
       <div className="stat__line">
         <span>{w.label}</span>
         <span>
-          {pace && <em className="stat__flag">{pace}</em>}
           <strong>{pct(w.usedPct)}</strong>
         </span>
       </div>
       <Meter
         value={w.usedPct}
-        level={level}
+        level={levelFor(w.usedPct, 80, 95)}
         marker={elapsed}
         markerLabel="期間の経過位置（均等に使った場合の目安）"
         label={`${w.label}の使用率`}
       />
       <p className="stat__foot">
-        {remaining !== null && remaining <= 0 ? "リセット済み（次回利用時に更新）" : resetAt(w.resetsAt, now)}
-        {remaining !== null && remaining > 0 ? `・あと ${duration(remaining)}` : ""}
+        {w.idle
+          ? "未使用（次に使い始めた時点から数え始めます）"
+          : remaining !== null && remaining <= 0
+            ? "リセット予定時刻を経過（次回の取得で更新）"
+            : `${resetAt(w.resetsAt, now)}${remaining !== null ? `・あと ${duration(remaining)}` : ""}`}
       </p>
+      {p && (
+        <p className={`pace pace--${p.tone}`}>
+          <span className="pace__dot" aria-hidden="true" />
+          {p.text}
+        </p>
+      )}
     </div>
   );
 }
 
+const SOON_MS = 3 * 86400_000;
+
 export function SubscriptionCard({ sub, now }: { sub: SubscriptionSnapshot; now: number }) {
-  const worst = Math.max(0, ...sub.windows.map((w) => w.usedPct ?? 0));
+  const known = sub.windows.filter((w) => w.usedPct !== null);
+  const worst = Math.max(0, ...known.map((w) => w.usedPct!));
   return (
     <article className="card sub">
       <header className="card__head">
@@ -56,7 +53,11 @@ export function SubscriptionCard({ sub, now }: { sub: SubscriptionSnapshot; now:
           <p className="card__sub">{sub.plan ?? "プラン不明"}</p>
         </div>
         {sub.status === "ok" ? (
-          worst >= 95 ? (
+          known.length === 0 ? (
+            <StatusPill tone="quiet">使用率不明</StatusPill>
+          ) : worst >= 100 ? (
+            <StatusPill tone="critical">上限に到達</StatusPill>
+          ) : worst >= 95 ? (
             <StatusPill tone="critical">上限間近</StatusPill>
           ) : worst >= 80 ? (
             <StatusPill tone="warn">残りわずか</StatusPill>
@@ -75,6 +76,20 @@ export function SubscriptionCard({ sub, now }: { sub: SubscriptionSnapshot; now:
       {sub.windows.map((w) => (
         <Window key={w.id} w={w} now={now} />
       ))}
+
+      {sub.tickets.length > 0 && (
+        <div className="tickets">
+          <p className="tickets__title">リセット券 {sub.tickets.length} 枚</p>
+          <ul>
+            {sub.tickets.map((t, i) => (
+              <li key={i} className={t.expiresAt !== null && t.expiresAt - now < SOON_MS ? "tickets--soon" : ""}>
+                <span>{t.label}</span>
+                <span>{t.expiresAt === null ? "期限不明" : `${shortDate(t.expiresAt)} まで`}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {sub.notes.length > 0 && (
         <ul className="notes">

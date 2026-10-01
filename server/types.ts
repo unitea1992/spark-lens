@@ -26,6 +26,8 @@ export interface LlmConfig {
   containers?: string[];
   /** Name of an environment variable holding the bearer token, if the server needs one. */
   apiKeyEnv?: string;
+  /** Inference engine; "auto" (default) detects it from the server's responses. */
+  engine?: "auto" | "vllm" | "sglang" | "tensorfold";
 }
 
 export interface SubscriptionConfig {
@@ -152,9 +154,20 @@ export interface HostSnapshot {
 
 export type LlmState = "up" | "starting" | "down";
 
+export interface SpecStats {
+  /** Share of drafted tokens the model kept, 0..1. */
+  acceptRate: number | null;
+  /** Tokens produced per verify round, including the model's own one. */
+  meanLength: number | null;
+  draftTokensPerSec: number | null;
+  acceptedTokensPerSec: number | null;
+}
+
 export interface LlmSnapshot {
   id: string;
   label: string;
+  /** Engine name for display, once known. */
+  engine: string | null;
   state: LlmState;
   detail: string | null;
   baseUrl: string;
@@ -175,8 +188,8 @@ export interface LlmSnapshot {
   ttftSec: number | null;
   /** 0..1 over the server's lifetime. */
   prefixCacheHitRate: number | null;
-  /** Share of speculatively drafted tokens the model accepted, 0..1 over the server's lifetime. */
-  draftAcceptRate: number | null;
+  /** Speculative decoding, when the server drafts. Ratios are over the server's lifetime. */
+  spec: SpecStats | null;
   tokensToday: { prompt: number; generation: number };
   tokensTotal: { prompt: number; generation: number } | null;
   requestsTotal: number | null;
@@ -194,7 +207,19 @@ export interface UsageWindow {
   resetsAt: number | null;
   /** Length of the window, when the provider reports one. */
   windowSec?: number | null;
+  /**
+   * The window has not started: it opens on first use (Claude's 5-hour
+   * session), so there is no reset time yet.
+   */
+  idle?: boolean;
   detail?: string | null;
+}
+
+/** A one-off limit reset the account holds (Codex grants these). */
+export interface ResetTicket {
+  label: string;
+  /** Epoch ms, or null when it does not expire. */
+  expiresAt: number | null;
 }
 
 export interface SubscriptionSnapshot {
@@ -206,6 +231,7 @@ export interface SubscriptionSnapshot {
   message: string | null;
   windows: UsageWindow[];
   notes: string[];
+  tickets: ResetTicket[];
   fetchedAt: number | null;
 }
 
@@ -227,6 +253,24 @@ export interface AgentSnapshot {
   detail: string | null;
 }
 
+export interface ModelUsage {
+  model: string;
+  /** Where it was used: "Claude Code", "Codex", "OpenCode" or "ローカル". */
+  source: string;
+  local: boolean;
+  /** null when the tool reports only a total. */
+  input: number | null;
+  output: number | null;
+  cached: number | null;
+  total: number;
+}
+
+export interface UsageSnapshot {
+  generatedAt: number;
+  today: ModelUsage[];
+  week: ModelUsage[];
+}
+
 export interface Snapshot {
   generatedAt: number;
   pollSeconds: number;
@@ -235,4 +279,5 @@ export interface Snapshot {
   llms: LlmSnapshot[];
   subscriptions: SubscriptionSnapshot[];
   agents: AgentSnapshot[];
+  usage: UsageSnapshot;
 }
