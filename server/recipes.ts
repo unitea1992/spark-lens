@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { run } from "./exec.ts";
 import { shDir, shq } from "./recipes-shell.ts";
 import { checkScript, parseCheck, pullScript } from "./upstream.ts";
-import { parseMemoryPlan, parseProgress, startedAt, type MemoryPlan, type StartProgress } from "./progress.ts";
+import { externalProgress, parseDockerTime, parseMemoryPlan, parseProgress, startedAt, type MemoryPlan, type StartProgress } from "./progress.ts";
 import type { HostConfig, LlmSnapshot, RecipeConfig, RecipeSnapshot, UpstreamStatus } from "./types.ts";
 
 // Starting, stopping and reading the logs of model "recipes" — upstream
@@ -95,7 +95,7 @@ export class RecipeManager {
   private readonly locks = new Set<string>();
   private readonly upstream = new Map<string, UpstreamStatus>();
   private readonly memory = new Map<string, MemoryPlan & { readAt: number }>();
-  private readonly progress = new Map<string, StartProgress & { startedAt: number | null }>();
+  private readonly progress = new Map<string, { pct: number | null; stage: string; startedAt: number | null }>();
   private readonly durations: { get(id: string): number | null; set(id: string, sec: number): void } | null;
   private llms: LlmSnapshot[] = [];
   /** Recipes whose host has been asked, since this dashboard started, for a launcher still running. */
@@ -213,7 +213,7 @@ export class RecipeManager {
           const since = own ?? p?.startedAt ?? null;
           if (since === null) return null;
           return {
-            pct: p?.pct ?? 3,
+            pct: p ? p.pct : 3,
             stage: p?.stage ?? "準備しています",
             startedAt: since,
             expectedSec: this.durations?.get(r.id) ?? null,
@@ -290,10 +290,22 @@ export class RecipeManager {
         if (!a || a.finishedAt !== null || a.kind !== "start") {
           // Started elsewhere, or before this dashboard restarted: follow the log anyway.
           if (this.llmState(r) === "starting") {
-            const res = await this.exec(this.hosts.get(r.host)!, `tail -n 400 "${logPath(r.id)}" 2>/dev/null; head -n 1 "${logPath(r.id)}" 2>/dev/null`, 10_000);
+            const llm = r.llm ? this.llms.find((l) => l.id === r.llm) : undefined;
+            const containers = [...new Set((llm?.containers ?? []).filter((c) => c.host === r.host).map((c) => c.name))];
+            const inspect = containers.length
+              ? `docker inspect -f '{{.State.StartedAt}}' ${containers.map(shq).join(" ")} 2>/dev/null | sort | tail -n 1`
+              : "true";
+            const res = await this.exec(
+              this.hosts.get(r.host)!,
+              `tail -n 400 "${logPath(r.id)}" 2>/dev/null; head -n 1 "${logPath(r.id)}" 2>/dev/null; ` +
+                `echo "@@mtime $(stat -c %Y "${logPath(r.id)}" 2>/dev/null)"; echo "@@cstart $(${inspect})"`,
+              10_000,
+            );
             if (res.code === 0) {
-              const text = cleanLog(res.stdout);
-              this.progress.set(r.id, { ...parseProgress(text), startedAt: startedAt(text) });
+              const mtime = Number(/^@@mtime (\d+)$/m.exec(res.stdout)?.[1] ?? NaN);
+              const cstart = /^@@cstart (.+)$/m.exec(res.stdout)?.[1] ?? "";
+              const text = cleanLog(res.stdout.replace(/^@@(mtime|cstart).*$/gm, ""));
+              this.progress.set(r.id, externalProgress(text, Number.isFinite(mtime) ? mtime * 1000 : null, parseDockerTime(cstart)));
             }
           } else {
             this.progress.delete(r.id);

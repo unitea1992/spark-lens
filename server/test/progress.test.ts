@@ -38,3 +38,18 @@ test("memory plan also reads SGLang's start-up lines", () => {
   );
   assert.deepEqual(plan, { weightsGiB: 61.9, kvGiB: 10.5 });
 });
+
+test("a start made elsewhere: a launcher log older than the containers is not trusted", async () => {
+  const { externalProgress, parseDockerTime } = await import("../progress.ts");
+  const log = "=== spark-lens: start 2026-10-01 13:31:05\nCapturing CUDA graphs 50%\n";
+  const containers = parseDockerTime("2026-10-01T13:20:00.123456789Z\n");
+  assert.equal(containers, Date.parse("2026-10-01T13:20:00.123Z"));
+  // Log last written at 04:00Z, containers started at 13:20Z: the log is from an earlier start.
+  const stale = externalProgress(log, Date.parse("2026-10-01T04:00:00Z"), containers);
+  assert.deepEqual(stale, { pct: null, stage: "モデルを読み込んでいます", startedAt: containers });
+  // Written after the containers started: the log is this start's.
+  const fresh = externalProgress(log, Date.parse("2026-10-01T13:25:00Z"), containers);
+  assert.equal(fresh.pct, 83);
+  assert.equal(fresh.startedAt, Date.parse("2026-10-01T13:31:05"));
+  assert.equal(parseDockerTime("0001-01-01T00:00:00Z"), null);
+});

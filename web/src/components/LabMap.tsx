@@ -101,7 +101,7 @@ function Band({ llm, now, progress }: { llm: LlmSnapshot; now: number; progress:
       <span
         className="band__rail"
         aria-hidden="true"
-        style={kind === "starting" && progress ? ({ "--progress": `${progress.pct}%` } as CSSProperties) : undefined}
+        style={kind === "starting" && progress?.pct != null ? ({ "--progress": `${progress.pct}%` } as CSSProperties) : undefined}
       />
       <div className="band__row">
       <span className="band__name">{llm.label}</span>
@@ -115,7 +115,12 @@ function Band({ llm, now, progress }: { llm: LlmSnapshot; now: number; progress:
         {kind === "idle" && llm.lastActiveAt !== null && <span>最後の推論 {ago(llm.lastActiveAt, now)}</span>}
         {kind === "starting" && progress && (
           <span>
-            <strong>{progress.pct}%</strong> / {progress.stage}
+            {progress.pct !== null && (
+              <>
+                <strong>{progress.pct}%</strong> /{" "}
+              </>
+            )}
+            {progress.stage}
           </span>
         )}
         {(kind === "busy" || kind === "idle") && (

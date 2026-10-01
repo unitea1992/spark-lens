@@ -32,6 +32,28 @@ export function startedAt(log: string): number | null {
   return Number.isFinite(t) ? t : null;
 }
 
+/** A `docker inspect` StartedAt (RFC 3339, nanoseconds), or null for a container that never started. */
+export function parseDockerTime(value: string): number | null {
+  const t = Date.parse(value.trim().replace(/(\.\d{3})\d+/, "$1"));
+  return Number.isFinite(t) && t > Date.UTC(2000, 0, 1) ? t : null;
+}
+
+/**
+ * Progress of a start made outside the dashboard. The dashboard's launcher
+ * log then belongs to an earlier start: when it was last written before the
+ * containers started, only the containers' start time is trustworthy.
+ */
+export function externalProgress(
+  log: string,
+  logModifiedAt: number | null,
+  containersStartedAt: number | null,
+): { pct: number | null; stage: string; startedAt: number | null } {
+  if (containersStartedAt !== null && (logModifiedAt === null || logModifiedAt < containersStartedAt)) {
+    return { pct: null, stage: "モデルを読み込んでいます", startedAt: containersStartedAt };
+  }
+  return { ...parseProgress(log), startedAt: startedAt(log) ?? containersStartedAt };
+}
+
 export function parseProgress(log: string): StartProgress {
   let best: StartProgress = { pct: 3, stage: "準備しています" };
   for (const line of log.split("\n")) {
