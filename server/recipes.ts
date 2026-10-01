@@ -1,6 +1,8 @@
 import { join } from "node:path";
 import { run } from "./exec.ts";
-import type { HostConfig, LlmSnapshot, RecipeConfig, RecipeSnapshot } from "./types.ts";
+import { shDir, shq } from "./recipes-shell.ts";
+import { checkScript, parseCheck, pullScript } from "./upstream.ts";
+import type { HostConfig, LlmSnapshot, RecipeConfig, RecipeSnapshot, UpstreamStatus } from "./types.ts";
 
 // Starting, stopping and reading the logs of model "recipes" — upstream
 // launchers such as start.sh, run unchanged on the machine they belong to.
@@ -13,17 +15,7 @@ const LOG_DIR = "$HOME/.local/state/spark-lens";
 const LOG_LINES = 400;
 const MAX_LOG_BYTES = 256 * 1024;
 
-/** Single-quote a string for bash. */
-export function shq(s: string): string {
-  return `'${s.replace(/'/g, `'\\''`)}'`;
-}
-
-/** A directory for `cd`, with a leading ~ expanded by the remote shell. */
-export function shDir(dir: string): string {
-  if (dir === "~") return '"$HOME"';
-  if (dir.startsWith("~/")) return `"$HOME"/${shq(dir.slice(2))}`;
-  return shq(dir);
-}
+export { shDir, shq } from "./recipes-shell.ts";
 
 function logPath(id: string): string {
   return `${LOG_DIR}/recipe-${id}.log`;
@@ -79,7 +71,7 @@ export function cleanLog(text: string): string {
 }
 
 interface Action {
-  kind: "start" | "stop";
+  kind: "start" | "stop" | "update";
   startedAt: number;
   finishedAt: number | null;
   ok: boolean | null;
@@ -92,6 +84,7 @@ export class RecipeManager {
   private readonly hosts: Map<string, HostConfig>;
   private readonly controlDir: string;
   private readonly actions = new Map<string, Action>();
+  private readonly upstream = new Map<string, UpstreamStatus>();
   private llms: LlmSnapshot[] = [];
 
   constructor(recipes: RecipeConfig[], hosts: HostConfig[], controlDir: string) {
@@ -142,7 +135,7 @@ export class RecipeManager {
       const llm = this.llmState(r);
       const inFlight = a !== null && a.finishedAt === null;
       let status: RecipeSnapshot["status"];
-      if (inFlight) status = a!.kind === "start" ? "starting" : "stopping";
+      if (inFlight) status = a!.kind === "start" ? "starting" : a!.kind === "update" ? "updating" : "stopping";
       else if (llm === "up") status = "running";
       else if (llm === "starting") status = "starting";
       else if (a?.kind === "start" && a.ok === false) status = "failed";
@@ -159,6 +152,8 @@ export class RecipeManager {
         canStop: !inFlight && status !== "stopped",
         hasServerLog: Boolean(r.logs),
         blockedBy: blocker?.label ?? null,
+        upstream: this.upstream.get(r.id) ?? null,
+        canUpdate: !inFlight && (this.upstream.get(r.id)?.state === "behind"),
         lastAction: a ? { kind: a.kind, startedAt: a.startedAt, finishedAt: a.finishedAt, ok: a.ok, message: a.message } : null,
       };
     });
@@ -229,6 +224,72 @@ export class RecipeManager {
       message: ok ? "停止しました" : res.timedOut ? "停止処理がタイムアウトしました" : `停止に失敗しました（終了コード ${res.code}）`,
     });
     return { ok, message: action.message! };
+  }
+
+  /** Fetch and compare one recipe's checkout with its upstream. */
+  async checkUpstream(id: string): Promise<UpstreamStatus | null> {
+    const r = this.recipes.find((x) => x.id === id);
+    if (!r) return null;
+    const res = await this.exec(this.hosts.get(r.host)!, checkScript(r.dir), 90_000);
+    const fresh = res.timedOut
+      ? null
+      : parseCheck(res.stdout);
+    const previous = this.upstream.get(id);
+    // Offline: keep what was known, flagged, rather than claiming "up to date".
+    const status: UpstreamStatus =
+      fresh === null
+        ? { ...(previous ?? parseCheck("")), state: previous?.state ?? "error", message: "確認がタイムアウトしました", checkedAt: Date.now() }
+        : fresh.message && previous && fresh.state !== "error"
+          ? { ...fresh, commits: fresh.commits.length > 0 ? fresh.commits : previous.commits }
+          : fresh;
+    this.upstream.set(id, status);
+    return status;
+  }
+
+  async checkAllUpstreams(): Promise<void> {
+    for (const r of this.recipes) await this.checkUpstream(r.id);
+  }
+
+  /**
+   * Follow upstream: stop if running, fast-forward the checkout, and start
+   * again if it was running. Refuses when tracked files were edited, since
+   * those would be custom patches the owner wants to avoid.
+   */
+  async updateRecipe(id: string): Promise<{ ok: boolean; message: string }> {
+    const r = this.recipes.find((x) => x.id === id);
+    if (!r) return { ok: false, message: "レシピが見つかりません" };
+    const current = this.actions.get(id);
+    if (current && current.finishedAt === null) return { ok: false, message: "ほかの操作が進行中です" };
+    const up = await this.checkUpstream(id);
+    if (!up || up.state === "error") return { ok: false, message: up?.message ?? "upstream を確認できませんでした" };
+    if (up.state === "modified") return { ok: false, message: "追跡ファイルに手元の変更があるため更新しません" };
+    if (up.state !== "behind") return { ok: true, message: "すでに最新です" };
+    const host = this.hosts.get(r.host)!;
+    const wasRunning = this.busy(r);
+    const action: Action = { kind: "update", startedAt: Date.now(), finishedAt: null, ok: null, message: "更新しています", pid: null };
+    this.actions.set(id, action);
+    const fail = (message: string) => {
+      Object.assign(action, { finishedAt: Date.now(), ok: false, message });
+      return { ok: false, message };
+    };
+    if (wasRunning) {
+      action.message = "更新のため停止しています";
+      const stopped = await this.exec(host, stopScript(r), 300_000);
+      if (stopped.code !== 0 || stopped.timedOut) return fail("停止できなかったため更新を中止しました");
+      // The stop just succeeded; do not wait for the next poll to notice it,
+      // or the restart below would be refused as "still running".
+      if (r.llm) this.llms = this.llms.map((l) => (l.id === r.llm ? { ...l, state: "down" } : l));
+    }
+    action.message = "upstream を取り込んでいます";
+    const pulled = await this.exec(host, pullScript(r.dir, logPath(r.id)), 180_000);
+    if (pulled.code !== 0 || pulled.timedOut) return fail("git pull に失敗しました。起動ログを確認してください");
+    await this.checkUpstream(id);
+    Object.assign(action, { finishedAt: Date.now(), ok: true, message: `${up.behind} 件の更新を取り込みました` });
+    if (wasRunning) {
+      const started = await this.start(id);
+      return { ok: started.ok, message: started.ok ? `${up.behind} 件の更新を取り込み、起動し直しています` : started.message };
+    }
+    return { ok: true, message: action.message! };
   }
 
   async logs(id: string, source: "launcher" | "server"): Promise<{ ok: boolean; text: string }> {

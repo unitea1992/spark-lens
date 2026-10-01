@@ -82,16 +82,34 @@ export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) 
         </p>
       )}
 
-      <div className="machine__bars">
-        <Bar label="GPU" value={gpu?.utilPct ?? null} side={temp(gpu?.tempC)} series={1} />
-        <Bar
-          label="メモリ"
-          value={memPct}
-          side={`${usedOfTotal(host.memUsedBytes, host.memTotalBytes)}${isSpark && host.gpuProcesses.length > 0 ? "・モデルが確保" : ""}`}
-          series={2}
-        />
-        <Bar label="CPU" value={host.cpuPct} side={temp(host.cpuTempC)} series={3} />
+      <div className="gauges">
+        {[
+          { key: "gpu", label: "GPU", value: gpu?.utilPct ?? null, side: temp(gpu?.tempC), series: 1 },
+          {
+            key: "mem",
+            label: "メモリ",
+            value: memPct,
+            side: isSpark && host.gpuProcesses.length > 0 ? "モデルが確保" : usedOfTotal(host.memUsedBytes, host.memTotalBytes),
+            series: 2,
+          },
+          { key: "cpu", label: "CPU", value: host.cpuPct, side: temp(host.cpuTempC), series: 3 },
+        ].map((g) => (
+          <div key={g.key} className={`gauge gauge--${g.series}`}>
+            <span className="gauge__label">{g.label}</span>
+            <span className="gauge__value">
+              {g.value === null ? "–" : Math.round(g.value)}
+              <small>%</small>
+            </span>
+            <span className="gauge__track">
+              <span className="gauge__fill" style={{ width: `${Math.min(100, Math.max(0, g.value ?? 0))}%` }} />
+            </span>
+            <span className="gauge__side">{g.side || "\u00a0"}</span>
+          </div>
+        ))}
       </div>
+      {isSpark && host.gpuProcesses.length > 0 && (
+        <p className="machine__note">メモリ {usedOfTotal(host.memUsedBytes, host.memTotalBytes)}（CPU と GPU で共用）</p>
+      )}
 
       <Sparkline
         values={isSpark ? host.history.gpu : host.history.cpu}

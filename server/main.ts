@@ -58,7 +58,19 @@ async function main(): Promise<void> {
     staticDir: join(ROOT, "dist"),
     allowedHosts: config.server.allowedHosts,
     snapshot,
-    recipes: config.recipes.length > 0 ? recipes : undefined,
+    recipes:
+      config.recipes.length > 0
+        ? {
+            start: (id) => recipes.start(id),
+            stop: (id) => recipes.stop(id),
+            logs: (id, source) => recipes.logs(id, source),
+            check: async (id) => {
+              const up = await recipes.checkUpstream(id);
+              return up ? { ok: up.state !== "error", message: up.state === "behind" ? `${up.behind} 件の更新があります` : up.message ?? "確認しました" } : { ok: false, message: "レシピが見つかりません" };
+            },
+            update: (id) => recipes.updateRecipe(id),
+          }
+        : undefined,
     changed: () => http.broadcast(),
   });
 
@@ -105,8 +117,11 @@ async function main(): Promise<void> {
   void tick();
   pollSubscriptions();
   pollUsage();
+  setTimeout(() => void recipes.checkAllUpstreams().then(() => http.broadcast()), 15_000);
   const timers = [
     setInterval(pollUsage, 60_000),
+    // Upstreams move a few times a day; a fetch every few hours is plenty.
+    setInterval(() => void recipes.checkAllUpstreams().then(() => http.broadcast()), 3 * 3600_000),
     setInterval(tick, config.pollSeconds * 1000),
     // Each service has its own schedule (and back-off); this only checks who is due.
     setInterval(pollSubscriptions, 30_000),

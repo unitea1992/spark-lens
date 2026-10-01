@@ -52,6 +52,8 @@ export interface RecipeActions {
   start(id: string): Promise<{ ok: boolean; message: string }>;
   stop(id: string): Promise<{ ok: boolean; message: string }>;
   logs(id: string, source: "launcher" | "server"): Promise<{ ok: boolean; text: string }>;
+  check(id: string): Promise<{ ok: boolean; message: string }>;
+  update(id: string): Promise<{ ok: boolean; message: string }>;
 }
 
 export interface HttpOptions {
@@ -65,7 +67,7 @@ export interface HttpOptions {
   changed?: () => void;
 }
 
-const RECIPE_ROUTE = /^\/api\/recipes\/([a-z0-9][a-z0-9-]*)\/(start|stop|logs)$/;
+const RECIPE_ROUTE = /^\/api\/recipes\/([a-z0-9][a-z0-9-]*)\/(start|stop|logs|check|update)$/;
 
 /**
  * Requests that change something must carry this header. A browser only sends
@@ -73,6 +75,8 @@ const RECIPE_ROUTE = /^\/api\/recipes\/([a-z0-9][a-z0-9-]*)\/(start|stop|logs)$/
  * approves, so another site cannot make a viewer's browser press the buttons.
  */
 export const ACTION_HEADER = "x-spark-lens";
+
+type RecipeOp = "start" | "stop" | "logs" | "check" | "update";
 
 export class HttpServer {
   private readonly server: Server;
@@ -118,7 +122,7 @@ export class HttpServer {
     }
     const recipe = RECIPE_ROUTE.exec(path);
     if (recipe) {
-      void this.recipe(req, res, recipe[1]!, recipe[2] as "start" | "stop" | "logs");
+      void this.recipe(req, res, recipe[1]!, recipe[2] as RecipeOp);
       return;
     }
     if (req.method !== "GET" && req.method !== "HEAD") {
@@ -146,7 +150,7 @@ export class HttpServer {
     this.serveStatic(path, req, res);
   }
 
-  private async recipe(req: IncomingMessage, res: ServerResponse, id: string, op: "start" | "stop" | "logs"): Promise<void> {
+  private async recipe(req: IncomingMessage, res: ServerResponse, id: string, op: RecipeOp): Promise<void> {
     const json = (status: number, body: unknown): void => {
       res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }).end(JSON.stringify(body));
     };
@@ -166,11 +170,17 @@ export class HttpServer {
         return json(200, await actions.logs(id, source));
       }
       // Answer as soon as the action is accepted; progress arrives over the stream.
-      const result = op === "start" ? actions.start(id) : actions.stop(id);
+      const result = op === "start" ? actions.start(id) : op === "stop" ? actions.stop(id) : op === "check" ? actions.check(id) : actions.update(id);
       this.opts.changed?.();
       const done = await Promise.race([result, new Promise<null>((r) => setTimeout(() => r(null), 1500))]);
       void result.finally(() => this.opts.changed?.());
-      return json(done && !done.ok ? 409 : 202, done ?? { ok: true, message: op === "start" ? "起動を開始しました" : "停止しています" });
+      const pending: Record<Exclude<RecipeOp, "logs">, string> = {
+        start: "起動を開始しました",
+        stop: "停止しています",
+        check: "確認しています",
+        update: "更新しています",
+      };
+      return json(done && !done.ok ? 409 : 202, done ?? { ok: true, message: pending[op] });
     } catch {
       return json(500, { ok: false, message: "操作中にエラーが発生しました" });
     }

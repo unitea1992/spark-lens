@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { RecipeSnapshot } from "../../../server/types.ts";
-import { ago } from "../format.ts";
+import { ago, shortDate } from "../format.ts";
+import type { UpstreamStatus } from "../../../server/types.ts";
 
-async function act(id: string, op: "start" | "stop"): Promise<string> {
+async function act(id: string, op: "start" | "stop" | "check" | "update"): Promise<string> {
   try {
     const res = await fetch(`/api/recipes/${id}/${op}`, { method: "POST", headers: { "X-Spark-Lens": "1" } });
     const body = (await res.json()) as { message?: string };
@@ -73,6 +74,80 @@ function LogViewer({ id, hasServerLog, live }: { id: string; hasServerLog: boole
 }
 
 /**
+ * Where the checkout stands against its upstream, and the one-click way to
+ * follow it (stop, fast-forward, start again).
+ */
+function Upstream({
+  up,
+  running,
+  canUpdate,
+  onCheck,
+  onUpdate,
+}: {
+  up: UpstreamStatus | null;
+  running: boolean;
+  canUpdate: boolean;
+  onCheck: () => void;
+  onUpdate: () => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  if (!up) return <p className="upstream upstream--quiet">upstream を確認しています…</p>;
+  const head = up.head ? `${up.head}${up.headDate ? `・${shortDate(up.headDate)}` : ""}` : "";
+  return (
+    <div className={`upstream upstream--${up.state}`}>
+      <div className="upstream__line">
+        <span className="upstream__label">upstream</span>
+        <span className="upstream__state">
+          {up.state === "current" && `最新です（${head}）`}
+          {up.state === "behind" && `${up.behind} 件の更新があります`}
+          {up.state === "modified" && `追跡ファイルに手元の変更が ${up.dirtyFiles} 件あります。独自の変更になるため自動では更新しません`}
+          {up.state === "untracked" && "追跡するブランチがありません"}
+          {up.state === "error" && (up.message ?? "確認できませんでした")}
+          {up.state === "unknown" && "未確認"}
+        </span>
+        <span className="upstream__checked">{ago(up.checkedAt, Date.now())}に確認</span>
+        <button type="button" className="link-button" onClick={onCheck}>
+          今すぐ確認
+        </button>
+        {up.state === "behind" &&
+          (confirming ? (
+            <span className="upstream__confirm">
+              {running ? "停止 → 取り込み → 起動し直します。" : "取り込みます。"}
+              <button type="button" className="btn btn--primary" onClick={() => (setConfirming(false), onUpdate())}>
+                {running ? "更新して再起動" : "更新する"}
+              </button>
+              <button type="button" className="btn" onClick={() => setConfirming(false)}>
+                やめる
+              </button>
+            </span>
+          ) : (
+            <button type="button" className="btn btn--primary btn--small" disabled={!canUpdate} onClick={() => setConfirming(true)}>
+              {running ? "更新して再起動" : "更新する"}
+            </button>
+          ))}
+      </div>
+      {up.state === "behind" && up.commits.length > 0 && (
+        <ul className="upstream__commits">
+          {up.commits.slice(0, 4).map((c) => (
+            <li key={c.sha}>
+              <span>{c.subject}</span>
+              <span>{c.date ? shortDate(c.date) : c.sha}</span>
+            </li>
+          ))}
+          {up.commits.length > 4 && <li className="muted">ほか {up.commits.length - 4} 件</li>}
+        </ul>
+      )}
+      {up.newEnvKeys.length > 0 && (
+        <p className="upstream__env">
+          upstream の設定例に、.env にない項目があります（既定値で動きます）: {up.newEnvKeys.join("、")}
+        </p>
+      )}
+      {up.message && up.state !== "error" && <p className="upstream__env">{up.message}</p>}
+    </div>
+  );
+}
+
+/**
  * Start/stop for one recipe. Only the action that makes sense right now is
  * offered; the model's own status shows whether it is running.
  */
@@ -80,17 +155,17 @@ export function RecipeControls({ recipe, now, showName }: { recipe: RecipeSnapsh
   const [confirming, setConfirming] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [showLogs, setShowLogs] = useState(false);
-  const live = recipe.status === "starting" || recipe.status === "stopping";
+  const live = recipe.status === "starting" || recipe.status === "stopping" || recipe.status === "updating";
   const last = recipe.lastAction;
-  const stopMode = recipe.canStop || recipe.status === "running" || recipe.status === "stopping";
+  const stopMode = recipe.canStop || recipe.status === "running" || recipe.status === "stopping" || recipe.status === "updating";
 
   // A fresh message from the server replaces the click acknowledgement.
   useEffect(() => setNotice(null), [last?.message, last?.finishedAt]);
 
-  const run = async (op: "start" | "stop") => {
+  const run = async (op: "start" | "stop" | "check" | "update") => {
     setConfirming(false);
     setNotice(await act(recipe.id, op));
-    if (op === "start") setShowLogs(true);
+    if (op === "start" || op === "update") setShowLogs(true);
   };
 
   const reason =
@@ -98,6 +173,8 @@ export function RecipeControls({ recipe, now, showName }: { recipe: RecipeSnapsh
       ? "起動処理中です"
       : recipe.status === "stopping"
         ? "停止処理中です"
+        : recipe.status === "updating"
+          ? "更新処理中です"
         : recipe.blockedBy
           ? `${recipe.blockedBy} が同じマシンで動いています。先にそちらを停止してください`
           : null;
@@ -121,7 +198,7 @@ export function RecipeControls({ recipe, now, showName }: { recipe: RecipeSnapsh
           </span>
         ) : stopMode ? (
           <button type="button" className="btn btn--outline-danger" disabled={!recipe.canStop} onClick={() => setConfirming(true)}>
-            {recipe.status === "stopping" ? "停止中…" : "停止する"}
+            {recipe.status === "stopping" ? "停止中…" : recipe.status === "updating" ? "更新中…" : "停止する"}
           </button>
         ) : (
           <button type="button" className="btn btn--primary" disabled={!recipe.canStart} onClick={() => run("start")}>
@@ -136,6 +213,13 @@ export function RecipeControls({ recipe, now, showName }: { recipe: RecipeSnapsh
           {last && !notice && <span className="notice__detail">{ago(last.finishedAt ?? last.startedAt, now)}</span>}
         </p>
       )}
+      <Upstream
+        up={recipe.upstream}
+        running={recipe.status === "running" || recipe.status === "starting"}
+        canUpdate={recipe.canUpdate}
+        onCheck={() => void run("check")}
+        onUpdate={() => void run("update")}
+      />
       {showLogs && <LogViewer id={recipe.id} hasServerLog={recipe.hasServerLog} live={live} />}
     </div>
   );

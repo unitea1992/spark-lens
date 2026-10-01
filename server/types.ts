@@ -300,19 +300,46 @@ export interface UsageSnapshot {
   week: ModelUsage[];
 }
 
+export interface UpstreamCommit {
+  sha: string;
+  date: number | null;
+  subject: string;
+}
+
+export interface UpstreamStatus {
+  /** current: up to date; behind: updates waiting; modified: tracked files edited; untracked: no upstream branch. */
+  state: "current" | "behind" | "modified" | "untracked" | "error" | "unknown";
+  head: string | null;
+  headDate: number | null;
+  latest: string | null;
+  latestDate: number | null;
+  branch: string | null;
+  behind: number;
+  ahead: number;
+  dirtyFiles: number;
+  /** Newest first, at most 30. */
+  commits: UpstreamCommit[];
+  /** Settings in the upstream example file that the local .env does not mention. */
+  newEnvKeys: string[];
+  checkedAt: number;
+  message: string | null;
+}
+
 export interface RecipeSnapshot {
   id: string;
   label: string;
   host: string;
   hostLabel: string;
   llm: string | null;
-  status: "running" | "starting" | "stopping" | "stopped" | "failed";
+  status: "running" | "starting" | "stopping" | "updating" | "stopped" | "failed";
   canStart: boolean;
   canStop: boolean;
   hasServerLog: boolean;
   /** Label of the recipe that holds the same machines, when that blocks a start. */
   blockedBy: string | null;
-  lastAction: { kind: "start" | "stop"; startedAt: number; finishedAt: number | null; ok: boolean | null; message: string | null } | null;
+  upstream: UpstreamStatus | null;
+  canUpdate: boolean;
+  lastAction: { kind: "start" | "stop" | "update"; startedAt: number; finishedAt: number | null; ok: boolean | null; message: string | null } | null;
 }
 
 export interface Snapshot {

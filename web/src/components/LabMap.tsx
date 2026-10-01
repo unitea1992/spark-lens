@@ -98,6 +98,8 @@ function Band({ llm, now }: { llm: LlmSnapshot; now: number }) {
   const kind = llm.state === "down" ? "down" : llm.state === "starting" ? "starting" : running ? "busy" : "idle";
   return (
     <div className={`band band--${kind}`}>
+      <span className="band__rail" aria-hidden="true" />
+      <div className="band__row">
       <span className="band__name">{llm.label}</span>
       <span className="band__state">{st.text}</span>
       <span className="band__figures">
@@ -118,6 +120,7 @@ function Band({ llm, now }: { llm: LlmSnapshot; now: number }) {
           </>
         )}
       </span>
+      </div>
     </div>
   );
 }

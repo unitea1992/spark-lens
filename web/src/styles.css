@@ -2810,3 +2810,325 @@ section {
   border-radius: 1px;
   background: color-mix(in srgb, var(--series-1) 55%, transparent);
 }
+
+/* ============================================================ round 7 */
+
+/* The model under its machines: a rail with bracket ends, no capsule. */
+.band {
+  display: block;
+  min-height: 0;
+  padding: 0;
+  border: 0 !important;
+  border-radius: 0;
+  background: none !important;
+  box-shadow: none !important;
+  animation: none !important;
+}
+
+.band__rail {
+  position: relative;
+  display: block;
+  height: 3px;
+  margin: 0 6px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--series-1) 45%, transparent);
+}
+
+.band__rail::before,
+.band__rail::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: inherit;
+}
+
+.band__rail::before {
+  left: 0;
+}
+
+.band__rail::after {
+  right: 0;
+}
+
+.band__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 16px;
+  padding: 10px 6px 0;
+}
+
+.band__state::before {
+  content: "● ";
+  font-size: 9px;
+  vertical-align: 2px;
+  color: var(--good);
+}
+
+.band--busy .band__rail {
+  background: linear-gradient(90deg, var(--series-1) 0%, color-mix(in srgb, var(--series-1) 40%, white) 50%, var(--series-1) 100%);
+  background-size: 200% 100%;
+  box-shadow: 0 0 12px color-mix(in srgb, var(--series-1) 55%, transparent);
+}
+
+.band--busy .band__rail::before,
+.band--busy .band__rail::after {
+  background: var(--series-1);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .band--busy .band__rail {
+    animation: rail 1.8s linear infinite;
+  }
+}
+
+@keyframes rail {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.band--busy .band__state::before {
+  content: "◆ ";
+  color: var(--series-1);
+}
+
+.band--starting .band__rail {
+  background: repeating-linear-gradient(90deg, var(--warn) 0 10px, transparent 10px 16px);
+}
+
+.band--starting .band__rail::before,
+.band--starting .band__rail::after {
+  background: var(--warn);
+}
+
+.band--starting .band__state::before {
+  content: "▲ ";
+  color: var(--warn);
+}
+
+.band--down .band__rail {
+  height: 2px;
+  background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--ink-3) 60%, transparent) 0 6px, transparent 6px 11px);
+}
+
+.band--down .band__rail::before,
+.band--down .band__rail::after {
+  height: 8px;
+  width: 2px;
+  background: color-mix(in srgb, var(--ink-3) 60%, transparent);
+}
+
+.band--down .band__state::before {
+  content: "○ ";
+  color: var(--ink-3);
+}
+
+.band--down .band__row {
+  padding-top: 6px;
+}
+
+.cluster__bands {
+  gap: 16px;
+}
+
+/* ------------------------------------------------------------ upstream */
+
+.upstream {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.upstream__line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+}
+
+.upstream__label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+}
+
+.upstream__state {
+  color: var(--ink-2);
+}
+
+.upstream--behind .upstream__state {
+  color: var(--series-1);
+  font-weight: 600;
+}
+
+.upstream--modified .upstream__state,
+.upstream--error .upstream__state {
+  color: var(--warn);
+}
+
+.upstream__checked {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.upstream__confirm {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.upstream__commits {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 12px;
+  border-left: 2px solid color-mix(in srgb, var(--series-1) 40%, transparent);
+}
+
+.upstream__commits li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.upstream__commits li > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+.upstream__commits li > span:last-child {
+  flex: none;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.upstream__env {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.link-button {
+  font: inherit;
+  font-size: 12px;
+  color: var(--series-1);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.link-button:hover {
+  text-decoration: underline;
+}
+
+.btn--small {
+  padding: 4px 12px;
+  font-size: 12.5px;
+}
+
+/* ------------------------------------------------------------- gauges */
+
+.gauges {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.gauge {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.gauge__label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+
+.gauge__value {
+  font-family: var(--font-figure);
+  font-size: 34px;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.gauge__value small {
+  margin-left: 2px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+
+.gauge__track {
+  display: block;
+  height: 4px;
+  margin-top: 6px;
+  border-radius: 2px;
+  background: var(--track);
+}
+
+.gauge__fill {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  border-radius: 2px;
+  transition: width 0.6s ease;
+}
+
+.gauge--1 .gauge__fill {
+  background: var(--series-1);
+}
+.gauge--2 .gauge__fill {
+  background: var(--series-2);
+}
+.gauge--3 .gauge__fill {
+  background: var(--series-3);
+}
+
+.gauge--1 .gauge__label {
+  color: var(--series-1);
+}
+.gauge--2 .gauge__label {
+  color: var(--series-2);
+}
+.gauge--3 .gauge__label {
+  color: var(--series-3);
+}
+
+.gauge__side {
+  font-size: 12px;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+
+.machine__note {
+  margin-top: -6px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+@media (max-width: 720px) {
+  .gauge__value {
+    font-size: 28px;
+  }
+}
