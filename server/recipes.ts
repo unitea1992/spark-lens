@@ -18,6 +18,19 @@ const MAX_LOG_BYTES = 256 * 1024;
 
 export { shDir, shq } from "./recipes-shell.ts";
 
+/**
+ * Recipes run in the machine's configured locale, not the dashboard's. ssh
+ * would pass on the dashboard's LANG/LC_*, and some ssh servers (Tailscale
+ * SSH) do not load /etc/default/locale, so without this a recipe started from
+ * here ran in another locale than by hand there: a launcher comparing `sort`
+ * output between two machines then saw different orders and refused to start.
+ */
+export const REMOTE_LOCALE = "if [ -r /etc/default/locale ]; then set -a; . /etc/default/locale; set +a; fi\n";
+
+export function withoutLocale(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(env).filter(([k]) => k !== "LANG" && k !== "LANGUAGE" && !k.startsWith("LC_")));
+}
+
 function logPath(id: string): string {
   return `${LOG_DIR}/recipe-${id}.log`;
 }
@@ -115,6 +128,7 @@ export class RecipeManager {
 
   private exec(host: HostConfig, script: string, timeoutMs: number) {
     if (host.local) return run("bash", ["-s"], { input: script, timeoutMs });
+    // In the remote's own locale, as after a normal ssh login there (see REMOTE_LOCALE).
     return run(
       "ssh",
       [
@@ -128,7 +142,7 @@ export class RecipeManager {
         host.ssh!,
         "bash -s",
       ],
-      { input: script, timeoutMs },
+      { input: REMOTE_LOCALE + script, timeoutMs, env: withoutLocale(process.env) },
     );
   }
 

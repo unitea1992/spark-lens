@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { cleanLog, RecipeManager, shDir, shq } from "../recipes.ts";
+import { cleanLog, RecipeManager, shDir, shq, withoutLocale } from "../recipes.ts";
 import type { LlmSnapshot } from "../types.ts";
 
 test("shell quoting survives quotes and expands only a leading ~", async () => {
@@ -290,4 +290,9 @@ test("a failed stop of a starting launcher keeps its machines held", async () =>
   } finally {
     process.env.HOME = oldHome;
   }
+});
+
+test("recipes over ssh leave the dashboard's locale behind", () => {
+  const env = withoutLocale({ PATH: "/usr/bin", HOME: "/home/u", LANG: "ja_JP.UTF-8", LANGUAGE: "ja", LC_ALL: "C", LC_COLLATE: "ja_JP.UTF-8" });
+  assert.deepEqual(env, { PATH: "/usr/bin", HOME: "/home/u" });
 });
