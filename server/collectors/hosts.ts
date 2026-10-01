@@ -27,6 +27,7 @@ export interface ProbeSample {
   gpu: GpuInfo | null;
   gpuProcesses: { pid: number; name: string; memBytes: number | null }[];
   net: { iface: string; rx: number; tx: number; up: boolean; speedMbps: number | null }[];
+  ib: { device: string; rx: number; tx: number; rateGbps: number | null }[];
   containers: ContainerInfo[];
   procs: HostProcess[];
 }
@@ -157,6 +158,15 @@ export function parseProbe(text: string): ProbeSample | null {
     return [{ iface: f[0], rx, tx, up: f[3] === "up", speedMbps: Number.isFinite(speed) && speed > 0 ? speed : null }];
   });
 
+  const ib = (s.get("ib") ?? []).flatMap((line) => {
+    const f = line.split(/\s+/);
+    const rx = Number(f[1]);
+    const tx = Number(f[2]);
+    if (!f[0] || !Number.isFinite(rx) || !Number.isFinite(tx)) return [];
+    const rate = Number(f[3]);
+    return [{ device: f[0], rx: rx * 4, tx: tx * 4, rateGbps: Number.isFinite(rate) && rate > 0 ? rate : null }];
+  });
+
   const containers = (s.get("docker") ?? []).flatMap((line) => {
     const [name, image, state, ...status] = line.split("|");
     return name ? [{ name, image: image ?? "", state: state ?? "", status: status.join("|") }] : [];
@@ -182,7 +192,7 @@ export function parseProbe(text: string): ProbeSample | null {
   const cap = num((s.get("gpucap") ?? [])[0]);
   if (gpu && cap !== null && cap > 0 && (gpu.clockMaxMhz === null || cap < gpu.clockMaxMhz)) gpu.clockMaxMhz = cap;
 
-  return { host, cpu, freq, mem, disks, temps, gpu, gpuProcesses, net, containers, procs };
+  return { host, cpu, freq, mem, disks, temps, gpu, gpuProcesses, net, ib, containers, procs };
 }
 
 /** Busy share of CPU time between two /proc/stat readings, 0..100. */
@@ -253,6 +263,7 @@ function emptySnapshot(config: HostConfig, stepSec: number): HostSnapshot {
     cpuTempC: null,
     temps: [],
     net: [],
+    fabric: [],
     containers: [],
     gpuProcesses: [],
     history: { stepSec, cpu: [], gpu: [], mem: [], temp: [], power: [] },
@@ -422,6 +433,11 @@ export class HostCollector {
       cpuTempC: cpuTemp(sample.temps),
       temps: sample.temps,
       net,
+      fabric: sample.ib.map((p) => {
+        const before = prev?.sample.ib.find((q) => q.device === p.device);
+        const r = (a: number, b: number | undefined) => (b === undefined || dt <= 0 || a < b ? null : (a - b) / dt);
+        return { device: p.device, rateGbps: p.rateGbps, rxBps: r(p.rx, before?.rx), txBps: r(p.tx, before?.tx) };
+      }),
       containers: sample.containers,
       gpuProcesses: sample.gpuProcesses,
     };

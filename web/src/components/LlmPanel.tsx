@@ -1,7 +1,7 @@
 import type { HostSnapshot, LlmSnapshot, RecipeSnapshot } from "../../../server/types.ts";
 import { ago, count, dockerStatus, duration, pct, shortHost } from "../format.ts";
 import { levelFor, Meter } from "./Meter.tsx";
-import { llmStatus } from "./Overview.tsx";
+import { llmStatus } from "../status.ts";
 import { RecipeControls } from "./RecipeCard.tsx";
 import { Sparkline } from "./Sparkline.tsx";
 import { StatusPill } from "./StatusPill.tsx";
@@ -122,6 +122,31 @@ export function LlmPanel({
                 </dd>
               </div>
             )}
+            {up && (
+              <>
+                <div>
+                  <dt>TTFT（平均）</dt>
+                  <dd>{llm.ttftSec === null ? "–" : `${llm.ttftSec.toFixed(2)} 秒`}</dd>
+                </div>
+                <div>
+                  <dt>プレフィックスキャッシュ命中率</dt>
+                  <dd>{llm.prefixCacheHitRate === null ? "–" : pct(llm.prefixCacheHitRate * 100)}</dd>
+                </div>
+                <div>
+                  <dt>起動からの累計</dt>
+                  <dd>
+                    {llm.tokensTotal ? `入力 ${count(llm.tokensTotal.prompt)}・出力 ${count(llm.tokensTotal.generation)}` : "–"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>連続稼働・API</dt>
+                  <dd>
+                    {llm.upSince ? duration((now - llm.upSince) / 1000) : "–"}・{shortHost(llm.baseUrl)}
+                    {llm.latencyMs !== null ? `（${llm.latencyMs} ms）` : ""}
+                  </dd>
+                </div>
+              </>
+            )}
           </dl>
 
           {nodes.length > 0 && (
@@ -139,37 +164,6 @@ export function LlmPanel({
             </ul>
           )}
 
-          {up && (
-            <details className="more">
-              <summary>詳細</summary>
-              <dl className="facts">
-                <div>
-                  <dt>TTFT（最初のトークンまで・平均）</dt>
-                  <dd>{llm.ttftSec === null ? "–" : `${llm.ttftSec.toFixed(2)} 秒`}</dd>
-                </div>
-                <div>
-                  <dt>プレフィックスキャッシュ命中率</dt>
-                  <dd>{llm.prefixCacheHitRate === null ? "–" : pct(llm.prefixCacheHitRate * 100)}</dd>
-                </div>
-                <div>
-                  <dt>起動からの累計</dt>
-                  <dd>
-                    {llm.tokensTotal ? `入力 ${count(llm.tokensTotal.prompt)}・出力 ${count(llm.tokensTotal.generation)}` : "–"}
-                  </dd>
-                </div>
-                <div>
-                  <dt>連続稼働</dt>
-                  <dd>{llm.upSince ? duration((now - llm.upSince) / 1000) : "–"}</dd>
-                </div>
-                <div>
-                  <dt>API</dt>
-                  <dd>
-                    {shortHost(llm.baseUrl)}/v1{llm.latencyMs !== null ? `・${llm.latencyMs} ms` : ""}
-                  </dd>
-                </div>
-              </dl>
-            </details>
-          )}
         </div>
       </div>
     </article>

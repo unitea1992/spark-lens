@@ -1,9 +1,8 @@
 import type { HostSnapshot, NetInfo } from "../../../server/types.ts";
 import { ago, bytes, dockerStatus, duration, pct, rate, ratioPct, usedOfTotal } from "../format.ts";
-import { LensDial } from "./LensDial.tsx";
 import { levelFor, Meter } from "./Meter.tsx";
 import { Sparkline } from "./Sparkline.tsx";
-import { hostStatus } from "./Overview.tsx";
+import { hostStatus } from "../status.ts";
 import { StatusPill, type Tone } from "./StatusPill.tsx";
 
 const KIND_LABEL: Record<HostSnapshot["kind"], string> = {
@@ -32,14 +31,17 @@ export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) 
   const memPct = ratioPct(host.memUsedBytes, host.memTotalBytes);
   const gpu = host.gpu;
   const isSpark = host.kind === "spark";
-  const centerGpu = isSpark && gpu?.tempC !== null && gpu?.tempC !== undefined;
-  const centerTemp = centerGpu ? gpu!.tempC : (host.cpuTempC ?? gpu?.tempC ?? null);
   const st = hostStatus(host);
   const running = host.containers.filter((c) => c.state === "running");
-  const links = host.net.filter((n) => n.up).sort(byLinkSpeed);
+  // Ports carrying nothing are counted, not listed: a Spark has several idle fabric ports.
+  const moving = (rx: number | null, tx: number | null) => (rx ?? 0) + (tx ?? 0) >= 1000;
+  const allLinks = host.net.filter((n) => n.up).sort(byLinkSpeed);
+  const links = allLinks.filter((n, i) => moving(n.rxBps, n.txBps) || i === 0);
+  const rdma = host.fabric.filter((f) => moving(f.rxBps, f.txBps));
+  const quietPorts = allLinks.length - links.length + host.fabric.length - rdma.length;
 
   return (
-    <article className={`card machine${host.online ? "" : " machine--offline"}`}>
+    <article id={`machine-${host.id}`} className={`card machine${host.online ? "" : " machine--offline"}`}>
       <header className="card__head">
         <div>
           <h3 className="card__title">{host.label}</h3>
@@ -58,53 +60,30 @@ export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) 
         </p>
       )}
 
-      <div className="machine__body">
-        <LensDial
-          dimmed={!host.online}
-          rings={[
-            { key: "gpu", label: "GPU", value: gpu?.utilPct ?? null },
-            { key: "mem", label: "メモリ", value: memPct },
-            { key: "cpu", label: "CPU", value: host.cpuPct },
-          ]}
-          center={centerTemp === null ? "–" : centerTemp.toFixed(0)}
-          unit="°C"
-          caption={centerGpu ? "GPU 温度" : "CPU 温度"}
-        />
-        <dl className="legend">
-          <div className="legend__row">
-            <dt>
-              <span className="swatch series-bg-1" />
-              GPU
-            </dt>
-            <dd>
-              <strong>{pct(gpu?.utilPct)}</strong>
-              <span>{temp(gpu?.tempC)}</span>
-            </dd>
+      <div className="machine__bars">
+        {[
+          { key: "gpu", label: "GPU", value: gpu?.utilPct ?? null, side: temp(gpu?.tempC), series: 1 },
+          {
+            key: "mem",
+            label: "メモリ",
+            value: memPct,
+            side: `${usedOfTotal(host.memUsedBytes, host.memTotalBytes)}${isSpark && host.gpuProcesses.length > 0 ? "・モデルが確保" : ""}`,
+            series: 2,
+          },
+          { key: "cpu", label: "CPU", value: host.cpuPct, side: temp(host.cpuTempC), series: 3 },
+        ].map((r) => (
+          <div key={r.key} className="bar-row">
+            <span className="bar-row__label">
+              <i className={`swatch series-bg-${r.series}`} />
+              {r.label}
+            </span>
+            <strong className="bar-row__value">{pct(r.value)}</strong>
+            <span className="bar-row__side">{r.side}</span>
+            <div className={`bar-row__track series-track-${r.series}`}>
+              <div className="bar-row__fill" style={{ width: `${Math.min(100, Math.max(0, r.value ?? 0))}%` }} />
+            </div>
           </div>
-          <div className="legend__row">
-            <dt>
-              <span className="swatch series-bg-2" />
-              メモリ
-            </dt>
-            <dd>
-              <strong>{pct(memPct)}</strong>
-              <span>
-                {usedOfTotal(host.memUsedBytes, host.memTotalBytes)}
-                {isSpark && host.gpuProcesses.length > 0 ? "・モデルが確保" : ""}
-              </span>
-            </dd>
-          </div>
-          <div className="legend__row">
-            <dt>
-              <span className="swatch series-bg-3" />
-              CPU
-            </dt>
-            <dd>
-              <strong>{pct(host.cpuPct)}</strong>
-              <span>{temp(host.cpuTempC)}</span>
-            </dd>
-          </div>
-        </dl>
+        ))}
       </div>
 
       <Sparkline
@@ -133,90 +112,81 @@ export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) 
         })}
       </div>
 
-      <details className="more">
-        <summary>詳細</summary>
-        <dl className="facts">
-          <div>
-            <dt>稼働時間</dt>
-            <dd>{duration(host.uptimeSec)}</dd>
-          </div>
-          <div>
-            <dt>GPU 電力</dt>
-            <dd>{gpu?.powerW !== null && gpu?.powerW !== undefined ? `${gpu.powerW.toFixed(1)} W` : "–"}</dd>
-          </div>
-          <div>
-            <dt>GPU クロック（上限）</dt>
-            <dd>{clock(gpu?.clockMhz, gpu?.clockMaxMhz)}</dd>
-          </div>
-          <div>
-            <dt>CPU クロック（上限）</dt>
-            <dd>{clock(host.clockMhz, host.clockMaxMhz)}</dd>
-          </div>
-          <div>
-            <dt>ロードアベレージ（1 分）</dt>
-            <dd>
-              {host.load ? host.load[0].toFixed(1) : "–"}
-              {host.ncpu ? `（${host.ncpu} コア）` : ""}
-            </dd>
-          </div>
-          {isSpark && (
-            <div>
-              <dt>メモリ</dt>
-              <dd>CPU と GPU で共用</dd>
-            </div>
-          )}
-          <div>
-            <dt>スワップ</dt>
-            <dd>{host.swapTotalBytes ? `${bytes(host.swapUsedBytes)} / ${bytes(host.swapTotalBytes)}` : "なし"}</dd>
-          </div>
-          <div>
-            <dt>応答時間</dt>
-            <dd>{host.latencyMs === null ? "–" : `${host.latencyMs} ms`}</dd>
-          </div>
-          <div>
-            <dt>OS</dt>
-            <dd>{host.os ?? "–"}</dd>
-          </div>
-          <div>
-            <dt>CPU</dt>
-            <dd>{host.cpuModel ?? "–"}</dd>
-          </div>
-        </dl>
-        {links.length > 0 && (
-          <>
-            <h4 className="more__title">ネットワーク</h4>
-            <ul className="rows">
-              {links.map((n) => (
-                <li key={n.iface}>
-                  <span className="rows__name">{n.iface}</span>
-                  <span className="rows__meta">
-                    {n.speedMbps ? (n.speedMbps >= 1000 ? `${n.speedMbps / 1000} GbE` : `${n.speedMbps} Mb`) : ""}
-                  </span>
+      <dl className="facts facts--compact">
+        <div>
+          <dt>稼働時間</dt>
+          <dd>{duration(host.uptimeSec)}</dd>
+        </div>
+        <div>
+          <dt>GPU 電力</dt>
+          <dd>{gpu?.powerW !== null && gpu?.powerW !== undefined ? `${gpu.powerW.toFixed(1)} W` : "–"}</dd>
+        </div>
+        <div>
+          <dt>GPU クロック / 上限</dt>
+          <dd>{clock(gpu?.clockMhz, gpu?.clockMaxMhz)}</dd>
+        </div>
+        <div>
+          <dt>CPU クロック / 上限</dt>
+          <dd>{clock(host.clockMhz, host.clockMaxMhz)}</dd>
+        </div>
+        <div>
+          <dt>ロードアベレージ</dt>
+          <dd>
+            {host.load ? host.load.map((l) => l.toFixed(1)).join(" / ") : "–"}
+          </dd>
+        </div>
+        <div>
+          <dt>スワップ</dt>
+          <dd>{host.swapTotalBytes ? `${bytes(host.swapUsedBytes)} / ${bytes(host.swapTotalBytes)}` : "なし"}</dd>
+        </div>
+      </dl>
+
+      {links.length > 0 && (
+        <div className="minilist">
+          <h4>ネットワーク</h4>
+          <ul className="rows">
+            {links.map((n) => (
+              <li key={n.iface}>
+                <span className="rows__name">{n.iface}</span>
+                <span className="rows__meta">
+                  {n.speedMbps ? (n.speedMbps >= 1000 ? `${n.speedMbps / 1000} GbE` : `${n.speedMbps} Mb`) : ""}
+                </span>
+                <span className="rows__value">
+                  ↓ {rate(n.rxBps)}　↑ {rate(n.txBps)}
+                </span>
+              </li>
+            ))}
+            {rdma.map((f) => (
+                <li key={f.device}>
+                  <span className="rows__name">{f.device}</span>
+                  <span className="rows__meta">RDMA{f.rateGbps ? ` ${f.rateGbps} Gb` : ""}</span>
                   <span className="rows__value">
-                    ↓ {rate(n.rxBps)}　↑ {rate(n.txBps)}
+                    ↓ {rate(f.rxBps)}　↑ {rate(f.txBps)}
                   </span>
                 </li>
               ))}
-            </ul>
-          </>
-        )}
-        {host.gpuProcesses.length > 0 && (
-          <>
-            <h4 className="more__title">GPU を使っているプロセス</h4>
-            <ul className="rows">
-              {host.gpuProcesses.map((p) => (
-                <li key={p.pid}>
-                  <span className="rows__name">{p.name || `PID ${p.pid}`}</span>
-                  <span className="rows__value">{p.memBytes === null ? `PID ${p.pid}` : bytes(p.memBytes)}</span>
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
-        <h4 className="more__title">コンテナ</h4>
-        {host.containers.length === 0 ? (
-          <p className="muted">コンテナはありません。</p>
-        ) : (
+          </ul>
+          {quietPorts > 0 && <p className="minilist__more">ほか {quietPorts} ポートは通信なし</p>}
+        </div>
+      )}
+
+      {host.gpuProcesses.length > 0 && (
+        <div className="minilist">
+          <h4>GPU を使っているプロセス</h4>
+          <ul className="rows">
+            {host.gpuProcesses.map((p) => (
+              <li key={p.pid}>
+                <span className="rows__name">{p.name || `PID ${p.pid}`}</span>
+                <span className="rows__value">{p.memBytes === null ? `PID ${p.pid}` : bytes(p.memBytes)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {host.containers.length > 0 && (
+        <div className="minilist">
+          <h4>コンテナ</h4>
           <ul className="rows">
             {[...running, ...host.containers.filter((c) => c.state !== "running")].map((c) => (
               <li key={c.name} className={c.state === "running" ? "" : "rows--quiet"}>
@@ -225,8 +195,12 @@ export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) 
               </li>
             ))}
           </ul>
-        )}
-      </details>
+        </div>
+      )}
+
+      <p className="machine__foot">
+        {[host.os, host.cpuModel, host.latencyMs !== null ? `応答 ${host.latencyMs} ms` : null].filter(Boolean).join("・")}
+      </p>
     </article>
   );
 }

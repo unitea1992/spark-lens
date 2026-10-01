@@ -25,6 +25,7 @@ function Window({ w, now }: { w: UsageWindow; now: number }) {
         level={levelFor(w.usedPct, 80, 95)}
         marker={elapsedPct(w, now)}
         markerLabel="期間の経過位置（均等に使った場合の目安）"
+        projection={p?.projected ?? null}
         label={`${w.label}の使用率`}
       />
       <p className="stat__foot stat__foot--split">

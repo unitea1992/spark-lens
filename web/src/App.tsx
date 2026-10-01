@@ -6,10 +6,11 @@ import { MachineCard } from "./components/MachineCard.tsx";
 import { ModelUsage } from "./components/ModelUsage.tsx";
 import { RecipeControls } from "./components/RecipeCard.tsx";
 import { SubscriptionCard } from "./components/SubscriptionCard.tsx";
-import { alerts, llmStatus, Overview } from "./components/Overview.tsx";
-import { StatusPill, type Tone } from "./components/StatusPill.tsx";
+import { LabMap } from "./components/LabMap.tsx";
+import { StatusPill } from "./components/StatusPill.tsx";
 import { clock } from "./format.ts";
 import { PAGES, useRoute, type Page } from "./route.ts";
+import { alerts, badges, type Badge } from "./status.ts";
 import { useSnapshot, type Link } from "./useSnapshot.ts";
 
 type Theme = "auto" | "light" | "dark";
@@ -40,30 +41,6 @@ const LINK_TEXT: Record<Link, string> = {
   lost: "再接続中…",
 };
 
-interface Chip {
-  text: string;
-  tone: Tone;
-  to: Page;
-}
-
-/**
- * The status strip on the overview. Anything that needs attention comes
- * first, in amber or red; the calm summary of each area follows.
- */
-function statusChips(s: Snapshot, now: number): Chip[] {
-  const chips: Chip[] = alerts(s, now).map((a) => ({ text: a.text, tone: a.tone, to: a.to }));
-  const online = s.hosts.filter((h) => h.online).length;
-  if (online === s.hosts.length) chips.push({ text: `マシン ${online}/${s.hosts.length}`, tone: "good", to: "local" });
-  for (const l of s.llms) {
-    const st = llmStatus(l);
-    chips.push({ text: `${l.label} ${st.text}`, tone: st.tone, to: "local" });
-  }
-  if (!chips.some((c) => c.to === "usage")) chips.push({ text: "クラウド利用枠 余裕あり", tone: "good", to: "usage" });
-  const working = s.agents.filter((a) => a.status === "working").length;
-  chips.push({ text: working > 0 ? `作業中 ${working}` : "作業中なし", tone: working > 0 ? "busy" : "quiet", to: "agents" });
-  return chips;
-}
-
 function ThemeIcon({ theme }: { theme: Theme }) {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" className="theme-icon">
@@ -74,20 +51,32 @@ function ThemeIcon({ theme }: { theme: Theme }) {
   );
 }
 
+/** A tab's own status: a dot, or a count, coloured like the pill it stands for. */
+function TabBadge({ badge }: { badge: Badge | null }) {
+  if (!badge) return null;
+  return (
+    <span className={`tab-badge tab-badge--${badge.tone}${badge.text ? "" : " tab-badge--dot"}`} title={badge.label}>
+      {badge.text}
+      <span className="visually-hidden">（{badge.label}）</span>
+    </span>
+  );
+}
+
 export function App() {
   const { snapshot, link, now } = useSnapshot();
   const [theme, cycleTheme] = useTheme();
   const page = useRoute();
+  const tabBadges = snapshot ? badges(snapshot, now) : null;
 
   useEffect(() => {
     const current = PAGES.find((p) => p.id === page);
-    document.title = page === "overview" ? "Spark Lens" : `${current?.label} | Spark Lens`;
+    document.title = `${current?.label} | Spark Lens`;
   }, [page]);
 
   return (
     <div className="page">
       <header className="top">
-        <a className="top__brand" href="#/">
+        <a className="top__brand" href="#/lab">
           <svg className="top__mark" viewBox="0 0 64 64" aria-hidden="true">
             <g fill="none" strokeLinecap="round" strokeWidth="6">
               <path className="series-1" d="M32 8a24 24 0 1 1-20.8 12" />
@@ -101,6 +90,7 @@ export function App() {
           {PAGES.map((p) => (
             <a key={p.id} href={`#/${p.id}`} aria-current={page === p.id ? "page" : undefined}>
               {p.label}
+              <TabBadge badge={tabBadges?.[p.id] ?? null} />
             </a>
           ))}
         </nav>
@@ -131,7 +121,10 @@ export function App() {
       <nav className="bottom-tabs" aria-label="ページ">
         {PAGES.map((p) => (
           <a key={p.id} href={`#/${p.id}`} aria-current={page === p.id ? "page" : undefined}>
-            <TabIcon page={p.id} />
+            <span className="bottom-tabs__icon">
+              <TabIcon page={p.id} />
+              <TabBadge badge={tabBadges?.[p.id] ?? null} />
+            </span>
             <span>{p.short}</span>
           </a>
         ))}
@@ -144,16 +137,11 @@ function TabIcon({ page }: { page: Page }) {
   const common = { fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" className="tab-icon">
-      {page === "overview" && (
+      {page === "lab" && (
         <g {...common}>
           <circle cx="12" cy="12" r="8" />
-          <circle cx="12" cy="12" r="3.5" />
-        </g>
-      )}
-      {page === "local" && (
-        <g {...common}>
-          <rect x="6" y="6" width="12" height="12" rx="2" />
-          <path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3" />
+          <circle cx="12" cy="12" r="4.5" />
+          <circle cx="12" cy="12" r="1.2" fill="currentColor" />
         </g>
       )}
       {page === "usage" && (
@@ -175,6 +163,11 @@ function TabIcon({ page }: { page: Page }) {
 function Dashboard({ snapshot, now, stale, page }: { snapshot: Snapshot; now: number; stale: boolean; page: Page }) {
   const linked = new Set(snapshot.recipes.filter((r) => r.llm && snapshot.llms.some((l) => l.id === r.llm)).map((r) => r.id));
   const loose = snapshot.recipes.filter((r) => !linked.has(r.id));
+  // Problems on other pages are shown everywhere, but only while they exist.
+  const elsewhere = alerts(snapshot, now).filter((a) => a.page !== page);
+  const working = snapshot.agents.filter((a) => a.status === "working").length;
+  const waiting = snapshot.agents.filter((a) => a.status === "waiting").length;
+
   return (
     <main className={stale ? "stale" : ""}>
       {stale && (
@@ -182,27 +175,24 @@ function Dashboard({ snapshot, now, stale, page }: { snapshot: Snapshot; now: nu
           サーバーとの接続が切れています。表示は {clock(snapshot.generatedAt)} 時点のものです。
         </p>
       )}
-
-      {page === "overview" && (
-        <>
-          <ul className="chips" aria-label="全体の状態">
-            {statusChips(snapshot, now).map((c) => (
-              <li key={c.text}>
-                <a href={`#/${c.to}`}>
-                  <StatusPill tone={c.tone}>{c.text}</StatusPill>
-                </a>
-              </li>
-            ))}
-          </ul>
-          <Overview snapshot={snapshot} now={now} />
-        </>
+      {elsewhere.length > 0 && (
+        <ul className="alerts" aria-label="ほかのページで要確認">
+          {elsewhere.map((a) => (
+            <li key={a.text}>
+              <a href={`#/${a.page}`} className={`alert alert--${a.tone}`}>
+                {a.text}
+              </a>
+            </li>
+          ))}
+        </ul>
       )}
 
-      {page === "local" && (
+      {page === "lab" && (
         <>
+          <LabMap snapshot={snapshot} />
           {(snapshot.llms.length > 0 || loose.length > 0) && (
             <section aria-labelledby="h-llm">
-              <h2 id="h-llm">ローカル LLM</h2>
+              <h2 id="h-llm">モデル</h2>
               <div className="grid grid--llm">
                 {snapshot.llms.map((l) => (
                   <LlmPanel key={l.id} llm={l} hosts={snapshot.hosts} recipes={snapshot.recipes.filter((r) => r.llm === l.id)} now={now} />
@@ -233,7 +223,7 @@ function Dashboard({ snapshot, now, stale, page }: { snapshot: Snapshot; now: nu
             {snapshot.subscriptions.some((x) => x.windows.length > 0) && (
               <p className="section__hint">
                 <span className="tick" aria-hidden="true" />
-                縦線は期間の経過位置です。バーが縦線より右なら、均等に使うより速いペースです。
+                縦線は期間の経過位置、薄い帯はこのペースで使い続けた場合の期間終了時の見込みです。
               </p>
             )}
             {snapshot.subscriptions.length === 0 ? (
@@ -258,7 +248,17 @@ function Dashboard({ snapshot, now, stale, page }: { snapshot: Snapshot; now: nu
 
       {page === "agents" && (
         <section aria-labelledby="h-agents">
-          <h2 id="h-agents">エージェント</h2>
+          <div className="page-head">
+            <h2 id="h-agents">エージェント</h2>
+            <p className="page-head__count">
+              作業中 <strong>{working}</strong>
+              {waiting > 0 && (
+                <>
+                  ・入力待ち <strong className="warn-text">{waiting}</strong>
+                </>
+              )}
+            </p>
+          </div>
           <AgentList agents={snapshot.agents} now={now} multiHost={snapshot.hosts.length > 1} />
         </section>
       )}

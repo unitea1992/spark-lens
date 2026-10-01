@@ -66,14 +66,14 @@ export function AgentList({ agents, now, multiHost }: { agents: AgentSnapshot[];
         </ul>
       )}
       {earlier.length > 0 && (
-        <details className="earlier">
-          <summary>最後の動きから 1 時間以上たったセッション（{earlier.length} 件）</summary>
-          <ul className="card agents">
+        <>
+          <h3 className="subhead subhead--quiet">1 時間以上動きのないセッション</h3>
+          <ul className="card agents agents--quiet">
             {earlier.map((a) => (
               <Row key={a.id} a={a} now={now} multiHost={multiHost} />
             ))}
           </ul>
-        </details>
+        </>
       )}
     </>
   );

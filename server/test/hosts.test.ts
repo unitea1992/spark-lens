@@ -36,6 +36,8 @@ nvidia|NVIDIA GB10|0|43|3.60|[N/A]|[N/A]|208|3003
 @@net
 enP7s7 11253613566 1268300775 up 10000
 wlP9s9 0 0 down -1
+@@ib
+rocep1s0f0 1000 2000 200
 @@docker
 glm53-exl3-head|ghcr.io/example/image:tag|running|Up 2 hours
 old|img|exited|Exited (0) 4 days ago
@@ -66,6 +68,8 @@ test("parses a DGX Spark probe", () => {
   assert.equal(s.net[0]?.speedMbps, 10000);
   assert.equal(s.net[1]?.speedMbps, null);
   assert.equal(s.containers[0]?.state, "running");
+  // RDMA counters count 4-byte words.
+  assert.deepEqual(s.ib, [{ device: "rocep1s0f0", rx: 4000, tx: 8000, rateGbps: 200 }]);
   assert.deepEqual(s.procs[0], {
     pid: 812,
     elapsedSec: 120,

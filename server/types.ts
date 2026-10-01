@@ -101,6 +101,13 @@ export interface NetInfo {
   txBps: number | null;
 }
 
+export interface FabricPort {
+  device: string;
+  rateGbps: number | null;
+  rxBps: number | null;
+  txBps: number | null;
+}
+
 export interface ContainerInfo {
   name: string;
   image: string;
@@ -165,6 +172,8 @@ export interface HostSnapshot {
   cpuTempC: number | null;
   temps: TempReading[];
   net: NetInfo[];
+  /** RDMA ports, whose traffic the interface counters do not see. */
+  fabric: FabricPort[];
   containers: ContainerInfo[];
   gpuProcesses: { pid: number; name: string; memBytes: number | null }[];
   history: HostHistory;

@@ -114,6 +114,20 @@ for dev in /sys/class/net/*; do
     echo "$i $(cat "$dev/statistics/rx_bytes") $(cat "$dev/statistics/tx_bytes") $(cat "$dev/operstate" 2>/dev/null) $(cat "$dev/speed" 2>/dev/null || echo -1)"
 done
 
+echo "@@ib"
+# <device> <rcv words> <xmit words> <link Gb/s>; active RDMA ports only.
+# RDMA (RoCE) traffic such as NCCL between nodes bypasses the kernel's
+# interface counters, so it is only visible here. One word is 4 bytes.
+for d in /sys/class/infiniband/*; do
+    p="$d/ports/1"
+    [ -r "$p/state" ] || continue
+    case "$(cat "$p/state" 2>/dev/null)" in *ACTIVE*) ;; *) continue ;; esac
+    r="$(cat "$p/counters/port_rcv_data" 2>/dev/null)" || continue
+    x="$(cat "$p/counters/port_xmit_data" 2>/dev/null)" || continue
+    rate="$(cut -d' ' -f1 < "$p/rate" 2>/dev/null)"
+    echo "$(basename "$d") $r $x ${rate:-0}"
+done
+
 echo "@@docker"
 # <name>|<image>|<state>|<status>
 if command -v docker >/dev/null 2>&1; then
