@@ -131,3 +131,42 @@ test("switching stops the recipe holding the machines, then starts the requested
     process.env.HOME = oldHome;
   }
 });
+
+test("a restarted dashboard adopts a launcher that is still preparing and keeps its machines held", async () => {
+  const home = mkdtempSync(join(tmpdir(), "sl-recover-"));
+  const work = join(home, "work");
+  const { mkdirSync } = await import("node:fs");
+  mkdirSync(work);
+  const oldHome = process.env.HOME;
+  process.env.HOME = home;
+  const recipes = [
+    { id: "a", label: "A", host: "local", dir: work, start: "sleep 3", stop: "true", llm: "m", group: "g" },
+    { id: "b", label: "B", host: "local", dir: work, start: "true", stop: "true", group: "g" },
+  ];
+  const hosts = [{ id: "local", label: "Local", kind: "server" as const, local: true }];
+  try {
+    const first = new RecipeManager(recipes, hosts, join(home, "ctl"));
+    await first.update([llm("down")]);
+    assert.equal((await first.start("a")).ok, true);
+
+    // No container or API yet: only the launcher is alive.
+    const second = new RecipeManager(recipes, hosts, join(home, "ctl"));
+    await second.update([llm("down")]);
+    const [a, b] = second.snapshots();
+    assert.equal(a?.status, "starting");
+    assert.equal(a?.canStart, false);
+    assert.equal(b?.blockedBy, "A");
+    assert.equal((await second.start("b")).ok, false);
+    assert.equal((await second.start("a")).ok, false);
+
+    // Once the launcher exits, the adopted start finishes like any other.
+    for (let i = 0; i < 60 && second.snapshots()[0]?.status === "starting"; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      await second.update([llm("down")]);
+    }
+    assert.notEqual(second.snapshots()[0]?.status, "starting");
+    assert.equal(second.snapshots()[1]?.canStart, true);
+  } finally {
+    process.env.HOME = oldHome;
+  }
+});

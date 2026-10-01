@@ -280,3 +280,21 @@ test("two update clicks at once run one stop and one pull; a stop during the upd
     assert.equal((await m.stop("r")).ok, true);
   });
 });
+
+test("a stale 'still running' reading during the pull does not cancel the restart", async () => {
+  const f = fixture();
+  pushTwo(f);
+  const marks = join(f.home, "marks");
+  await withEnv(f.home, async () => {
+    const m = manager(f, { start: `echo start >> ${marks}`, stop: `echo stop >> ${marks}` });
+    await m.update([llm("up")]);
+    const done = m.updateRecipe("r");
+    // Polls keep arriving with the old container still listed while git pulls.
+    const poll = setInterval(() => void m.update([llm("starting")]), 10);
+    const res = await done;
+    clearInterval(poll);
+    assert.equal(res.ok, true, res.message);
+    for (let i = 0; i < 50 && !(existsSync(marks) && readFileSync(marks, "utf8").includes("start")); i++) await sleep(100);
+    assert.deepEqual(readFileSync(marks, "utf8").trim().split("\n"), ["stop", "start"]);
+  });
+});

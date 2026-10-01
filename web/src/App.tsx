@@ -77,12 +77,13 @@ export function App() {
     <div className="page">
       <header className="top">
         <a className="top__brand" href="#/lab">
+          {/* A lens over a pulse, with the spark it brings into focus. */}
           <svg className="top__mark" viewBox="0 0 64 64" aria-hidden="true">
-            <g fill="none" strokeLinecap="round" strokeWidth="6">
-              <path className="series-1" d="M32 8a24 24 0 1 1-20.8 12" />
-              <path className="series-2" d="M32 19a13 13 0 1 0 12.6 9.8" />
+            <g fill="none" strokeLinecap="round" strokeLinejoin="round">
+              <path className="series-1" strokeWidth="5.5" d="M38 42 A19 19 0 1 1 44 35" />
+              <path className="series-2" strokeWidth="5" d="M41 41 L54 54 M17 28 H23 L27 21 L31 32 L36 25" />
             </g>
-            <circle className="series-fill-3" cx="32" cy="32" r="4.5" />
+            <path className="series-fill-3" d="M37 16 L41 20 L37 24 L33 20 Z" />
           </svg>
           <span className="top__name">Spark Lens</span>
         </a>

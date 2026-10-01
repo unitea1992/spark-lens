@@ -22,6 +22,10 @@ function logPath(id: string): string {
   return `${LOG_DIR}/recipe-${id}.log`;
 }
 
+function pidPath(id: string): string {
+  return `${LOG_DIR}/recipe-${id}.pid`;
+}
+
 export function startScript(r: RecipeConfig): string {
   const log = logPath(r.id);
   // The exit marker lets the dashboard tell a finished launcher from a failed one.
@@ -33,6 +37,8 @@ export function startScript(r: RecipeConfig): string {
     `mkdir -p "${LOG_DIR}"`,
     `echo "=== spark-lens: start $(date '+%F %T')" > "${log}"`,
     `nohup setsid bash -c ${shq(body)} >> "${log}" 2>&1 < /dev/null &`,
+    // Kept on the host, so a restarted dashboard can find a launcher still preparing.
+    `echo $! > "${pidPath(r.id)}"`,
     "echo $!",
   ].join("\n");
 }
@@ -92,6 +98,8 @@ export class RecipeManager {
   private readonly progress = new Map<string, StartProgress & { startedAt: number | null }>();
   private readonly durations: { get(id: string): number | null; set(id: string, sec: number): void } | null;
   private llms: LlmSnapshot[] = [];
+  /** Launchers found still running on the hosts when this dashboard started. */
+  private recovery: Promise<void> | null = null;
 
   constructor(
     recipes: RecipeConfig[],
@@ -142,6 +150,7 @@ export class RecipeManager {
     if (this.locks.has(group)) return { ok: false, message: "ほかの操作が進行中です。終わってからもう一度試してください" };
     this.locks.add(group);
     try {
+      await this.recover();
       return await run();
     } finally {
       this.locks.delete(group);
@@ -222,9 +231,41 @@ export class RecipeManager {
     this.memory.set(r.id, { ...parseMemoryPlan(res.stdout), readAt: Date.now() });
   }
 
+  /**
+   * After a dashboard restart, adopt launchers that are still running (for
+   * example still downloading, with no container or API yet), so their
+   * machines stay held and a second start is refused. Runs once.
+   */
+  private recover(): Promise<void> {
+    this.recovery ??= Promise.all(
+      this.recipes.map(async (r) => {
+        if (this.actions.has(r.id)) return;
+        const pidFile = pidPath(r.id);
+        const res = await this.exec(
+          this.hosts.get(r.host)!,
+          // The command line check guards against a recycled pid.
+          `p=$(cat "${pidFile}" 2>/dev/null) && kill -0 "$p" 2>/dev/null && ps -o args= -p "$p" | grep -q "spark-lens: exit" && echo "$p"; head -n 1 "${logPath(r.id)}" 2>/dev/null`,
+          10_000,
+        );
+        const pid = Number(res.stdout.split("\n")[0]);
+        if (res.code === null || res.timedOut || !Number.isInteger(pid) || pid <= 0 || this.actions.has(r.id)) return;
+        this.actions.set(r.id, {
+          kind: "start",
+          startedAt: startedAt(cleanLog(res.stdout)) ?? Date.now(),
+          finishedAt: null,
+          ok: null,
+          message: "起動しています",
+          pid,
+        });
+      }),
+    ).then(() => undefined);
+    return this.recovery;
+  }
+
   /** Called every tick with fresh LLM states; also notices launchers that finished. */
   async update(llms: LlmSnapshot[]): Promise<void> {
     this.llms = llms;
+    await this.recover();
     await Promise.all(this.recipes.map((r) => this.readMemory(r)));
     await Promise.all(
       this.recipes.map(async (r) => {
@@ -274,10 +315,14 @@ export class RecipeManager {
     return this.locked(r, () => this.doStart(r));
   }
 
-  private async doStart(r: RecipeConfig): Promise<{ ok: boolean; message: string }> {
+  /**
+   * `afterOwnStop`: the caller has just stopped this recipe itself, so a
+   * monitoring reading taken before that stop must not refuse the restart.
+   */
+  private async doStart(r: RecipeConfig, afterOwnStop = false): Promise<{ ok: boolean; message: string }> {
     const id = r.id;
     const snap = this.snapshots().find((s) => s.id === id)!;
-    if (!snap.canStart) {
+    if (afterOwnStop ? snap.blockedBy !== null : !snap.canStart) {
       return { ok: false, message: snap.blockedBy ? `${snap.blockedBy} が動いているため起動できません` : "すでに動いているか、操作中です" };
     }
     const action: Action = { kind: "start", startedAt: Date.now(), finishedAt: null, ok: null, message: "起動しています", pid: null };
@@ -405,8 +450,15 @@ export class RecipeManager {
     await this.checkUpstream(id);
     Object.assign(action, { finishedAt: Date.now(), ok: true, message: `${up.behind} 件の更新を取り込みました` });
     if (wasRunning) {
-      const started = await this.doStart(r);
-      return { ok: started.ok, message: started.ok ? `${up.behind} 件の更新を取り込み、起動し直しています` : started.message };
+      // The update's own stop decides here; the latest poll may still show the old run.
+      const started = await this.doStart(r, true);
+      if (!started.ok) {
+        // A refused restart leaves the update as the last action; say the model stayed stopped.
+        const message = `更新は取り込みましたが、起動し直せませんでした（${started.message}）`;
+        if (this.actions.get(id) === action) Object.assign(action, { ok: false, message });
+        return { ok: false, message };
+      }
+      return { ok: true, message: `${up.behind} 件の更新を取り込み、起動し直しています` };
     }
     return { ok: true, message: action.message! };
   }
