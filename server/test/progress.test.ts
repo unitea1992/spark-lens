@@ -53,3 +53,17 @@ test("a start made elsewhere: a launcher log older than the containers is not tr
   assert.equal(fresh.startedAt, Date.parse("2026-10-01T13:31:05"));
   assert.equal(parseDockerTime("0001-01-01T00:00:00Z"), null);
 });
+
+test("start progress follows the TensorFold launchers' steps and loading", () => {
+  const head = [
+    "[1/5] Setup: image and checkpoint on both Sparks",
+    "[3/5] Launch: container glm53-flash-tf, rank 1 on worker, then rank 0 here",
+    "[4/5] Loading: ~80 GiB of weights on each Spark",
+    "  │ [tensorfold] loading GLM-5.3-Flash-EXL3: GLM-5.3-Flash (glm5_next) on CUDA, rank 0 of 2",
+    "  ⋯ 46s elapsed, 44.0 of ~88.0 GiB on the GPU here, 39.0 on the worker",
+  ].join("\n");
+  assert.deepEqual(parseProgress(head), { pct: 47, stage: "重みを読み込んでいます" });
+  // More than the estimate ends loading, not past it.
+  assert.equal(parseProgress(`${head}\n  ⋯ 92s elapsed, 94.4 of ~88.09 GiB on the GPU here`).pct, 80);
+  assert.deepEqual(parseProgress(`${head}\n  │ [tensorfold] serving GLM-5.3-Flash-EXL3 at http://0.0.0.0:8888/v1`), { pct: 93, stage: "最終確認をしています" });
+});

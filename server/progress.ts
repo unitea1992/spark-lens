@@ -1,5 +1,6 @@
 // How far a model start has got, read from the launcher's log. vLLM prints
-// the same milestones whatever the recipe, so one table serves them all.
+// the same milestones whatever the recipe, and the TensorFold launchers share
+// one five-step layout, so one table serves them all.
 
 export interface StartProgress {
   /** 0..100 */
@@ -11,6 +12,8 @@ interface Milestone {
   re: RegExp;
   /** Fixed share, or [from, to] scaled by the percentage the line reports. */
   at: number | [number, number];
+  /** The reported percentage, when it is not simply the first capture. */
+  done?: (hit: RegExpExecArray) => number;
   stage: string;
 }
 
@@ -22,6 +25,18 @@ const MILESTONES: Milestone[] = [
   { re: /Capturing CUDA graphs[^\n]*?(\d+)%/, at: [76, 90], stage: "CUDA グラフを作成しています" },
   // Only lines the server prints at the end; launchers mention "warmup" early on.
   { re: /boot-shape-warmup:|Application startup complete|Uvicorn running on/, at: 93, stage: "最終確認をしています" },
+  // TensorFold launchers: "[N/5] ..." steps, and GiB placed on the GPU while loading.
+  { re: /\[1\/5\] Setup/, at: 4, stage: "準備しています" },
+  { re: /\[3\/5\] Launch/, at: 10, stage: "エンジンを初期化しています" },
+  { re: /\[4\/5\] Loading|\[tensorfold\] loading /, at: 14, stage: "重みを読み込んでいます" },
+  {
+    re: /elapsed, ([0-9.]+) of ~([0-9.]+) GiB on the GPU/,
+    at: [14, 80],
+    done: (hit) => (100 * Number(hit[1])) / Number(hit[2]),
+    stage: "重みを読み込んでいます",
+  },
+  { re: /\[tensorfold\] drafter timings|\[tensorfold\] verify windows/, at: 85, stage: "推論の準備をしています" },
+  { re: /\[tensorfold\] serving |\[5\/5\] Smoke test/, at: 93, stage: "最終確認をしています" },
 ];
 
 /** When the launcher log says the current start began (host local time), if it says. */
@@ -60,7 +75,8 @@ export function parseProgress(log: string): StartProgress {
     for (const m of MILESTONES) {
       const hit = m.re.exec(line);
       if (!hit) continue;
-      const pct = typeof m.at === "number" ? m.at : m.at[0] + ((m.at[1] - m.at[0]) * Math.min(100, Number(hit[1]))) / 100;
+      const done = m.done ? m.done(hit) : Number(hit[1]);
+      const pct = typeof m.at === "number" ? m.at : m.at[0] + ((m.at[1] - m.at[0]) * Math.min(100, done)) / 100;
       if (pct >= best.pct) best = { pct, stage: m.stage };
     }
   }
