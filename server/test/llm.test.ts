@@ -237,6 +237,17 @@ test("two recipes serving the same model name are told apart by their containers
     // Docker did not answer: the API's word stands for both.
     await llm.poll([host(false)]);
     assert.deepEqual(llm.snapshots().map((l) => l.state), ["up", "up"]);
+    // Two nodes, one not answering: an empty list from the other proves nothing.
+    const two = new LlmCollector(
+      [{ id: "tf", label: "GLM TensorFold", baseUrl, model: "glm", engine: "vllm", nodes: ["a", "b"], containers: ["glm-tf"] }],
+      store,
+      5,
+    );
+    const b = (containersKnown: boolean) => ({ id: "b", online: true, containersKnown, containers: [] }) as never;
+    await two.poll([host(true), b(false)]);
+    assert.equal(two.snapshots()[0]?.state, "up");
+    await two.poll([host(true), b(true)]);
+    assert.equal(two.snapshots()[0]?.state, "down");
   } finally {
     server.close();
   }
