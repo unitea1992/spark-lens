@@ -227,12 +227,16 @@ test("two recipes serving the same model name are told apart by their containers
       store,
       5,
     );
-    const host = { id: "a", online: true, containers: [{ name: "glm-vllm", image: "", state: "running", status: "Up" }] } as never;
-    await llm.poll([host]);
+    const host = (containersKnown: boolean) =>
+      ({ id: "a", online: true, containersKnown, containers: containersKnown ? [{ name: "glm-vllm", image: "", state: "running", status: "Up" }] : [] }) as never;
+    await llm.poll([host(true)]);
     const [vllm, tf] = llm.snapshots();
     assert.equal(vllm?.state, "up");
     assert.equal(tf?.state, "down");
     assert.match(tf?.detail ?? "", /別のレシピ/);
+    // Docker did not answer: the API's word stands for both.
+    await llm.poll([host(false)]);
+    assert.deepEqual(llm.snapshots().map((l) => l.state), ["up", "up"]);
   } finally {
     server.close();
   }

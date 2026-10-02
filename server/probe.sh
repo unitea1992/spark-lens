@@ -130,8 +130,12 @@ done
 
 echo "@@docker"
 # <name>|<image>|<state>|<status>
+# Ends with "@ok" only when the list was read, so an empty list means no containers.
 if command -v docker >/dev/null 2>&1; then
-    timeout 4 docker ps -a --format '{{.Names}}|{{.Image}}|{{.State}}|{{.Status}}' 2>/dev/null
+    if sl_ps=$(timeout 4 docker ps -a --format '{{.Names}}|{{.Image}}|{{.State}}|{{.Status}}' 2>/dev/null); then
+        [ -n "$sl_ps" ] && printf '%s\n' "$sl_ps"
+        echo "@ok"
+    fi
 fi
 
 echo "@@procs"

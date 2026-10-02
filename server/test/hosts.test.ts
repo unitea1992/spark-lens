@@ -41,6 +41,7 @@ rocep1s0f0 1000 2000 200
 @@docker
 glm53-exl3-head|ghcr.io/example/image:tag|running|Up 2 hours
 old|img|exited|Exited (0) 4 days ago
+@ok
 @@procs
 812|120|12.5|204800|/home/me/project|codex exec --json
 @@end
@@ -68,6 +69,11 @@ test("parses a DGX Spark probe", () => {
   assert.equal(s.net[0]?.speedMbps, 10000);
   assert.equal(s.net[1]?.speedMbps, null);
   assert.equal(s.containers[0]?.state, "running");
+  // The "@ok" line marks a list Docker returned; it is not a container.
+  assert.equal(s.containers.length, 2);
+  assert.equal(s.containersKnown, true);
+  // Without it (docker ps failed or timed out) the empty list is not trusted.
+  assert.equal(parseProbe(SPARK.replace("@ok\n", ""))?.containersKnown, false);
   // RDMA counters count 4-byte words.
   assert.deepEqual(s.ib, [{ device: "rocep1s0f0", rx: 4000, tx: 8000, rateGbps: 200 }]);
   assert.deepEqual(s.procs[0], {

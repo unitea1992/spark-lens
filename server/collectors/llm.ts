@@ -213,7 +213,8 @@ export class LlmCollector {
         return;
       }
       // Two recipes can serve the same model name on one port; their containers tell them apart.
-      const nodesSeen = hosts.some((h) => h.online && (nodeIds.size === 0 || nodeIds.has(h.id)));
+      // Only a container list Docker actually returned counts: a failed `docker ps` proves nothing.
+      const nodesSeen = hosts.some((h) => h.online && h.containersKnown && (nodeIds.size === 0 || nodeIds.has(h.id)));
       if (wanted.size > 0 && nodesSeen && !containers.some((c) => c.state === "running")) {
         markDown(null, "このポートでは同じモデル名の別のレシピが動いています");
         return;

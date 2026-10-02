@@ -180,6 +180,8 @@ export interface HostSnapshot {
   /** RDMA ports, whose traffic the interface counters do not see. */
   fabric: FabricPort[];
   containers: ContainerInfo[];
+  /** Docker answered on the last probe, so an empty container list means none. */
+  containersKnown: boolean;
   gpuProcesses: { pid: number; name: string; memBytes: number | null }[];
   history: HostHistory;
 }

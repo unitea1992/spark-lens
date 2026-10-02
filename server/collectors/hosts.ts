@@ -29,6 +29,8 @@ export interface ProbeSample {
   net: { iface: string; rx: number; tx: number; up: boolean; speedMbps: number | null }[];
   ib: { device: string; rx: number; tx: number; rateGbps: number | null }[];
   containers: ContainerInfo[];
+  /** The container list was read: Docker answered. An empty list then means none. */
+  containersKnown: boolean;
   procs: HostProcess[];
 }
 
@@ -167,7 +169,10 @@ export function parseProbe(text: string): ProbeSample | null {
     return [{ device: f[0], rx: rx * 4, tx: tx * 4, rateGbps: Number.isFinite(rate) && rate > 0 ? rate : null }];
   });
 
-  const containers = (s.get("docker") ?? []).flatMap((line) => {
+  const dockerLines = s.get("docker") ?? [];
+  const containersKnown = dockerLines.includes("@ok");
+  const containers = dockerLines.flatMap((line) => {
+    if (line === "@ok") return [];
     const [name, image, state, ...status] = line.split("|");
     return name ? [{ name, image: image ?? "", state: state ?? "", status: status.join("|") }] : [];
   });
@@ -192,7 +197,7 @@ export function parseProbe(text: string): ProbeSample | null {
   const cap = num((s.get("gpucap") ?? [])[0]);
   if (gpu && cap !== null && cap > 0 && (gpu.clockMaxMhz === null || cap < gpu.clockMaxMhz)) gpu.clockMaxMhz = cap;
 
-  return { host, cpu, freq, mem, disks, temps, gpu, gpuProcesses, net, ib, containers, procs };
+  return { host, cpu, freq, mem, disks, temps, gpu, gpuProcesses, net, ib, containers, containersKnown, procs };
 }
 
 /** Busy share of CPU time between two /proc/stat readings, 0..100. */
@@ -265,6 +270,7 @@ function emptySnapshot(config: HostConfig, stepSec: number): HostSnapshot {
     net: [],
     fabric: [],
     containers: [],
+    containersKnown: false,
     gpuProcesses: [],
     history: { stepSec, cpu: [], gpu: [], mem: [], temp: [], power: [] },
   };
@@ -439,6 +445,7 @@ export class HostCollector {
         return { device: p.device, rateGbps: p.rateGbps, rxBps: r(p.rx, before?.rx), txBps: r(p.tx, before?.tx) };
       }),
       containers: sample.containers,
+      containersKnown: sample.containersKnown,
       gpuProcesses: sample.gpuProcesses,
     };
     state.procs = sample.procs;
