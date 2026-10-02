@@ -75,6 +75,8 @@ export const grok: Provider = {
     if (res.status !== 200) return httpFailure(res.status, "Grok", plan);
     const windows = parseGrokBilling(res.body);
     if (windows.length === 0) return failed("error", "使用率が公開されていないため表示できません。", plan);
-    return { plan, status: "ok", message: null, windows, notes: [] };
+    // The usage is fine, but a busy or limited settings endpoint still asks for a pause.
+    const settingsBusy = settings.status === 0 || settings.status === 429 || settings.status >= 500;
+    return { plan, status: "ok", message: null, windows, notes: [], backoff: settingsBusy };
   },
 };

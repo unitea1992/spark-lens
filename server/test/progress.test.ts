@@ -52,6 +52,8 @@ test("a start made elsewhere: a launcher log older than the containers is not tr
   assert.equal(fresh.pct, 83);
   assert.equal(fresh.startedAt, Date.parse("2026-10-01T13:31:05"));
   assert.equal(parseDockerTime("0001-01-01T00:00:00Z"), null);
+  // stat's whole second against Docker's milliseconds: the same second is not "older".
+  assert.equal(externalProgress(log, Date.parse("2026-10-01T13:20:00Z"), containers).pct, 83);
 });
 
 test("start progress follows the TensorFold launchers' steps and loading", () => {

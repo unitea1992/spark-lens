@@ -63,7 +63,8 @@ export function externalProgress(
   logModifiedAt: number | null,
   containersStartedAt: number | null,
 ): { pct: number | null; stage: string; startedAt: number | null } {
-  if (containersStartedAt !== null && (logModifiedAt === null || logModifiedAt < containersStartedAt)) {
+  // stat gives whole seconds and Docker milliseconds: a log written in the same second is this start's.
+  if (containersStartedAt !== null && (logModifiedAt === null || logModifiedAt + 1000 <= containersStartedAt)) {
     return { pct: null, stage: "モデルを読み込んでいます", startedAt: containersStartedAt };
   }
   return { ...parseProgress(log), startedAt: startedAt(log) ?? containersStartedAt };
