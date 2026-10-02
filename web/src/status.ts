@@ -47,7 +47,8 @@ export function alerts(s: Snapshot, now: number): Alert[] {
   }
   const waiting = s.agents.filter((a) => a.status === "waiting").length;
   if (waiting > 0) out.push({ text: `エージェント ${waiting} 件が入力を待っています`, tone: "warn", page: "agents" });
-  return out;
+  // When the strip wraps, the most serious problems stay on its first line.
+  return out.sort((a, b) => RANK[b.tone] - RANK[a.tone]);
 }
 
 export interface Badge {
