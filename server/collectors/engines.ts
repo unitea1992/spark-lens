@@ -131,8 +131,9 @@ function tensorfold(p: Prom): MetricsSample {
     generationTokens: sum(p, ["tensorfold:generation_tokens_total"]),
     ttftSum: sum(p, ["tensorfold:time_to_first_token_seconds_sum"]),
     ttftCount: sum(p, ["tensorfold:time_to_first_token_seconds_count"]),
-    prefixHits: null,
-    prefixQueries: null,
+    // Recipes that also export /health's figures count prompt tokens served from kept prompts.
+    prefixHits: sum(p, ["tensorfold_health:cached_tokens_total"]),
+    prefixQueries: sum(p, ["tensorfold_health:cached_tokens_total"]) === null ? null : sum(p, ["tensorfold:prompt_tokens_total"]),
     requests: sum(p, ["tensorfold:request_latency_seconds_count"]),
     draftTokens: sum(p, ["tensorfold:mtp_drafted_total"]),
     acceptedTokens: sum(p, ["tensorfold:mtp_accepted_total"]),

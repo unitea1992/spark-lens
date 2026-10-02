@@ -102,14 +102,18 @@ tensorfold:mtp_drafted_total 200
 tensorfold:mtp_accepted_total 150
 `;
 
-test("TensorFold: reads its own names and has no prefix cache metric", () => {
+test("TensorFold: reads its own names, and kept-prompt hits when /health's figures are exported", () => {
   const m = parseMetrics(TENSORFOLD, "tensorfold");
   assert.equal(m.running, 1);
   assert.equal(m.kvUsage, 0.4);
   assert.equal(m.generationTokens, 70);
   assert.equal(m.requests, 3);
   assert.equal(m.prefixHits, null);
+  assert.equal(m.prefixQueries, null);
   assert.equal(specStats(null, m, 0)?.acceptRate, 0.75);
+  const withHealth = parseMetrics(`${TENSORFOLD}tensorfold_health:cached_tokens_total 20\n`, "tensorfold");
+  assert.equal(withHealth.prefixHits, 20);
+  assert.equal(withHealth.prefixQueries, 50);
 });
 
 test("speculative decoding: rates over the interval and mean accepted length", () => {
