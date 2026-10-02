@@ -130,6 +130,19 @@ test("collector keeps the last good numbers through a failed poll", async () => 
   assert.equal(second.fetchedAt, first.fetchedAt);
 });
 
+test("a lapsed login keeps the last numbers as dormant; with none it asks for a login", async () => {
+  const lapsed: UsageReport = { plan: null, status: "dormant", message: "expired", windows: [], notes: [] };
+  const withHistory = new SubscriptionCollector([{ type: "fake" }], { providers: [fake([OK, lapsed])], intervalSec: 0 });
+  await withHistory.poll();
+  await withHistory.poll();
+  const kept = withHistory.snapshots()[0]!;
+  assert.equal(kept.status, "dormant");
+  assert.equal(kept.windows[0]?.usedPct, 10);
+  const fresh = new SubscriptionCollector([{ type: "fake" }], { providers: [fake([lapsed])], intervalSec: 0 });
+  await fresh.poll();
+  assert.equal(fresh.snapshots()[0]?.status, "stale");
+});
+
 test("collector reports an unknown type and survives a throwing provider", async () => {
   const boom: Provider = {
     type: "boom",

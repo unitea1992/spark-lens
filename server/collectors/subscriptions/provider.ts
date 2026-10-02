@@ -33,7 +33,7 @@ export function unconfigured(message: string): UsageReport {
   return { plan: null, status: "unconfigured", message, windows: [], notes: [] };
 }
 
-export function failed(status: "stale" | "error", message: string, plan: string | null = null): UsageReport {
+export function failed(status: "stale" | "dormant" | "error", message: string, plan: string | null = null): UsageReport {
   return { plan, status, message, windows: [], notes: [] };
 }
 

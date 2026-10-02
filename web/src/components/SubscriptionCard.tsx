@@ -50,7 +50,7 @@ export function SubscriptionCard({ sub, now }: { sub: SubscriptionSnapshot; now:
         <StatusPill tone={st.tone}>{st.short ?? st.text}</StatusPill>
       </header>
 
-      {sub.message && <p className={`notice ${sub.status === "unconfigured" ? "" : "notice--warn"}`}>{sub.message}</p>}
+      {sub.message && <p className={`notice ${sub.status === "unconfigured" || sub.status === "dormant" ? "" : "notice--warn"}`}>{sub.message}</p>}
 
       {sub.windows.map((w) => (
         <Window key={w.id} w={w} now={now} />

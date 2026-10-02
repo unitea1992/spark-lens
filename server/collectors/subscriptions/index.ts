@@ -105,10 +105,12 @@ export class SubscriptionCollector {
     // Keep showing the last good numbers through a transient failure,
     // marked with the error, rather than blanking the card.
     const keepOld = report.status !== "ok" && report.status !== "unconfigured" && previous.windows.length > 0;
+    // With no earlier numbers to show, a lapsed login is a plain "log in".
+    const status = report.status === "dormant" && !keepOld ? "stale" : report.status;
     entry.snapshot = {
       ...previous,
       plan: report.plan ?? previous.plan,
-      status: report.status,
+      status,
       message: report.message,
       windows: keepOld ? previous.windows : report.windows,
       notes: keepOld ? previous.notes : report.notes,

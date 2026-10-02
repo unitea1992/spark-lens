@@ -55,6 +55,7 @@ export function subscriptionStatus(
 ): { tone: Tone; text: string; reset?: string; short?: string } {
   if (sub.status === "unconfigured") return { tone: "quiet", text: "未接続" };
   if (sub.status === "stale") return { tone: "warn", text: "要ログイン" };
+  if (sub.status === "dormant") return { tone: "quiet", text: "最終取得値" };
   if (sub.status === "error" && sub.windows.length === 0) return { tone: "warn", text: "取得失敗" };
   const known = sub.windows.filter((w) => w.usedPct !== null);
   if (known.length === 0) return { tone: "quiet", text: "使用率不明" };

@@ -233,7 +233,11 @@ export interface LlmSnapshot {
   history: { stepSec: number; genTps: (number | null)[]; running: (number | null)[] };
 }
 
-export type SubscriptionStatus = "ok" | "stale" | "error" | "unconfigured";
+/**
+ * "dormant": the login lapsed because the CLI has not run for a while. Not a
+ * fault; the last numbers stay on the card until the CLI refreshes the login.
+ */
+export type SubscriptionStatus = "ok" | "stale" | "dormant" | "error" | "unconfigured";
 
 export interface UsageWindow {
   id: string;

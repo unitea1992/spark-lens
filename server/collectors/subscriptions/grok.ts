@@ -60,8 +60,10 @@ export const grok: Provider = {
       credential = null;
     }
     if (!credential) return unconfigured("Grok のログイン情報が見つかりません。この開発機で grok login を実行してください。");
-    const expired = "ログインの有効期限が切れています。grok を一度起動すると更新されます。";
-    if (credential.expiresAt !== null && credential.expiresAt <= Date.now()) return failed("stale", expired);
+    // Grok's login lasts only hours and is renewed only when the CLI runs, so
+    // a lapse is routine; the card keeps the last numbers and says so.
+    const expired = "ログインの有効期限が切れたため、最後に取得した値を表示しています。grok を一度起動すると更新されます。";
+    if (credential.expiresAt !== null && credential.expiresAt <= Date.now()) return failed("dormant", expired);
     const headers = {
       Authorization: `Bearer ${credential.token}`,
       "x-xai-token-auth": "xai-grok-cli",
@@ -71,7 +73,7 @@ export const grok: Provider = {
     const [res, settings] = await Promise.all([getJson(BILLING_URL, headers), getJson(SETTINGS_URL, headers, 5_000)]);
     const tier = (settings.body as Record<string, unknown> | null)?.subscription_tier_display;
     const plan = settings.status === 200 && typeof tier === "string" && tier !== "" ? tier : null;
-    if (res.status === 401 || res.status === 403) return failed("stale", expired, plan);
+    if (res.status === 401 || res.status === 403) return failed("dormant", expired, plan);
     if (res.status !== 200) return httpFailure(res.status, "Grok", plan);
     const windows = parseGrokBilling(res.body);
     if (windows.length === 0) return failed("error", "使用率が公開されていないため表示できません。", plan);
