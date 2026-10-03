@@ -3,7 +3,9 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { cleanLog, RecipeManager, shDir, shq, withoutLocale } from "../recipes.ts";
+import { execFileSync } from "node:child_process";
+import { mkdirSync } from "node:fs";
+import { cleanLog, launcherCheckScript, RecipeManager, shDir, shq, withoutLocale } from "../recipes.ts";
 import type { LlmSnapshot } from "../types.ts";
 
 test("shell quoting survives quotes and expands only a leading ~", async () => {
@@ -295,4 +297,18 @@ test("a failed stop of a starting launcher keeps its machines held", async () =>
 test("recipes over ssh leave the dashboard's locale behind", () => {
   const env = withoutLocale({ PATH: "/usr/bin", HOME: "/home/u", LANG: "ja_JP.UTF-8", LANGUAGE: "ja", LC_ALL: "C", LC_COLLATE: "ja_JP.UTF-8" });
   assert.deepEqual(env, { PATH: "/usr/bin", HOME: "/home/u" });
+});
+
+test("a launcher whose log ends in a progress bar still reads as alive", () => {
+  const home = mkdtempSync(join(tmpdir(), "sl-home-"));
+  mkdirSync(join(home, ".local/state/spark-lens"), { recursive: true });
+  // No final newline, as a download's progress bar leaves it.
+  writeFileSync(join(home, ".local/state/spark-lens/recipe-x.log"), "=== spark-lens: start\nFetching 97 files:  10%|█ | 10/97");
+  const run = (pid: number) =>
+    execFileSync("bash", ["-c", launcherCheckScript("x", pid)], { env: { ...process.env, HOME: home }, encoding: "utf8" });
+  const alive = run(process.pid);
+  assert.match(alive, new RegExp(`^ALIVE ${process.pid}$`, "m"));
+  assert.ok(alive.includes("@@checked"));
+  // A pid that is gone is still reported as gone.
+  assert.doesNotMatch(run(2 ** 22 + 12345), /^ALIVE/m);
 });

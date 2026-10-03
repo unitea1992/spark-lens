@@ -56,6 +56,16 @@ export function startScript(r: RecipeConfig): string {
   ].join("\n");
 }
 
+/**
+ * Reads a launcher's log tail and whether its pid still lives. A download's
+ * progress bar leaves the log without a final newline, so the marker lines
+ * start after one: otherwise `ALIVE <pid>` is glued to the bar, goes unseen,
+ * and a launcher that is still working reads as gone (a false failure).
+ */
+export function launcherCheckScript(id: string, pidExpr: string | number): string {
+  return `tail -n 400 "${logPath(id)}" 2>/dev/null; echo; p=${pidExpr}; kill -0 "$p" 2>/dev/null && echo "ALIVE $p"; echo "@@checked"`;
+}
+
 export function stopScript(r: RecipeConfig, launcherPid: number | null = null): string {
   const log = logPath(r.id);
   return [
@@ -311,7 +321,7 @@ export class RecipeManager {
               : "true";
             const res = await this.exec(
               this.hosts.get(r.host)!,
-              `tail -n 400 "${logPath(r.id)}" 2>/dev/null; head -n 1 "${logPath(r.id)}" 2>/dev/null; ` +
+              `tail -n 400 "${logPath(r.id)}" 2>/dev/null; echo; head -n 1 "${logPath(r.id)}" 2>/dev/null; ` +
                 `echo "@@mtime $(stat -c %Y "${logPath(r.id)}" 2>/dev/null)"; echo "@@cstart $(${inspect})"`,
               10_000,
             );
@@ -336,7 +346,7 @@ export class RecipeManager {
         const host = this.hosts.get(r.host)!;
         // Without a pid (the start reply was lost), ask the pid file the launcher left.
         const pidExpr = a.pid ?? `$(cat "${pidPath(r.id)}" 2>/dev/null || echo 0)`;
-        const res = await this.exec(host, `tail -n 400 "${logPath(r.id)}" 2>/dev/null; p=${pidExpr}; kill -0 "$p" 2>/dev/null && echo "ALIVE $p"; echo "@@checked"`, 10_000);
+        const res = await this.exec(host, launcherCheckScript(r.id, pidExpr), 10_000);
         // Only a completed check may conclude the launcher is gone; a failed SSH keeps the machines held.
         if (res.timedOut || !res.stdout.includes("@@checked")) return;
         const text = cleanLog(res.stdout);
