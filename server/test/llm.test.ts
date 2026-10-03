@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { engineFromMetrics, engineFromOwner, metricsFromTensorfoldHealth, parseProm } from "../collectors/engines.ts";
+import { engineFromMetrics, engineFromOwner, metricsFromTensorfoldHealth, parseProm, withLiveTensorfoldTokens } from "../collectors/engines.ts";
 import { counterDelta, parseMetrics, specStats } from "../collectors/llm.ts";
 
 const METRICS = `# HELP vllm:num_requests_running Number of requests currently running.
@@ -270,4 +270,15 @@ test("TensorFold without /metrics: counters come from /health", () => {
   assert.equal(m?.kvUsage, null);
   // An older /health with no counters is not a reading.
   assert.equal(metricsFromTensorfoldHealth({ ok: true, context_length: 262144 }), null);
+});
+
+test("TensorFold with /metrics: generated tokens follow /health while a request is decoding", () => {
+  const fromMetrics = parseMetrics(TENSORFOLD, "tensorfold");
+  const live = withLiveTensorfoldTokens(fromMetrics, { completion_tokens_total: 95 });
+  assert.equal(live.generationTokens, 95);
+  assert.equal(live.promptTokens, fromMetrics.promptTokens);
+  assert.equal(live.running, fromMetrics.running);
+  // A /health without the counter leaves /metrics as it was.
+  assert.equal(withLiveTensorfoldTokens(fromMetrics, { ok: true }).generationTokens, 70);
+  assert.equal(withLiveTensorfoldTokens(fromMetrics, null).generationTokens, 70);
 });

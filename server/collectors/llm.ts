@@ -1,6 +1,6 @@
 import type { Store } from "../store.ts";
 import type { HostSnapshot, LlmConfig, LlmSnapshot, SpecStats } from "../types.ts";
-import { ENGINE_LABELS, engineFromMetrics, engineFromOwner, metricsFromTensorfoldHealth, parseMetrics, type Engine, type MetricsSample } from "./engines.ts";
+import { ENGINE_LABELS, engineFromMetrics, engineFromOwner, metricsFromTensorfoldHealth, parseMetrics, withLiveTensorfoldTokens, type Engine, type MetricsSample } from "./engines.ts";
 
 export { parseMetrics } from "./engines.ts";
 
@@ -227,7 +227,9 @@ export class LlmCollector {
 
       const now = Date.now();
       const metrics = metricsText
-        ? parseMetrics(metricsText, engine)
+        ? engine === "tensorfold"
+          ? withLiveTensorfoldTokens(parseMetrics(metricsText, engine), healthBody)
+          : parseMetrics(metricsText, engine)
         : engine === "tensorfold"
           ? metricsFromTensorfoldHealth(healthBody)
           : null;

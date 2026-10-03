@@ -172,6 +172,16 @@ export function metricsFromTensorfoldHealth(body: unknown): MetricsSample | null
   };
 }
 
+/**
+ * /metrics counts TensorFold's tokens only when a request finishes, so a long
+ * generation would read 0 tokens/s until its last poll. /health's completion
+ * count grows while decoding; take the generation counter from there.
+ */
+export function withLiveTensorfoldTokens(metrics: MetricsSample, healthBody: unknown): MetricsSample {
+  const live = metricsFromTensorfoldHealth(healthBody)?.generationTokens ?? null;
+  return live === null ? metrics : { ...metrics, generationTokens: live };
+}
+
 const ADAPTERS: Record<Engine, (p: Prom) => MetricsSample> = { vllm, sglang, tensorfold };
 
 export function parseMetrics(text: string, engine: Engine): MetricsSample {
