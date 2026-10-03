@@ -18,6 +18,7 @@ curl -s http://127.0.0.1:8686/api/quota
 - `recommendation`: `use` / `avoid_heavy` / `avoid` / `unknown`。基本はこれに従う。
 - `state`: `usable` / `limited`（上限に到達）/ `loading`（ローカルLLMの読み込み中）/ `down` / `unknown`。
 - `recovers_at_jst`: `limited` のとき、使えるようになる時刻。
+- `tickets[]`: リセット券ごとの期限（`expires_at_jst`）。期限が近い券があると、`recommendation` が上がり `reason` に期限が出る。券を使うのはオーナーの操作で、エージェントは使わない。
 - `stale`: `true` なら取得が古い。値を信用せず、`avoid_heavy` 以下として扱う。
 - `reason`: 判断の理由。
 

@@ -204,6 +204,7 @@ curl -s http://127.0.0.1:8686/api/quota
 - `recommendation`: `use`、`avoid_heavy`（軽い作業なら可）、`avoid`、`unknown` のどれか。残り枠が少ない、上限に届いている、週間の消費ペースが速いときは下がります。基準値は応答の `thresholds` にあります。
 - `state`: `usable`、`limited`（上限に到達）、`loading`（ローカル LLM が読み込み中）、`down`、`unknown` のどれか。
 - `recovers_at_jst`: 上限に届いているとき、使えるようになる時刻。
+- `reset_tickets`、`tickets[]`: リセット券の枚数と、券ごとの `expires_at`・`expires_at_jst`（期限の近い順。期限なしは `null`）。期限が 72 時間以内の券があり、取得が古くなければ、`recommendation` を 1 段階上げ（`avoid_heavy`→`use`、`avoid`→`avoid_heavy`）、`reason` に期限を出します。すでに上限に届いている間は推奨を変えず、期限だけ `reason` に添えます。
 - `fetched_at`、`age_sec`、`stale`: 値を取得した時刻と、古くなっていないか。古いときは `reason` にも出ます。
 
 Codex の「Set up security」の案内のように、画面上の入力待ちで動けない状態は検知できません。

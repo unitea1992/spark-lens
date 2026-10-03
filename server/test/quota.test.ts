@@ -59,3 +59,38 @@ test("local LLMs report loading separately from up", () => {
   assert.deepEqual(states.map((m) => m.state), ["usable", "loading", "down"]);
   assert.deepEqual(states.map((m) => m.recommendation), ["use", "avoid", "avoid"]);
 });
+
+test("reset tickets are listed with their expiry in JST", () => {
+  const exp = Date.parse("2026-10-05T08:46:00+09:00");
+  const m = report(sub([win("w", 20, NOW + 86400_000, 7 * 86400)], { tickets: [{ label: "全リセット", expiresAt: exp }, { label: "無期限", expiresAt: null }] }));
+  assert.equal(m.reset_tickets, 2);
+  assert.deepEqual(m.tickets[0], { label: "全リセット", expires_at: exp, expires_at_jst: "2026-10-05T08:46:00+09:00" });
+  assert.equal(m.tickets[1]?.expires_at_jst, null);
+});
+
+test("a ticket expiring soon lifts a pace-driven avoid_heavy to use, and says until when", () => {
+  // Weekly pace says avoid_heavy; the ticket (expires in ~2 days) can wipe it.
+  const week = [win("week", 60, NOW + 4 * 86400_000, 7 * 86400)];
+  const exp = Date.parse("2026-10-05T08:46:00+09:00");
+  assert.ok(exp - NOW < 72 * H);
+  const m = report(sub(week, { tickets: [{ label: "全リセット", expiresAt: exp }] }));
+  assert.equal(m.recommendation, "use");
+  assert.match(m.reason, /期限が近いリセット券あり（10\/5\(月\) 08:46まで）/);
+});
+
+test("a distant or absent ticket changes nothing, and a limit already hit stays avoid", () => {
+  const week = [win("week", 60, NOW + 4 * 86400_000, 7 * 86400)];
+  const far = report(sub(week, { tickets: [{ label: "t", expiresAt: NOW + 10 * 86400_000 }] }));
+  assert.equal(far.recommendation, "avoid_heavy");
+  const expired = report(sub(week, { tickets: [{ label: "t", expiresAt: NOW - H }] }));
+  assert.equal(expired.recommendation, "avoid_heavy");
+  const limited = report(sub([win("week", 100, NOW + 30 * H, 7 * 86400)], { tickets: [{ label: "t", expiresAt: NOW + 20 * H }] }));
+  assert.equal(limited.recommendation, "avoid");
+  assert.match(limited.reason, /期限が近いリセット券あり/);
+});
+
+test("a ticket does not lift a stale reading", () => {
+  const week = [win("week", 60, NOW + 4 * 86400_000, 7 * 86400)];
+  const m = report(sub(week, { fetchedAt: NOW - 30 * 60_000, tickets: [{ label: "t", expiresAt: NOW + 20 * H }] }));
+  assert.equal(m.recommendation, "avoid_heavy");
+});

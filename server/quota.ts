@@ -13,6 +13,8 @@ export const LIGHT_MAX_USED_PCT = 90;
 export const STALE_AFTER_SEC = 15 * 60;
 /** Pace only means something over a window this long; a 5-hour window swings too much. */
 const PACE_MIN_WINDOW_SEC = 24 * 3600;
+/** A reset ticket expiring within this is worth spending; it restores the limits, so headroom matters less. */
+export const TICKET_SOON_SEC = 72 * 3600;
 
 export type QuotaState = "usable" | "limited" | "loading" | "down" | "unknown";
 export type Recommendation = "use" | "avoid_heavy" | "avoid" | "unknown";
@@ -25,6 +27,13 @@ export interface QuotaWindow {
   resets_at_jst: string | null;
   /** Usage share at the end of the window if use continues like this; null when too early to say. */
   projected_end_pct: number | null;
+}
+
+export interface QuotaTicket {
+  label: string;
+  /** Epoch ms; null when the ticket does not expire. */
+  expires_at: number | null;
+  expires_at_jst: string | null;
 }
 
 export interface QuotaModel {
@@ -43,6 +52,8 @@ export interface QuotaModel {
   recovers_at: number | null;
   recovers_at_jst: string | null;
   reset_tickets: number;
+  /** Usable reset tickets, soonest expiry first. */
+  tickets: QuotaTicket[];
   /** When these numbers were read; null for local LLMs (they are live). */
   fetched_at: number | null;
   age_sec: number | null;
@@ -58,6 +69,13 @@ export interface QuotaReport {
 
 export function jst(ms: number | null): string | null {
   return ms === null ? null : `${new Date(ms + 9 * 3600_000).toISOString().slice(0, 19)}+09:00`;
+}
+
+/** "10/5(月) 08:46" in JST, for reasons read by people. */
+function jstShort(ms: number): string {
+  const d = new Date(ms + 9 * 3600_000);
+  const hm = `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
+  return `${d.getUTCMonth() + 1}/${d.getUTCDate()}(${"日月火水木金土"[d.getUTCDay()]}) ${hm}`;
 }
 
 function quotaWindow(w: UsageWindow, now: number): QuotaWindow {
@@ -79,6 +97,7 @@ function subscriptionModel(sub: SubscriptionSnapshot, now: number): QuotaModel {
     kind: "subscription" as const,
     plan: sub.plan,
     reset_tickets: sub.tickets.length,
+    tickets: sub.tickets.map((t) => ({ label: t.label, expires_at: t.expiresAt, expires_at_jst: jst(t.expiresAt) })),
     fetched_at: sub.fetchedAt,
     age_sec: sub.fetchedAt === null ? null : Math.max(0, Math.round((now - sub.fetchedAt) / 1000)),
   };
@@ -123,6 +142,17 @@ function subscriptionModel(sub: SubscriptionSnapshot, now: number): QuotaModel {
     recommendation = "use";
     reason = `最大でも${worst.label}の${Math.round(used)}%`;
   }
+  const soon = sub.tickets.find((t) => t.expiresAt !== null && t.expiresAt > now && t.expiresAt - now <= TICKET_SOON_SEC * 1000);
+  if (soon) {
+    const until = jstShort(soon.expiresAt!);
+    // A reset restores the limits, so spending it lifts the pace/headroom concern. A limit already hit still needs the ticket used first.
+    if (state === "usable" && !stale && recommendation !== "use") {
+      recommendation = recommendation === "avoid" ? "avoid_heavy" : "use";
+      reason += `。期限が近いリセット券あり（${until}まで）。使えば回復できるので割り振りを増やしてよい`;
+    } else {
+      reason += `。期限が近いリセット券あり（${until}まで）`;
+    }
+  }
   if (stale) reason += "（取得が古い）";
   return {
     ...base,
@@ -160,6 +190,7 @@ function llmModel(llm: LlmSnapshot): QuotaModel {
     recovers_at: null,
     recovers_at_jst: null,
     reset_tickets: 0,
+    tickets: [],
     fetched_at: null,
     age_sec: null,
     stale: false,
