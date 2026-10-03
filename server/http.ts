@@ -5,6 +5,7 @@ import { hostname } from "node:os";
 import { extname, join, normalize, sep } from "node:path";
 import { gzipSync } from "node:zlib";
 import type { Snapshot } from "./types.ts";
+import { quotaReport } from "./quota.ts";
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -162,6 +163,12 @@ export class HttpServer {
       res
         .writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" })
         .end(req.method === "HEAD" ? undefined : JSON.stringify(this.opts.snapshot()));
+      return;
+    }
+    if (path === "/api/quota") {
+      res
+        .writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" })
+        .end(req.method === "HEAD" ? undefined : JSON.stringify(quotaReport(this.opts.snapshot(), Date.now())));
       return;
     }
     if (path === "/api/history") {

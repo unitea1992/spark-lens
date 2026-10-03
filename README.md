@@ -191,6 +191,25 @@ CPU は `scaling_max_freq`、GPU は systemd のユニットに書かれた `nvi
 
 組み込みとして足すなら、[`server/collectors/subscriptions/`](server/collectors/subscriptions) に `Provider` を 1 ファイル追加し、[`index.ts`](server/collectors/subscriptions/index.ts) の一覧に加えます。既存のものがそのまま見本になります。
 
+### 作業の振り分けに使う（`/api/quota`）
+
+Claude Code や Codex のようなエージェントが、作業を振る前に「どのモデルにあと何を任せられるか」を確かめるための API です。`/api/state` と同じ情報から、判断に必要な分だけを返します。
+
+```sh
+curl -s http://127.0.0.1:8686/api/quota
+```
+
+モデルごとに、次の項目が並びます。
+
+- `recommendation`: `use`、`avoid_heavy`（軽い作業なら可）、`avoid`、`unknown` のどれか。残り枠が少ない、上限に届いている、週間の消費ペースが速いときは下がります。基準値は応答の `thresholds` にあります。
+- `state`: `usable`、`limited`（上限に到達）、`loading`（ローカル LLM が読み込み中）、`down`、`unknown` のどれか。
+- `recovers_at_jst`: 上限に届いているとき、使えるようになる時刻。
+- `fetched_at`、`age_sec`、`stale`: 値を取得した時刻と、古くなっていないか。古いときは `reason` にも出ます。
+
+Codex の「Set up security」の案内のように、画面上の入力待ちで動けない状態は検知できません。
+
+エージェント向けの手引きは [`skills/spark-lens-quota`](skills/spark-lens-quota/SKILL.md) にあります。`~/.claude/skills` や `~/.codex/skills` に置くと、作業を振る前に自動で確認させられます。
+
 ### エージェント
 
 開発機では次の情報源を自動で使います。入っていないツールは単に表示されません。
