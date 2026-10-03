@@ -9,7 +9,7 @@ description: 複数モデル（Claude・Codex・OpenCode Go・Grok・ローカ�
 curl -s http://127.0.0.1:8686/api/quota
 ```
 
-別のマシンからは、Spark Lens の tailnet のアドレスに読み替える。
+`127.0.0.1:8686` は Spark Lens の既定の待ち受けで、一例。自分の環境のホストとポート（`config/config.json` の `server`）に読み替える。
 
 ## 読み方
 
