@@ -121,7 +121,8 @@ function sglang(p: Prom): MetricsSample {
   };
 }
 
-// TensorFold counts tokens when a request finishes, so its rates are bursty.
+// TensorFold's /metrics counts tokens when a request finishes, so prompt rates are bursty;
+// the generation counter is replaced by /health's live one (withLiveTensorfoldTokens).
 function tensorfold(p: Prom): MetricsSample {
   return {
     running: sum(p, ["tensorfold:requests_running"]),
