@@ -94,3 +94,14 @@ test("a ticket does not lift a stale reading", () => {
   const m = report(sub(week, { fetchedAt: NOW - 30 * 60_000, tickets: [{ label: "t", expiresAt: NOW + 20 * H }] }));
   assert.equal(m.recommendation, "avoid_heavy");
 });
+
+test("a window whose reset time has passed is not trusted, and the reading is marked stale", () => {
+  const m = report(sub([win("5h", 72, NOW - 2 * H, 5 * 3600), win("week", 43, NOW + 3 * 86400_000, 7 * 86400)]));
+  assert.equal(m.windows.length, 1);
+  assert.equal(m.stale, true);
+});
+
+test("a reading stamped in the future is stale, not fresh", () => {
+  const m = report(sub([win("week", 10, NOW + 3 * 86400_000, 7 * 86400)], { fetchedAt: NOW + 90 * 60_000 }));
+  assert.equal(m.stale, true);
+});

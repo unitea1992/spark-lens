@@ -41,6 +41,7 @@ export class SubscriptionCollector {
     this.intervalMs = (opts.intervalSec ?? 300) * 1000;
     this.cache = opts.cache ?? null;
     const saved = this.cache?.load() ?? {};
+    const startedAt = Date.now();
     const seen = new Map<string, number>();
     this.entries = configs.map((config) => {
       const provider = providers.find((p) => p.type === config.type) ?? null;
@@ -51,7 +52,13 @@ export class SubscriptionCollector {
       const prior = saved[id];
       const snapshot: SubscriptionSnapshot =
         provider && prior && prior.type === config.type && prior.windows.length > 0
-          ? { ...prior, label, tickets: prior.tickets ?? [] }
+          ? {
+              ...prior,
+              label,
+              tickets: prior.tickets ?? [],
+              // A reading stamped in the future came from a skewed clock; it would block polling until the clock catches up.
+              fetchedAt: prior.fetchedAt !== null && prior.fetchedAt > startedAt ? null : prior.fetchedAt,
+            }
           : {
               id,
               type: config.type,
@@ -77,6 +84,8 @@ export class SubscriptionCollector {
     if (this.busy) return;
     this.busy = true;
     try {
+      // If the clock moved backwards, a schedule set under the later time must not hold the next poll off.
+      for (const e of this.entries) e.dueAt = Math.min(e.dueAt, now + Math.max(this.intervalMs, BACKOFF_MAX_SEC * 1000));
       const due = this.entries.filter((e) => e.provider && e.dueAt <= now);
       if (due.length === 0) return;
       await Promise.all(due.map((entry) => this.pollOne(entry, now)));

@@ -101,8 +101,12 @@ function subscriptionModel(sub: SubscriptionSnapshot, now: number): QuotaModel {
     fetched_at: sub.fetchedAt,
     age_sec: sub.fetchedAt === null ? null : Math.max(0, Math.round((now - sub.fetchedAt) / 1000)),
   };
-  const known = sub.windows.filter((w) => w.usedPct !== null);
-  const stale = base.age_sec === null || base.age_sec > STALE_AFTER_SEC;
+  // A reading from the future (clock skew) cannot be called fresh; one whose window already reset describes a window that no longer exists.
+  const fromFuture = sub.fetchedAt !== null && sub.fetchedAt > now + 60_000;
+  const lapsed = (w: UsageWindow) => w.resetsAt !== null && w.resetsAt <= now;
+  const known = sub.windows.filter((w) => w.usedPct !== null && !lapsed(w));
+  const hasLapsed = sub.windows.some(lapsed);
+  const stale = base.age_sec === null || base.age_sec > STALE_AFTER_SEC || fromFuture || hasLapsed;
   const empty = { used_pct: null, binding_window: null, windows: [], recovers_at: null, recovers_at_jst: null };
 
   if (sub.status === "unconfigured" || (known.length === 0 && sub.status !== "ok")) {

@@ -246,3 +246,19 @@ test("Grok: picks the SuperGrok login from the auth file", () => {
   );
   assert.equal(pickGrokCredential({ "https://auth.x.ai::client": { key: "" } }), null);
 });
+
+test("a cached reading stamped in the future (clock skew) is refetched at once", async () => {
+  let calls = 0;
+  const provider: Provider = { type: "fake", defaultLabel: "Fake", fetch: async () => (calls++, OK) };
+  const future = Date.now() + 90 * 60_000;
+  const cache = {
+    load: () => ({
+      fake: { id: "fake", type: "fake", label: "Fake", plan: null, status: "ok" as const, message: null, windows: OK.windows, notes: [], tickets: [], fetchedAt: future },
+    }),
+    save: () => {},
+  };
+  const c = new SubscriptionCollector([{ type: "fake" }], { providers: [provider], intervalSec: 300, cache });
+  await c.poll();
+  assert.equal(calls, 1);
+  assert.ok((c.snapshots()[0]?.fetchedAt ?? Infinity) <= Date.now());
+});
