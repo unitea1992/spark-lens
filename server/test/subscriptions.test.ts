@@ -151,6 +151,20 @@ test("a lapsed login keeps the last numbers as dormant; with none it asks for a 
   assert.equal(fresh.snapshots()[0]?.status, "stale");
 });
 
+test("a brief rate limit behind recent numbers is quiet; a long one warns", async () => {
+  const busy: UsageReport = { plan: null, status: "error", message: "busy", windows: [], notes: [], backoff: true };
+  const t0 = Date.now();
+  const recent = new SubscriptionCollector([{ type: "fake" }], { providers: [fake([OK, busy])], intervalSec: 0 });
+  await recent.poll(t0);
+  await recent.poll(t0 + 10 * 60_000);
+  assert.equal(recent.snapshots()[0]?.status, "dormant");
+  assert.equal(recent.snapshots()[0]?.windows[0]?.usedPct, 10);
+  const old = new SubscriptionCollector([{ type: "fake" }], { providers: [fake([OK, busy])], intervalSec: 0 });
+  await old.poll(t0);
+  await old.poll(t0 + 2 * 3600_000);
+  assert.equal(old.snapshots()[0]?.status, "error");
+});
+
 test("collector reports an unknown type and survives a throwing provider", async () => {
   const boom: Provider = {
     type: "boom",

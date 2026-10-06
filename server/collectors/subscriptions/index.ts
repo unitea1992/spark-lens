@@ -11,6 +11,8 @@ const PROVIDERS: Provider[] = [claudeCode, codex, opencodeGo, grok, command];
 
 const BACKOFF_MIN_SEC = 600;
 const BACKOFF_MAX_SEC = 3600;
+/** A busy or unreachable service is routine; numbers this recent are shown without a warning. */
+const QUIET_BACKOFF_SEC = 3600;
 
 /** Where the last good readings are kept, so a restart does not refetch at once. */
 export interface SnapshotCache {
@@ -115,7 +117,10 @@ export class SubscriptionCollector {
     // marked with the error, rather than blanking the card.
     const keepOld = report.status !== "ok" && report.status !== "unconfigured" && previous.windows.length > 0;
     // With no earlier numbers to show, a lapsed login is a plain "log in".
-    const status = report.status === "dormant" && !keepOld ? "stale" : report.status;
+    // A brief rate limit or outage behind recent numbers is shown quietly, like a lapsed login.
+    const recent = previous.fetchedAt !== null && now - previous.fetchedAt <= QUIET_BACKOFF_SEC * 1000;
+    const status =
+      report.status === "dormant" && !keepOld ? "stale" : report.backoff && keepOld && recent && report.status === "error" ? "dormant" : report.status;
     entry.snapshot = {
       ...previous,
       plan: report.plan ?? previous.plan,

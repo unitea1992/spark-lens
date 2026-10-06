@@ -10,6 +10,9 @@ import { clampPct, failed, getJson, httpFailure, option, parseTime, unconfigured
 const USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 // The login file keeps the plan from login time; the profile follows upgrades.
 const PROFILE_URL = "https://api.anthropic.com/api/oauth/profile";
+// Plans change rarely and the usage API is easily rate-limited: ask hourly.
+const PROFILE_TTL_MS = 3600_000;
+const profileCache = new Map<string, { plan: string; at: number }>();
 
 const PLAN_NAMES: Record<string, string> = { max: "Max", pro: "Pro", team: "Team", enterprise: "Enterprise", free: "Free" };
 
@@ -119,8 +122,12 @@ export const claudeCode: Provider = {
       return failed("stale", "ログインの有効期限が切れています。Claude Code を一度起動すると更新されます。", plan);
     }
     const headers = { Authorization: `Bearer ${token}`, "anthropic-beta": "oauth-2025-04-20", Accept: "application/json" };
-    const [res, profile] = await Promise.all([getJson(USAGE_URL, headers), getJson(PROFILE_URL, headers)]);
-    if (profile.status === 200) plan = profilePlan(profile.body) ?? plan;
+    const cached = profileCache.get(path);
+    const fresh = cached !== undefined && Date.now() - cached.at < PROFILE_TTL_MS;
+    const [res, profile] = await Promise.all([getJson(USAGE_URL, headers), fresh ? null : getJson(PROFILE_URL, headers)]);
+    const fromProfile = profile?.status === 200 ? profilePlan(profile.body) : null;
+    if (fromProfile) profileCache.set(path, { plan: fromProfile, at: Date.now() });
+    plan = fromProfile ?? cached?.plan ?? plan;
     if (res.status === 401 || res.status === 403) {
       return failed("stale", "ログインの有効期限が切れています。Claude Code を一度起動すると更新されます。", plan);
     }
