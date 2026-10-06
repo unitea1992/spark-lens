@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseClaudeUsage } from "../collectors/subscriptions/claudeCode.ts";
+import { parseClaudeUsage, profilePlan } from "../collectors/subscriptions/claudeCode.ts";
 import { parseCodexResets, parseCodexUsage } from "../collectors/subscriptions/codex.ts";
 import { parseCommandReport } from "../collectors/subscriptions/command.ts";
 import { SubscriptionCollector } from "../collectors/subscriptions/index.ts";
@@ -28,6 +28,14 @@ test("Claude Code: reads the limits list and names scoped limits", () => {
   assert.equal(windows[0]?.resetsAt, Date.parse("2026-09-30T17:50:00Z"));
   assert.equal(windows[0]?.windowSec, 5 * 3600);
   assert.equal(new Set(windows.map((w) => w.id)).size, 3);
+});
+
+test("Claude Code: the plan comes from the profile, which follows upgrades", () => {
+  assert.equal(profilePlan({ organization: { organization_type: "claude_max", rate_limit_tier: "default_claude_max_20x" } }), "Max 20x");
+  assert.equal(profilePlan({ organization: { organization_type: "claude_pro", rate_limit_tier: null } }), "Pro");
+  for (const body of [null, {}, { organization: null }, { organization: { rate_limit_tier: "default_claude_max_5x" } }]) {
+    assert.equal(profilePlan(body), null);
+  }
 });
 
 test("Claude Code: falls back to named buckets on older responses", () => {

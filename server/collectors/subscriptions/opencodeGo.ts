@@ -64,7 +64,7 @@ export const opencodeGo: Provider = {
       return unconfigured(`OpenCode Go の API キーが見つかりません。opencode auth login で接続するか、環境変数 ${KEY_ENV} を設定してください。`);
     }
     const res = await getJson(USAGE_URL, { Authorization: `Bearer ${key}`, Accept: "application/json", "User-Agent": "spark-lens" });
-    if (res.status === 401 || res.status === 403) return failed("stale", "API キーが無効です。opencode auth login で接続し直してください。", "Go");
+    if (res.status === 401 || res.status === 403) return failed("stale", "API キーが無効です。opencode auth login で接続し直してください。解約済みなら設定の subscriptions から外します。", "Go");
     if (res.status !== 200) return httpFailure(res.status, "opencode.ai", "Go");
     const windows = parseOpencodeGoUsage(res.body);
     if (windows.length === 0) return failed("error", "使用状況の形式を読み取れませんでした。", "Go");

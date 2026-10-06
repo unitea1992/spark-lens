@@ -155,12 +155,12 @@ CPU は `scaling_max_freq`、GPU は systemd のユニットに書かれた `nvi
 | `grok` | Grok Build の使用状況 API | 開発機で `grok login` 済み（SuperGrok・X Premium など） |
 | `command` | 任意のコマンドの出力 | 下記 |
 
-認証情報は各ツールが保存しているものをその都度読むだけで、Spark Lens は複製も更新もしません。ログインの期限が切れたときは、そのツールを一度起動すれば元に戻ります。
+認証情報は各ツールが保存しているものをその都度読むだけで、Spark Lens は複製も更新もしません。ログインの期限が切れたときは、そのツールを一度起動すれば元に戻ります。サブスクリプションを解約したときは、そのサービスを `subscriptions` から外します。カードが消え、`/api/quota` の振り分け候補からも外れます。
 
 > [!IMPORTANT]
 > **利用枠の取得について**
 >
-> `claude-code`・`codex`・`grok` は、各ツールが開発機に保存しているログイン情報（`~/.claude/.credentials.json`、`~/.codex/auth.json`、`~/.grok/auth.json`）を読み、Claude Code・Codex・Grok Build が自身の画面で使っている使用状況のエンドポイント（`api.anthropic.com/api/oauth/usage`、`chatgpt.com/backend-api/wham/usage`、`cli-chat-proxy.grok.com/v1/billing` と `/v1/settings`）を呼びます。いずれも公開・文書化された API ではありません。
+> `claude-code`・`codex`・`grok` は、各ツールが開発機に保存しているログイン情報（`~/.claude/.credentials.json`、`~/.codex/auth.json`、`~/.grok/auth.json`）を読み、Claude Code・Codex・Grok Build が自身の画面で使っている使用状況のエンドポイント（`api.anthropic.com/api/oauth/usage` と `/api/oauth/profile`、`chatgpt.com/backend-api/wham/usage`、`cli-chat-proxy.grok.com/v1/billing` と `/v1/settings`）を呼びます。いずれも公開・文書化された API ではありません。
 >
 > - 呼ぶのは使用状況の読み取りだけです。モデルの利用、リセット券の使用、ログイン情報の更新・複製・外部送信は行いません。
 > - 取得は 5 分おきで、混雑やエラーの応答を受けたら 10〜60 分空けます。
@@ -171,7 +171,7 @@ CPU は `scaling_max_freq`、GPU は systemd のユニットに書かれた `nvi
 
 バーの上の縦線は「期間がどこまで進んだか」を示します。バーが縦線より右にあれば、均等に使うペースより速く消費しています。その下には、ここまでの使い方が続いた場合に期間終了時に何 % になるか（上限に届きそうなら、あと何時間で届くか）を表示します。
 
-プラン名は、Claude Code はログイン情報（`subscriptionType` と `rateLimitTier`）、Codex は使用状況 API の `plan_type` から取得します。OpenCode Go は Go プラン専用の API なので常に「Go」です。Grok はプラン表示（`subscription_tier_display`）を読みます。Grok の利用枠は、チャット・画像・音声・Build で共有される週間の枠です。Codex のリセット券は枚数と期限を表示します。Claude のリセット券は Claude Code のログインで読める API に含まれないため表示できません。
+プラン名は、Claude Code はアカウント情報の API（`api.anthropic.com/api/oauth/profile`）から取得するので、プランを変えると次の取得で表示も変わります。この API から取れないときは、ログイン情報（`subscriptionType` と `rateLimitTier`）に保存されたログイン時のプランを表示します。Codex は使用状況 API の `plan_type` から取得します。OpenCode Go は Go プラン専用の API なので常に「Go」です。Grok はプラン表示（`subscription_tier_display`）を読みます。Grok の利用枠は、チャット・画像・音声・Build で共有される週間の枠です。Codex のリセット券は枚数と期限を表示します。Claude のリセット券は Claude Code のログインで読める API に含まれないため表示できません。
 
 #### ほかのサービスを足す
 

@@ -1,6 +1,6 @@
 ---
 name: spark-lens-quota
-description: 複数モデル（Claude・Codex・OpenCode Go・Grok・ローカルLLM）へ作業を振り分ける前に、各モデルの利用枠と稼働状態を Spark Lens から確認する。実装・E2E・調査・下書きなどの作業を別モデルやサブエージェントに割り当てるときに使う。
+description: 複数モデル（Spark Lens に登録したクラウドのサブスクリプションとローカルLLM）へ作業を振り分ける前に、各モデルの利用枠と稼働状態を Spark Lens から確認する。実装・E2E・調査・下書きなどの作業を別モデルやサブエージェントに割り当てるときに使う。
 ---
 
 作業を振る前に1回だけ確認する。
@@ -13,7 +13,7 @@ curl -s http://127.0.0.1:8686/api/quota
 
 ## 読み方
 
-`models[]` の各要素は次のとおり。
+振り分け先の候補は `models[]` に並ぶものだけ。ここにないサービスには振らない。各要素は次のとおり。
 
 - `recommendation`: `use` / `avoid_heavy` / `avoid` / `unknown`。基本はこれに従う。
 - `state`: `usable` / `limited`（上限に到達）/ `loading`（ローカルLLMの読み込み中）/ `down` / `unknown`。

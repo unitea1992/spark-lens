@@ -8,6 +8,8 @@ import { clampPct, failed, getJson, httpFailure, option, parseTime, unconfigured
 // provider only ever reads the current access token: refreshing from a second
 // process would rotate the refresh token out from under the CLI.
 const USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
+// The login file keeps the plan from login time; the profile follows upgrades.
+const PROFILE_URL = "https://api.anthropic.com/api/oauth/profile";
 
 const PLAN_NAMES: Record<string, string> = { max: "Max", pro: "Pro", team: "Team", enterprise: "Enterprise", free: "Free" };
 
@@ -16,6 +18,15 @@ function planName(subscriptionType: unknown, tier: unknown): string | null {
   const base = PLAN_NAMES[subscriptionType] ?? subscriptionType;
   const multiplier = typeof tier === "string" ? /(\d+)x/.exec(tier)?.[1] : undefined;
   return multiplier ? `${base} ${multiplier}x` : base;
+}
+
+const ORG_TYPES: Record<string, string> = { claude_max: "max", claude_pro: "pro", claude_team: "team", claude_enterprise: "enterprise" };
+
+/** The current plan from the OAuth profile; null when the profile does not name one. */
+export function profilePlan(body: unknown): string | null {
+  const org = (body as { organization?: Record<string, unknown> | null } | null)?.organization;
+  if (!org || typeof org.organization_type !== "string") return null;
+  return planName(ORG_TYPES[org.organization_type] ?? null, org.rate_limit_tier);
 }
 
 const LIMIT_LABELS: Record<string, string> = {
@@ -100,18 +111,16 @@ export const claudeCode: Provider = {
       return unconfigured("Claude Code のログイン情報が見つかりません。この開発機で claude にログインしてください。");
     }
     const token = oauth.accessToken;
-    const plan = planName(oauth.subscriptionType, oauth.rateLimitTier);
+    let plan = planName(oauth.subscriptionType, oauth.rateLimitTier);
     if (typeof token !== "string" || token === "") {
       return unconfigured("Claude Code がサブスクリプションでログインされていません。");
     }
     if (typeof oauth.expiresAt === "number" && oauth.expiresAt < Date.now()) {
       return failed("stale", "ログインの有効期限が切れています。Claude Code を一度起動すると更新されます。", plan);
     }
-    const res = await getJson(USAGE_URL, {
-      Authorization: `Bearer ${token}`,
-      "anthropic-beta": "oauth-2025-04-20",
-      Accept: "application/json",
-    });
+    const headers = { Authorization: `Bearer ${token}`, "anthropic-beta": "oauth-2025-04-20", Accept: "application/json" };
+    const [res, profile] = await Promise.all([getJson(USAGE_URL, headers), getJson(PROFILE_URL, headers)]);
+    if (profile.status === 200) plan = profilePlan(profile.body) ?? plan;
     if (res.status === 401 || res.status === 403) {
       return failed("stale", "ログインの有効期限が切れています。Claude Code を一度起動すると更新されます。", plan);
     }
