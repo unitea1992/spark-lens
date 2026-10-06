@@ -40,7 +40,9 @@ export function parseGrokBilling(body: unknown): UsageWindow[] {
     const cap = (c.onDemandCap as Record<string, unknown> | undefined)?.val;
     if (typeof used === "number" && typeof cap === "number" && cap > 0) usedPct = clampPct((used / cap) * 100);
   }
-  // A period without a percentage is unknown usage, not zero.
+  // The response drops zero-valued fields, so a unified-billing period with no
+  // percentage and no per-product usage is an unused week. Otherwise unknown.
+  if (usedPct === null && c.isUnifiedBillingUser === true && !Array.isArray(c.productUsage)) usedPct = 0;
   if (usedPct === null || end === null) return [];
   const windowSec = start !== null && end > start ? Math.round((end - start) / 1000) : null;
   const label = (typeof period.type === "string" && PERIOD_LABELS[period.type]) || "利用枠";

@@ -244,6 +244,12 @@ test("Grok: a period without a percentage is unknown, not zero", () => {
   assert.deepEqual(windows, []);
 });
 
+test("Grok: an unused week drops the percentage, which reads as zero", () => {
+  const period = { type: "USAGE_PERIOD_TYPE_WEEKLY", start: "2026-10-04T03:34:37Z", end: "2026-10-11T03:34:37Z" };
+  const windows = parseGrokBilling({ config: { currentPeriod: period, onDemandCap: { val: 0 }, onDemandUsed: { val: 0 }, isUnifiedBillingUser: true } });
+  assert.deepEqual(windows.map((w) => [w.label, w.usedPct]), [["週間", 0]]);
+});
+
 test("Grok: picks the SuperGrok login from the auth file", () => {
   assert.deepEqual(
     pickGrokCredential({
