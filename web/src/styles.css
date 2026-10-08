@@ -646,6 +646,12 @@ h2 {
   font-variant-numeric: tabular-nums;
 }
 
+/* How the window moved, from the readings kept on the server. */
+.stat__trend {
+  margin-top: 2px;
+  color: var(--ink-3);
+}
+
 .meter {
   position: relative;
   height: 8px;

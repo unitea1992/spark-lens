@@ -59,3 +59,11 @@ test("a service's status is its worst window, pace included", () => {
   assert.equal(subscriptionStatus(sub([], "unconfigured"), now).text, "未接続");
   assert.equal(subscriptionStatus(sub([], "error"), now).text, "取得失敗");
 });
+
+test("trendLine says how fast a window fills and how high the last one went", async () => {
+  const { trendLine } = await import("./pace.ts");
+  assert.equal(trendLine(undefined), null);
+  assert.equal(trendLine({ ratePctPerHour24h: 0.5, rateSpanHours: 24, previousPeakPct: 96.4, since: 0 }), "直近24時間 +0.5%/時 / 前回の最大 96%");
+  assert.equal(trendLine({ ratePctPerHour24h: 0.04, rateSpanHours: 5.6, previousPeakPct: null, since: 0 }), "直近5時間 +0.04%/時");
+  assert.equal(trendLine({ ratePctPerHour24h: null, rateSpanHours: null, previousPeakPct: null, since: 0 }), null);
+});

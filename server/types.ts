@@ -273,6 +273,8 @@ export interface SubscriptionSnapshot {
   notes: string[];
   tickets: ResetTicket[];
   fetchedAt: number | null;
+  /** Per window id: how it moved, from the kept readings (see quota-history.ts); absent before anything is recorded. */
+  trends?: Record<string, { ratePctPerHour24h: number | null; rateSpanHours: number | null; previousPeakPct: number | null; since: number }>;
 }
 
 export type AgentStatus = "working" | "idle" | "waiting" | "unknown";
@@ -302,6 +304,8 @@ export interface ModelUsage {
   input: number | null;
   output: number | null;
   cached: number | null;
+  /** Cache writes, a part of `input`; null when the tool does not report them (Codex, local LLMs). */
+  cacheWrite?: number | null;
   total: number;
   /** API-price equivalent in USD; null when the model has no reliable price. */
   usd: number | null;

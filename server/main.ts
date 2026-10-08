@@ -12,7 +12,7 @@ import { HttpServer } from "./http.ts";
 import { RecipeManager } from "./recipes.ts";
 import { BenchRunner } from "./bench.ts";
 import { History } from "./history.ts";
-import { QuotaHistory } from "./quota-history.ts";
+import { QuotaHistory, windowTrend } from "./quota-history.ts";
 import { Store } from "./store.ts";
 import type { Snapshot } from "./types.ts";
 
@@ -55,7 +55,18 @@ async function main(): Promise<void> {
     version: VERSION,
     hosts: hosts.snapshots(),
     llms: llms.snapshots(),
-    subscriptions: subscriptions.snapshots(),
+    subscriptions: subscriptions.snapshots().map((s) => {
+      const now = Date.now();
+      const trends = Object.fromEntries(
+        s.windows.flatMap((w) => {
+          const series = quotaHistory.series(s.id, w.id);
+          if (!series) return [];
+          const t = windowTrend(series, now, 1);
+          return [[w.id, { ratePctPerHour24h: t.rate_pct_per_hour_24h, rateSpanHours: t.rate_span_hours, previousPeakPct: t.previous_window_peak_pct, since: t.since }]];
+        }),
+      );
+      return Object.keys(trends).length > 0 ? { ...s, trends } : s;
+    }),
     agents: agents.snapshots(),
     usage: usage.snapshot(),
     recipes: recipes.snapshots(),

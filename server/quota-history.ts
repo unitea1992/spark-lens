@@ -84,8 +84,10 @@ export interface WindowTrend {
   since: number;
   /** Readings in the last `days` days, oldest first. */
   points: { at: number; used_pct: number; resets_at: number | null }[];
-  /** Percentage points used per hour over the last 24 hours of this window; null without two readings in it. */
+  /** Percentage points used per hour over the last 24 hours of this window; null until readings span 2 hours. */
   rate_pct_per_hour_24h: number | null;
+  /** Hours the rate is measured over (up to 24); shorter while the history is young. */
+  rate_span_hours: number | null;
   /** The highest use the previous window reached before it reset; null when that window is not in the history. */
   previous_window_peak_pct: number | null;
   /** When that previous window reset. */
@@ -94,6 +96,8 @@ export interface WindowTrend {
 
 /** Two reset times this close are the same window (providers jitter the timestamp). */
 const SAME_RESET_MS = 10 * 60_000;
+/** The shortest stretch of readings a rate is given for. */
+const MIN_RATE_HOURS = 2;
 const sameWindow = (a: number | null, b: number | null) => a === b || (a !== null && b !== null && Math.abs(a - b) < SAME_RESET_MS);
 
 /** The trend of one window from its series. Pure, for the quota report. */
@@ -110,11 +114,16 @@ export function windowTrend(series: QuotaSeries, now: number, days: number): Win
   const dayAgo = now - DAY_MS;
   const recent = current.filter((p) => p[0] >= dayAgo);
   let rate: number | null = null;
+  let span: number | null = null;
   if (recent.length >= 2) {
     const first = recent[0]!;
     const last = recent[recent.length - 1]!;
     const hours = (last[0] - first[0]) / 3600_000;
-    if (hours > 0) rate = Math.round(((last[1] - first[1]) / hours) * 100) / 100;
+    // Minutes of readings scaled to an hour would swing wildly.
+    if (hours >= MIN_RATE_HOURS) {
+      rate = Math.round(((last[1] - first[1]) / hours) * 100) / 100;
+      span = Math.round(hours * 10) / 10;
+    }
   }
 
   let peak: number | null = null;
@@ -130,5 +139,5 @@ export function windowTrend(series: QuotaSeries, now: number, days: number): Win
     resetAt = ref;
   }
 
-  return { since: series.since, points, rate_pct_per_hour_24h: rate, previous_window_peak_pct: peak, previous_window_reset_at: resetAt };
+  return { since: series.since, points, rate_pct_per_hour_24h: rate, rate_span_hours: span, previous_window_peak_pct: peak, previous_window_reset_at: resetAt };
 }

@@ -76,3 +76,18 @@ export function subscriptionStatus(
   if (known.some((w) => w.usedPct! >= 80)) return { tone: "warn", text: "残りわずか" };
   return { tone: "good", text: "余裕あり" };
 }
+
+type Trend = NonNullable<import("../../server/types.ts").SubscriptionSnapshot["trends"]>[string];
+
+/** "直近24時間 +0.5%/時 / 前回の最大 96%", from the readings Spark Lens has kept. */
+export function trendLine(t: Trend | undefined): string | null {
+  if (!t) return null;
+  const parts: string[] = [];
+  if (t.ratePctPerHour24h !== null) {
+    const r = t.ratePctPerHour24h;
+    const span = t.rateSpanHours === null || t.rateSpanHours >= 23.5 ? 24 : Math.max(1, Math.floor(t.rateSpanHours));
+    parts.push(`直近${span}時間 ${r > 0 ? "+" : ""}${Math.abs(r) < 0.1 && r !== 0 ? r.toFixed(2) : r.toFixed(1)}%/時`);
+  }
+  if (t.previousPeakPct !== null) parts.push(`前回の最大 ${Math.round(t.previousPeakPct)}%`);
+  return parts.length > 0 ? parts.join(" / ") : null;
+}

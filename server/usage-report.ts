@@ -16,7 +16,10 @@ export interface UsageReportModel {
   /** null when the tool reports only a total. */
   input_tokens: number | null;
   output_tokens: number | null;
+  /** Cache reads. */
   cached_tokens: number | null;
+  /** Cache writes, already counted in input_tokens; null when the tool does not report them (Codex, local LLMs). */
+  cache_write_tokens: number | null;
   total_tokens: number;
   /** API-price equivalent in USD, not a bill; null when the model has no reliable price. */
   usd: number | null;
@@ -64,6 +67,7 @@ function reportModel(m: ModelUsage): UsageReportModel {
     input_tokens: m.input,
     output_tokens: m.output,
     cached_tokens: m.cached,
+    cache_write_tokens: m.cacheWrite ?? null,
     total_tokens: m.total,
     usd: m.usd,
     usd_estimate: m.usdEstimate === true,

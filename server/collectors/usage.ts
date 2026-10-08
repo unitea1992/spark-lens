@@ -21,19 +21,26 @@ interface Tally {
   input: number;
   output: number;
   cached: number;
+  /** Cache writes, already counted in `input`; only Claude Code and OpenCode report them. */
+  cacheWrite: number;
+  writeKnown: boolean;
   /** Tools that only report a total (Codex) leave input/output unknown. */
   totalOnly: number;
 }
 
 type DayModel = Map<string, Map<string, Tally>>; // day -> "source\0model" -> tally
 
-function add(target: DayModel, day: string, source: string, model: string, t: Partial<Tally>): void {
+function add(target: DayModel, day: string, source: string, model: string, t: Partial<Omit<Tally, "writeKnown">>): void {
   const key = `${source}\0${model}`;
   const byModel = target.get(day) ?? new Map<string, Tally>();
-  const cur = byModel.get(key) ?? { input: 0, output: 0, cached: 0, totalOnly: 0 };
+  const cur = byModel.get(key) ?? { input: 0, output: 0, cached: 0, cacheWrite: 0, writeKnown: false, totalOnly: 0 };
   cur.input += t.input ?? 0;
   cur.output += t.output ?? 0;
   cur.cached += t.cached ?? 0;
+  if (t.cacheWrite !== undefined) {
+    cur.cacheWrite += t.cacheWrite;
+    cur.writeKnown = true;
+  }
   cur.totalOnly += t.totalOnly ?? 0;
   byModel.set(key, cur);
   target.set(day, byModel);
@@ -50,9 +57,11 @@ interface ClaudeEntry {
   key: string;
   day: string;
   model: string;
+  /** Includes the cache writes below. */
   input: number;
   output: number;
   cached: number;
+  cacheWrite: number;
 }
 
 export function parseClaudeLog(text: string): ClaudeEntry[] {
@@ -81,6 +90,7 @@ export function parseClaudeLog(text: string): ClaudeEntry[] {
       input: (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0),
       output: u.output_tokens ?? 0,
       cached: u.cache_read_input_tokens ?? 0,
+      cacheWrite: u.cache_creation_input_tokens ?? 0,
     });
   }
   return out;
@@ -252,7 +262,7 @@ class CodexSource {
 
 // --------------------------------------------------------------- OpenCode
 
-export function parseOpencodeStats(stdout: string): { model: string; input: number; output: number; cached: number }[] {
+export function parseOpencodeStats(stdout: string): { model: string; input: number; output: number; cached: number; cacheWrite: number }[] {
   let o: Record<string, unknown>;
   try {
     o = JSON.parse(stdout);
@@ -273,6 +283,7 @@ export function parseOpencodeStats(stdout: string): { model: string; input: numb
         input: n(t.input) + n(cache.write),
         output: n(t.output) + n(t.reasoning),
         cached: n(cache.read),
+        cacheWrite: n(cache.write),
       },
     ];
   });
@@ -284,10 +295,12 @@ function rows(tallies: Map<string, Tally>[], localSources: Set<string>): ModelUs
   const merged = new Map<string, Tally>();
   for (const byModel of tallies) {
     for (const [key, t] of byModel) {
-      const cur = merged.get(key) ?? { input: 0, output: 0, cached: 0, totalOnly: 0 };
+      const cur = merged.get(key) ?? { input: 0, output: 0, cached: 0, cacheWrite: 0, writeKnown: false, totalOnly: 0 };
       cur.input += t.input;
       cur.output += t.output;
       cur.cached += t.cached;
+      cur.cacheWrite += t.cacheWrite;
+      cur.writeKnown ||= t.writeKnown;
       cur.totalOnly += t.totalOnly;
       merged.set(key, cur);
     }
@@ -303,6 +316,7 @@ function rows(tallies: Map<string, Tally>[], localSources: Set<string>): ModelUs
         input: split ? t.input : null,
         output: split ? t.output : null,
         cached: split ? t.cached : null,
+        cacheWrite: split && t.writeKnown ? t.cacheWrite : null,
         total: t.input + t.output + t.cached + t.totalOnly,
         usd: null,
       };
@@ -375,8 +389,9 @@ export class UsageCollector {
               cur.input = (cur.input ?? 0) + m.input;
               cur.output = (cur.output ?? 0) + m.output;
               cur.cached = (cur.cached ?? 0) + m.cached;
+              cur.cacheWrite = (cur.cacheWrite ?? 0) + m.cacheWrite;
               cur.total += total;
-            } else byModel.set(m.model, { model: m.model, source: "OpenCode", local: false, input: m.input, output: m.output, cached: m.cached, total, usd: null });
+            } else byModel.set(m.model, { model: m.model, source: "OpenCode", local: false, input: m.input, output: m.output, cached: m.cached, cacheWrite: m.cacheWrite, total, usd: null });
           }
           list.push(...byModel.values());
           list.sort((a, b) => b.total - a.total);

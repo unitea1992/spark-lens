@@ -1,10 +1,13 @@
 import type { SubscriptionSnapshot, UsageWindow } from "../../../server/types.ts";
 import { ago, duration, pct, shortDate, when } from "../format.ts";
-import { elapsedPct, pace, paceLabel, subscriptionStatus } from "../pace.ts";
+import { elapsedPct, pace, paceLabel, subscriptionStatus, trendLine } from "../pace.ts";
 import { levelFor, Meter } from "./Meter.tsx";
 import { StatusPill } from "./StatusPill.tsx";
 
-function Window({ w, now }: { w: UsageWindow; now: number }) {
+type Trend = NonNullable<SubscriptionSnapshot["trends"]>[string];
+
+function Window({ w, now, trend }: { w: UsageWindow; now: number; trend?: Trend }) {
+  const line = trendLine(trend);
   const remaining = w.resetsAt === null ? null : (w.resetsAt - now) / 1000;
   const p = pace(w, now);
   const left = w.idle
@@ -32,6 +35,7 @@ function Window({ w, now }: { w: UsageWindow; now: number }) {
         <span>{left}</span>
         {p && <span className={`pace pace--${p.tone}`}>{paceLabel(p)}</span>}
       </p>
+      {line && <p className="stat__foot stat__trend">{line}</p>}
     </div>
   );
 }
@@ -53,7 +57,7 @@ export function SubscriptionCard({ sub, now }: { sub: SubscriptionSnapshot; now:
       {sub.message && <p className={`notice ${sub.status === "unconfigured" || sub.status === "dormant" ? "" : "notice--warn"}`}>{sub.message}</p>}
 
       {sub.windows.map((w) => (
-        <Window key={w.id} w={w} now={now} />
+        <Window key={w.id} w={w} now={now} trend={sub.trends?.[w.id]} />
       ))}
 
       {sub.tickets.length > 0 && (

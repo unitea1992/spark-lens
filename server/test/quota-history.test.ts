@@ -59,10 +59,17 @@ test("the trend gives the 24-hour rate of the current window and the previous wi
   };
   const t = windowTrend(series, NOW, 7);
   assert.equal(t.rate_pct_per_hour_24h, 0.5); // 10 -> 22 over 24 hours
+  assert.equal(t.rate_span_hours, 24);
   assert.equal(t.previous_window_peak_pct, 96);
   assert.equal(t.previous_window_reset_at, prevReset);
   assert.equal(t.points.length, 5); // the first reading is older than 7 days
   assert.equal(t.since, NOW - 9 * D);
+});
+
+test("readings spanning less than 2 hours give no rate", () => {
+  const t = windowTrend({ since: NOW - H, points: [[NOW - H, 3, NOW + D], [NOW, 5, NOW + D]] }, NOW, 7);
+  assert.equal(t.rate_pct_per_hour_24h, null);
+  assert.equal(t.rate_span_hours, null);
 });
 
 test("a single reading has no rate and no previous window", () => {

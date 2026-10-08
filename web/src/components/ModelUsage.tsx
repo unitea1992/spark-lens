@@ -8,7 +8,9 @@ const LABELS: Record<Range, string> = { today: "今日", week: "7 日間", month
 
 function breakdown(r: Row): string {
   if (r.input === null || r.output === null) return "内訳なし";
-  const parts = [`入力 ${count(r.input)}`, `出力 ${count(r.output)}`];
+  // Cache writes are part of the input; shown apart, a jump in them marks a cache that expired.
+  const input = r.cacheWrite ? `入力 ${count(r.input)}（うちキャッシュ書き込み ${count(r.cacheWrite)}）` : `入力 ${count(r.input)}`;
+  const parts = [input, `出力 ${count(r.output)}`];
   if (r.cached) parts.push(`キャッシュ読み取り ${count(r.cached)}`);
   return parts.join(" / ");
 }

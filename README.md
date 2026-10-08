@@ -216,7 +216,7 @@ curl -s 'http://127.0.0.1:8686/api/quota?days=7'
 ```
 
 - `trend.points[]`: 取得した値（`at`、`used_pct`、`resets_at`）の古い順。値が変わったときと、変わらなくても 30 分ごとに記録します。
-- `trend.rate_pct_per_hour_24h`: いまのウィンドウで、直近 24 時間に 1 時間あたり何ポイント増えたか。
+- `trend.rate_pct_per_hour_24h`、`trend.rate_span_hours`: いまのウィンドウで、直近 24 時間に 1 時間あたり何ポイント増えたかと、それを測った時間。記録が 24 時間に満たないうちは短い時間で測り、2 時間分たまるまでは `null` です。
 - `trend.previous_window_peak_pct`、`trend.previous_window_reset_at`: 1 つ前のウィンドウが、リセットまでにどこまで使われたか。
 - `trend.since`: 記録の始まり。それより前のことは分かりません。
 
@@ -235,7 +235,7 @@ curl -s 'http://127.0.0.1:8686/api/usage?model=haiku'   # モデル名に含ま�
 
 `today`（今日）、`week`（直近 7 日）、`month`（直近 30 日）のそれぞれに、次の項目が入ります。
 
-- `models[]`: モデルごとの `model`、`source`（使った場所。Claude Code・Codex・OpenCode・ローカル）、`local`、`input_tokens`・`output_tokens`・`cached_tokens`（合計しか記録しないツールでは `null`）、`total_tokens`、`usd`（API 料金に換算した額で、請求額ではありません。単価が分からないモデルは `null`）、`usd_estimate`（合計しか記録しないため、額が上限の見積もりのとき `true`）
+- `models[]`: モデルごとの `model`、`source`（使った場所。Claude Code・Codex・OpenCode・ローカル）、`local`、`input_tokens`・`output_tokens`・`cached_tokens`（キャッシュの読み直し。合計しか記録しないツールでは `null`）、`cache_write_tokens`（キャッシュの書き込み。`input_tokens` の内数で、記録するのは Claude Code と OpenCode だけ。ほかは `null`）、`total_tokens`、`usd`（API 料金に換算した額で、請求額ではありません。単価が分からないモデルは `null`）、`usd_estimate`（合計しか記録しないため、額が上限の見積もりのとき `true`）
 - `total_tokens`、`total_usd`: 期間の合計。`usd_partial` が `true` のときは、単価の分からないモデルが `total_usd` に入っていません
 
 `days`（1〜30）を付けると、`daily[]` に 1 日ごとの集計が新しい順に入ります。項目は各期間と同じものに、日付の `day` を加えた形です。OpenCode は期間ごとの合計しか出さないため日ごとの集計には含めず、`daily_excludes` にその名前を挙げます。

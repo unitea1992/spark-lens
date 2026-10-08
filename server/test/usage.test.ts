@@ -25,6 +25,7 @@ test("Claude log: chunks of one reply share a key, synthetic and non-assistant l
   assert.equal(entries[0]!.model, "claude-opus");
   assert.equal(entries[0]!.input, 15);
   assert.equal(entries[0]!.cached, 100);
+  assert.equal(entries[0]!.cacheWrite, 5); // also inside input
   assert.equal(entries[1]!.output, 40);
 });
 
@@ -44,8 +45,8 @@ test("OpenCode stats: input includes cache writes, output includes reasoning", (
     ],
   });
   assert.deepEqual(parseOpencodeStats(out), [
-    { model: "glm-5", input: 13, output: 10, cached: 50 },
-    { model: "bare", input: 1, output: 0, cached: 0 },
+    { model: "glm-5", input: 13, output: 10, cached: 50, cacheWrite: 3 },
+    { model: "bare", input: 1, output: 0, cached: 0, cacheWrite: 0 },
   ]);
   assert.deepEqual(parseOpencodeStats("nope"), []);
   assert.deepEqual(parseOpencodeStats("{}"), []);

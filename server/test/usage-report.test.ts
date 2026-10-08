@@ -45,6 +45,7 @@ test("each period lists its models with totals, and says when it was collected",
     input_tokens: 100,
     output_tokens: 20,
     cached_tokens: 1000,
+    cache_write_tokens: null,
     total_tokens: 1120,
     usd: 0.5,
     usd_estimate: false,
@@ -88,6 +89,11 @@ test("daily usage comes only with days, newest first, filtered like the periods"
   assert.equal(r.daily?.[0]?.usd_partial, true);
   assert.deepEqual(r.daily_excludes, ["OpenCode"]);
   assert.equal(usageReport(usage({ daily }), NOW, "haiku", 30).daily?.[0]?.models.length, 1);
+});
+
+test("cache writes are reported apart from reads, and unknown stays null", () => {
+  const r = usageReport(usage({ today: [row("claude-opus-5-5", { cacheWrite: 40 }), row("gpt-6", { source: "Codex" })] }), NOW);
+  assert.deepEqual(r.today.models.map((m) => [m.cached_tokens, m.cache_write_tokens]), [[1000, 40], [1000, null]]);
 });
 
 test("before the first collection the age is unknown", () => {
