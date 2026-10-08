@@ -144,7 +144,8 @@ export class LlmCollector {
         // The same container name may run on every node, so count machines.
         const nodes = new Set(containers.filter((c) => c.state === "running").map((c) => c.host));
         const running = nodes.size;
-        const starting = running > 0;
+        // Another model answering means the running containers are serving it (two recipes can share containers).
+        const starting = other === null && running > 0;
         state.snapshot = {
           ...state.snapshot,
           state: starting ? "starting" : "down",

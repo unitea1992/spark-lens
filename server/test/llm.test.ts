@@ -197,6 +197,15 @@ test("a model sharing its port with another reads as down while the other is ser
     assert.equal(glm?.state, "up");
     assert.equal(qwen?.state, "down");
     assert.match(qwen?.detail ?? "", /glm/);
+    // Two recipes of one checkout share containers: the other model's running containers are not this one starting.
+    const shared = new LlmCollector(
+      [{ id: "ablit", label: "GLM Ablit", baseUrl: `http://127.0.0.1:${port}`, model: "glm-ablit", engine: "vllm", nodes: ["a"], containers: ["glm-tf"] }],
+      store,
+      5,
+    );
+    await shared.poll([{ id: "a", online: true, containersKnown: true, containers: [{ name: "glm-tf", image: "", state: "running", status: "Up" }] } as never]);
+    assert.equal(shared.snapshots()[0]?.state, "down");
+    assert.match(shared.snapshots()[0]?.detail ?? "", /glm/);
   } finally {
     server.close();
   }
