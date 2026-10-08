@@ -67,6 +67,10 @@ export interface QuotaModel {
   fetched_at: number | null;
   age_sec: number | null;
   stale: boolean;
+  /** Local LLMs only: the model name the running server answers to (what a client must ask for), and its load. */
+  served_model?: string | null;
+  requests_running?: number | null;
+  requests_waiting?: number | null;
 }
 
 export interface QuotaReport {
@@ -211,6 +215,9 @@ function llmModel(llm: LlmSnapshot): QuotaModel {
     fetched_at: null,
     age_sec: null,
     stale: false,
+    served_model: llm.state === "up" ? (llm.models[0] ?? null) : null,
+    requests_running: llm.state === "up" ? llm.requestsRunning : null,
+    requests_waiting: llm.state === "up" ? llm.requestsWaiting : null,
   };
 }
 

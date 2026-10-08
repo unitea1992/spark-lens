@@ -54,10 +54,17 @@ test("no readable numbers is unknown, not usable", () => {
 });
 
 test("local LLMs report loading separately from up", () => {
-  const llm = (state: LlmSnapshot["state"]) => ({ id: "g", label: "GLM", state, requestsWaiting: 0 }) as LlmSnapshot;
+  const llm = (state: LlmSnapshot["state"]) =>
+    ({ id: "g", label: "GLM", state, models: ["GLM-5.3-Flash"], requestsRunning: 3, requestsWaiting: 0 }) as LlmSnapshot;
   const states = (["up", "starting", "down"] as const).map((s) => quotaReport({ subscriptions: [], llms: [llm(s)] }, NOW).models[0]!);
   assert.deepEqual(states.map((m) => m.state), ["usable", "loading", "down"]);
   assert.deepEqual(states.map((m) => m.recommendation), ["use", "avoid", "avoid"]);
+  // Only the running server says which model it answers to and how busy it is.
+  assert.deepEqual(states.map((m) => [m.served_model, m.requests_running, m.requests_waiting]), [
+    ["GLM-5.3-Flash", 3, 0],
+    [null, null, null],
+    [null, null, null],
+  ]);
 });
 
 test("reset tickets are listed with their expiry in JST", () => {
