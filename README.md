@@ -209,6 +209,19 @@ curl -s http://127.0.0.1:8686/api/quota
 
 Codex の「Set up security」の案内のように、画面上の入力待ちで動けない状態は検知できません。
 
+`days`（1〜35）を付けると、各ウィンドウに推移の `trend` が加わります。いまの値だけでなく、どのくらいの速さで減っているかを見て配分を決めるためのものです。
+
+```sh
+curl -s 'http://127.0.0.1:8686/api/quota?days=7'
+```
+
+- `trend.points[]`: 取得した値（`at`、`used_pct`、`resets_at`）の古い順。値が変わったときと、変わらなくても 30 分ごとに記録します。
+- `trend.rate_pct_per_hour_24h`: いまのウィンドウで、直近 24 時間に 1 時間あたり何ポイント増えたか。
+- `trend.previous_window_peak_pct`、`trend.previous_window_reset_at`: 1 つ前のウィンドウが、リセットまでにどこまで使われたか。
+- `trend.since`: 記録の始まり。それより前のことは分かりません。
+
+記録は Spark Lens が動いている間に取り、35 日分を残します。まだ記録のないウィンドウは `trend` が `null` です。
+
 エージェント向けの手引きは [`skills/spark-lens-quota`](skills/spark-lens-quota/SKILL.md) にあります。`~/.claude/skills` や `~/.codex/skills` に置くと、作業を振る前に自動で確認させられます。
 
 ### モデル別の使用量（`/api/usage`）
@@ -225,11 +238,26 @@ curl -s 'http://127.0.0.1:8686/api/usage?model=haiku'   # モデル名に含ま�
 - `models[]`: モデルごとの `model`、`source`（使った場所。Claude Code・Codex・OpenCode・ローカル）、`local`、`input_tokens`・`output_tokens`・`cached_tokens`（合計しか記録しないツールでは `null`）、`total_tokens`、`usd`（API 料金に換算した額で、請求額ではありません。単価が分からないモデルは `null`）、`usd_estimate`（合計しか記録しないため、額が上限の見積もりのとき `true`）
 - `total_tokens`、`total_usd`: 期間の合計。`usd_partial` が `true` のときは、単価の分からないモデルが `total_usd` に入っていません
 
+`days`（1〜30）を付けると、`daily[]` に 1 日ごとの集計が新しい順に入ります。項目は各期間と同じものに、日付の `day` を加えた形です。OpenCode は期間ごとの合計しか出さないため日ごとの集計には含めず、`daily_excludes` にその名前を挙げます。
+
+```sh
+curl -s 'http://127.0.0.1:8686/api/usage?days=7'
+```
+
 使い方の注意:
 
 - 数字は 1 分ごとに集計し直します。作業の直後に測るときは、`usage_at`（集計した時刻）が作業の終了より後になるまで待ってください。`age_sec` はその経過秒数です。
 - 「今日」は Spark Lens を動かしているマシンの日付で区切ります。日をまたぐ作業の前後を比べるときは、`week` の差を使ってください。
 - 返す内容は画面の表と同じで、マシン名・認証情報・設定は含みません。ローカル LLM の行は、設定で付けた `label` がモデル名として出ます。
+
+### 稼働指標の推移（`/api/history`）
+
+マシンの CPU・GPU・メモリ・温度と、ローカル LLM の生成速度を、直近 24 時間の 1 分平均で返します。記録している key の一覧は、key を付けずに取れます。
+
+```sh
+curl -s http://127.0.0.1:8686/api/history                          # {"keys": [...]}
+curl -s 'http://127.0.0.1:8686/api/history?key=host:spark-1:gpu'    # [{"t": ..., "v": ...}, ...]
+```
 
 ### エージェント
 

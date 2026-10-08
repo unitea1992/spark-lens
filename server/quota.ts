@@ -1,4 +1,5 @@
 import { pace } from "../web/src/pace.ts";
+import { type QuotaSeries, type WindowTrend, windowTrend } from "./quota-history.ts";
 import type { LlmSnapshot, Snapshot, SubscriptionSnapshot, UsageWindow } from "./types.ts";
 
 /**
@@ -27,6 +28,14 @@ export interface QuotaWindow {
   resets_at_jst: string | null;
   /** Usage share at the end of the window if use continues like this; null when too early to say. */
   projected_end_pct: number | null;
+  /** How the window moved; only with `?days=N`, and null when nothing has been recorded for it yet. */
+  trend?: WindowTrend | null;
+}
+
+/** Asked for with `?days=N`: the readings kept for each window. */
+export interface QuotaTrendSource {
+  days: number;
+  series: (subscription: string, window: string) => QuotaSeries | null;
 }
 
 export interface QuotaTicket {
@@ -64,6 +73,8 @@ export interface QuotaReport {
   generated_at: number;
   generated_at_jst: string;
   thresholds: { heavy_max_used_pct: number; light_max_used_pct: number; stale_after_sec: number };
+  /** The days of history asked for with `?days=N`. */
+  trend_days?: number;
   models: QuotaModel[];
 }
 
@@ -78,8 +89,9 @@ function jstShort(ms: number): string {
   return `${d.getUTCMonth() + 1}/${d.getUTCDate()}(${"日月火水木金土"[d.getUTCDay()]}) ${hm}`;
 }
 
-function quotaWindow(w: UsageWindow, now: number): QuotaWindow {
+function quotaWindow(w: UsageWindow, now: number, trend?: { sub: string; source: QuotaTrendSource }): QuotaWindow {
   const p = pace(w, now);
+  const series = trend ? trend.source.series(trend.sub, w.id) : null;
   return {
     id: w.id,
     label: w.label,
@@ -87,10 +99,11 @@ function quotaWindow(w: UsageWindow, now: number): QuotaWindow {
     resets_at: w.resetsAt,
     resets_at_jst: jst(w.resetsAt),
     projected_end_pct: p?.projected === null || p === null ? null : Math.round(p.projected),
+    ...(trend ? { trend: series ? windowTrend(series, now, trend.source.days) : null } : {}),
   };
 }
 
-function subscriptionModel(sub: SubscriptionSnapshot, now: number): QuotaModel {
+function subscriptionModel(sub: SubscriptionSnapshot, now: number, trend?: QuotaTrendSource): QuotaModel {
   const base = {
     id: sub.id,
     label: sub.label,
@@ -117,7 +130,7 @@ function subscriptionModel(sub: SubscriptionSnapshot, now: number): QuotaModel {
     return { ...base, ...empty, state: "unknown", recommendation: "unknown", reason: "使用率が不明", stale };
   }
 
-  const windows = known.map((w) => quotaWindow(w, now));
+  const windows = known.map((w) => quotaWindow(w, now, trend ? { sub: sub.id, source: trend } : undefined));
   const worst = known.reduce((a, b) => (b.usedPct! > a.usedPct! ? b : a));
   const used = worst.usedPct!;
   const full = known.filter((w) => w.usedPct! >= 100);
@@ -201,7 +214,7 @@ function llmModel(llm: LlmSnapshot): QuotaModel {
   };
 }
 
-export function quotaReport(snapshot: Pick<Snapshot, "subscriptions" | "llms">, now: number): QuotaReport {
+export function quotaReport(snapshot: Pick<Snapshot, "subscriptions" | "llms">, now: number, trend?: QuotaTrendSource): QuotaReport {
   return {
     generated_at: now,
     generated_at_jst: jst(now)!,
@@ -210,6 +223,7 @@ export function quotaReport(snapshot: Pick<Snapshot, "subscriptions" | "llms">, 
       light_max_used_pct: LIGHT_MAX_USED_PCT,
       stale_after_sec: STALE_AFTER_SEC,
     },
-    models: [...snapshot.subscriptions.map((s) => subscriptionModel(s, now)), ...snapshot.llms.map(llmModel)],
+    ...(trend ? { trend_days: trend.days } : {}),
+    models: [...snapshot.subscriptions.map((s) => subscriptionModel(s, now, trend)), ...snapshot.llms.map(llmModel)],
   };
 }

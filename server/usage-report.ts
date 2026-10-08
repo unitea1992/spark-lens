@@ -45,7 +45,13 @@ export interface UsageReport {
   today: UsageReportPeriod;
   week: UsageReportPeriod;
   month: UsageReportPeriod;
+  /** With `?days=N`: each of the last N days, newest first. OpenCode reports only ranges, so it is in the periods above but not here. */
+  daily?: (UsageReportPeriod & { day: string })[];
+  daily_excludes?: string[];
 }
+
+/** Days of daily usage kept (the collector reads 30). */
+export const MAX_USAGE_DAYS = 30;
 
 /** Longest model filter accepted; a longer one cannot match any model name. */
 export const MAX_MODEL_FILTER = 80;
@@ -75,7 +81,7 @@ function period(list: ModelUsage[], filter: string | null): UsageReportPeriod {
   };
 }
 
-export function usageReport(usage: UsageSnapshot, now: number, modelFilter?: string | null): UsageReport {
+export function usageReport(usage: UsageSnapshot, now: number, modelFilter?: string | null, days?: number | null): UsageReport {
   const filter = modelFilter?.trim().toLowerCase().slice(0, MAX_MODEL_FILTER) || null;
   const collected = usage.generatedAt > 0 ? usage.generatedAt : null;
   return {
@@ -88,5 +94,11 @@ export function usageReport(usage: UsageSnapshot, now: number, modelFilter?: str
     today: period(usage.today, filter),
     week: period(usage.week, filter),
     month: period(usage.month, filter),
+    ...(days
+      ? {
+          daily: (usage.daily ?? []).slice(0, Math.min(days, MAX_USAGE_DAYS)).map((d) => ({ day: d.day, ...period(d.models, filter) })),
+          daily_excludes: ["OpenCode"],
+        }
+      : {}),
   };
 }

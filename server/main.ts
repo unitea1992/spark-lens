@@ -12,6 +12,7 @@ import { HttpServer } from "./http.ts";
 import { RecipeManager } from "./recipes.ts";
 import { BenchRunner } from "./bench.ts";
 import { History } from "./history.ts";
+import { QuotaHistory } from "./quota-history.ts";
 import { Store } from "./store.ts";
 import type { Snapshot } from "./types.ts";
 
@@ -29,6 +30,7 @@ async function main(): Promise<void> {
   const runtimeDir = join(process.env.XDG_RUNTIME_DIR || tmpdir(), "spark-lens");
   const store = new Store(stateDir());
   const history = new History(store.history());
+  const quotaHistory = new QuotaHistory(store.quotaHistory());
   const bench = new BenchRunner(store);
   const hosts = new HostCollector(config.hosts, {
     procRegex: procRegex(config.agents.processes),
@@ -82,6 +84,8 @@ async function main(): Promise<void> {
         : undefined,
     changed: () => http.broadcast(),
     history: (key) => history.points(key),
+    historyKeys: () => history.keys(),
+    quotaSeries: (sub, win) => quotaHistory.series(sub, win),
     benchStop: (llmId) => bench.stop(llmId),
     bench: async (llmId) => {
       const cfg = config.llms.find((l) => l.id === llmId);
@@ -158,7 +162,11 @@ async function main(): Promise<void> {
 
   const pollSubscriptions = () => {
     subscriptions.poll().then(
-      () => http.broadcast(),
+      () => {
+        quotaHistory.record(subscriptions.snapshots());
+        store.setQuotaHistory(quotaHistory.dump());
+        http.broadcast();
+      },
       () => {},
     );
   };

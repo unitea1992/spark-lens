@@ -6,7 +6,8 @@ import { extname, join, normalize, sep } from "node:path";
 import { gzipSync } from "node:zlib";
 import type { Snapshot } from "./types.ts";
 import { quotaReport } from "./quota.ts";
-import { usageReport } from "./usage-report.ts";
+import { QUOTA_KEEP_DAYS } from "./quota-history.ts";
+import { MAX_USAGE_DAYS, usageReport } from "./usage-report.ts";
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -72,8 +73,20 @@ export interface HttpOptions {
   benchStop?: (llmId: string) => { ok: boolean; message: string };
   /** Minute averages for one series over the last day. */
   history?: (key: string) => { t: number; v: number }[];
+  /** The series names /api/history knows. */
+  historyKeys?: () => string[];
+  /** A subscription window's kept readings, for /api/quota?days=N. */
+  quotaSeries?: (subscription: string, window: string) => import("./quota-history.ts").QuotaSeries | null;
   /** Called after a state-changing request so viewers see it at once. */
   changed?: () => void;
+}
+
+/** `?days=N` as a whole number from 1 to `max`; anything else means no history was asked for. */
+export function daysParam(url: string | undefined, max: number): number | null {
+  const raw = new URL(url ?? "/", "http://x").searchParams.get("days");
+  if (raw === null || !/^\d{1,3}$/.test(raw)) return null;
+  const n = Number(raw);
+  return n >= 1 ? Math.min(n, max) : null;
 }
 
 const RECIPE_ROUTE = /^\/api\/recipes\/([a-z0-9][a-z0-9-]*)\/(start|stop|logs|check|update|switch)$/;
@@ -166,24 +179,30 @@ export class HttpServer {
         .end(req.method === "HEAD" ? undefined : JSON.stringify(this.opts.snapshot()));
       return;
     }
+    const days = daysParam(req.url, path === "/api/usage" ? MAX_USAGE_DAYS : QUOTA_KEEP_DAYS);
     if (path === "/api/quota") {
       res
         .writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" })
-        .end(req.method === "HEAD" ? undefined : JSON.stringify(quotaReport(this.opts.snapshot(), Date.now())));
+        .end(req.method === "HEAD" ? undefined : JSON.stringify(quotaReport(this.opts.snapshot(), Date.now(), days && this.opts.quotaSeries ? { days, series: this.opts.quotaSeries } : undefined)));
       return;
     }
     if (path === "/api/usage") {
       const model = new URL(req.url ?? "/", "http://x").searchParams.get("model");
       res
         .writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" })
-        .end(req.method === "HEAD" ? undefined : JSON.stringify(usageReport(this.opts.snapshot().usage, Date.now(), model)));
+        .end(req.method === "HEAD" ? undefined : JSON.stringify(usageReport(this.opts.snapshot().usage, Date.now(), model, days)));
       return;
     }
     if (path === "/api/history") {
       const key = new URL(req.url ?? "/", "http://x").searchParams.get("key") ?? "";
       res
         .writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" })
-        .end(JSON.stringify(this.opts.history && /^[\w:.-]{1,80}$/.test(key) ? this.opts.history(key) : []));
+        .end(
+          JSON.stringify(
+            // Without a key, the list of keys, so a caller can find what is recorded.
+            key === "" ? { keys: this.opts.historyKeys?.() ?? [] } : this.opts.history && /^[\w:.-]{1,80}$/.test(key) ? this.opts.history(key) : [],
+          ),
+        );
       return;
     }
     if (path === "/api/stream") {

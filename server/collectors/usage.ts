@@ -354,6 +354,7 @@ export class UsageCollector {
       const range = (n: number) => rows(days.slice(0, n).map((d) => byDay.get(d) ?? new Map()), new Set(["ローカル"]));
       const week = range(WEEK_DAYS);
       const month = range(MONTH_DAYS);
+      const daily = days.map((day) => ({ day, models: rows([byDay.get(day) ?? new Map()], new Set(["ローカル"])) }));
 
       // OpenCode keeps its own day boundaries; ask it for each range.
       if (this.opencodeBin) {
@@ -385,7 +386,7 @@ export class UsageCollector {
         if (d30?.code === 0) add2(month, d30.stdout);
       }
       const table = this.prices.current();
-      for (const list of [today, week, month]) applyPrices(list, table);
+      for (const list of [today, week, month, ...daily.map((d) => d.models)]) applyPrices(list, table);
       this.current = {
         generatedAt: Date.now(),
         pricesFetchedAt: table?.fetchedAt ?? null,
@@ -393,6 +394,7 @@ export class UsageCollector {
         today,
         week,
         month,
+        daily,
       };
     } finally {
       this.busy = false;

@@ -318,6 +318,8 @@ export interface UsageSnapshot {
   week: ModelUsage[];
   /** The last 30 days, today included. Claude Code keeps only about that much history. */
   month: ModelUsage[];
+  /** The same 30 days one by one, newest first. OpenCode reports only ranges, so it is not in these. */
+  daily?: { day: string; models: ModelUsage[] }[];
 }
 
 export interface UpstreamCommit {

@@ -19,6 +19,8 @@ interface StateFile {
   benchRuns?: import("./types.ts").BenchRun[];
   /** Seconds the last successful start of each recipe took. */
   startSeconds?: Record<string, number>;
+  /** Subscription windows' readings over the last weeks (see quota-history.ts). */
+  quotaHistory?: import("./quota-history.ts").QuotaHistoryDump;
 }
 
 const KEEP_DAYS = 60;
@@ -74,6 +76,20 @@ export class Store {
   setHistory(dump: Record<string, { m: number; sum: number; n: number }[]>): void {
     this.state.history = dump;
     this.dirty = true;
+  }
+
+  quotaHistory(): import("./quota-history.ts").QuotaHistoryDump {
+    return this.state.quotaHistory ?? {};
+  }
+
+  setQuotaHistory(dump: import("./quota-history.ts").QuotaHistoryDump): void {
+    this.state.quotaHistory = dump;
+    this.dirty = true;
+  }
+
+  /** Local LLM tokens per local date (YYYY-MM-DD). */
+  tokenDays(llm: string): Record<string, DayTotals> {
+    return this.state.tokens[llm] ?? {};
   }
 
   benchRuns(): import("./types.ts").BenchRun[] {

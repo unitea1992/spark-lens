@@ -76,6 +76,20 @@ test("unpriced and total-only models are marked, not guessed", () => {
   assert.equal(r.today.total_tokens, 1120 + 1120 + 700);
 });
 
+test("daily usage comes only with days, newest first, filtered like the periods", () => {
+  const daily = [
+    { day: "2026-10-08", models: [row("claude-haiku-5-5"), row("GLM-5.3 Flash", { source: "ローカル", local: true, usd: null })] },
+    { day: "2026-10-07", models: [row("claude-haiku-5-5", { total: 3000, usd: 1.5 })] },
+    { day: "2026-10-06", models: [] },
+  ];
+  assert.equal(usageReport(usage({ daily }), NOW).daily, undefined);
+  const r = usageReport(usage({ daily }), NOW, null, 2);
+  assert.deepEqual(r.daily?.map((d) => [d.day, d.total_tokens]), [["2026-10-08", 2240], ["2026-10-07", 3000]]);
+  assert.equal(r.daily?.[0]?.usd_partial, true);
+  assert.deepEqual(r.daily_excludes, ["OpenCode"]);
+  assert.equal(usageReport(usage({ daily }), NOW, "haiku", 30).daily?.[0]?.models.length, 1);
+});
+
 test("before the first collection the age is unknown", () => {
   const r = usageReport(usage({ generatedAt: 0, today: [], week: [] }), NOW);
   assert.equal(r.usage_at, null);
