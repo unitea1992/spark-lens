@@ -211,6 +211,26 @@ Codex の「Set up security」の案内のように、画面上の入力待ち�
 
 エージェント向けの手引きは [`skills/spark-lens-quota`](skills/spark-lens-quota/SKILL.md) にあります。`~/.claude/skills` や `~/.codex/skills` に置くと、作業を振る前に自動で確認させられます。
 
+### モデル別の使用量（`/api/usage`）
+
+画面の「モデル別のトークン利用量」と同じ数字を、API で取れます。ある作業の前後で使用量を測り、差を取る使い方を想定しています。
+
+```sh
+curl -s http://127.0.0.1:8686/api/usage
+curl -s 'http://127.0.0.1:8686/api/usage?model=haiku'   # モデル名に含まれる文字で絞り込む（大文字小文字は区別しない）
+```
+
+`today`（今日）、`week`（直近 7 日）、`month`（直近 30 日）のそれぞれに、次の項目が入ります。
+
+- `models[]`: モデルごとの `model`、`source`（使った場所。Claude Code・Codex・OpenCode・ローカル）、`local`、`input_tokens`・`output_tokens`・`cached_tokens`（合計しか記録しないツールでは `null`）、`total_tokens`、`usd`（API 料金に換算した額で、請求額ではありません。単価が分からないモデルは `null`）、`usd_estimate`（合計しか記録しないため、額が上限の見積もりのとき `true`）
+- `total_tokens`、`total_usd`: 期間の合計。`usd_partial` が `true` のときは、単価の分からないモデルが `total_usd` に入っていません
+
+使い方の注意:
+
+- 数字は 1 分ごとに集計し直します。作業の直後に測るときは、`usage_at`（集計した時刻）が作業の終了より後になるまで待ってください。`age_sec` はその経過秒数です。
+- 「今日」は Spark Lens を動かしているマシンの日付で区切ります。日をまたぐ作業の前後を比べるときは、`week` の差を使ってください。
+- 返す内容は画面の表と同じで、マシン名・認証情報・設定は含みません。ローカル LLM の行は、設定で付けた `label` がモデル名として出ます。
+
 ### エージェント
 
 開発機では次の情報源を自動で使います。入っていないツールは単に表示されません。
