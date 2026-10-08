@@ -153,6 +153,29 @@ function Upstream({
           {up.commits.length > 4 && <li className="muted">ほか {up.commits.length - 4} 件</li>}
         </ul>
       )}
+      {up.changes && (up.changes.releases.length > 0 || up.changes.settings.length > 0) && (
+        <div className="upstream__changes">
+          <p className="upstream__changes-title">
+            {up.changes.scope === "pending" ? "この更新で入るもの" : `直近の更新（${up.changes.since} から）で入ったもの`}
+          </p>
+          {up.changes.releases.length > 0 && (
+            <ul className="upstream__commits upstream__releases">
+              {up.changes.releases.slice(0, 6).map((r) => (
+                <li key={r}>
+                  <span title={r}>{r}</span>
+                </li>
+              ))}
+              {up.changes.releases.length > 6 && <li className="muted">ほか {up.changes.releases.length - 6} 件</li>}
+            </ul>
+          )}
+          {up.changes.settings.length > 0 && (
+            <p className="upstream__env">
+              新しい設定項目（未設定なら upstream の既定値。追加機能は既定でオフのことが多いので、使うかどうか確認してください）:{" "}
+              {up.changes.settings.join("、")}
+            </p>
+          )}
+        </div>
+      )}
       {up.newEnvKeys.length > 0 && (
         <p className="upstream__env">
           upstream の設定例に、.env にない項目があります（既定値で動きます）: {up.newEnvKeys.join("、")}

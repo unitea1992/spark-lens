@@ -349,3 +349,33 @@ test("a failed pull brings the previous version back up", async () => {
     assert.deepEqual(readFileSync(marks, "utf8").trim().split("\n"), [`stop ${old}`, `start ${old}`]);
   });
 });
+
+test("the changelog's new releases and new setting names are listed before and after the pull", async () => {
+  const f = fixture();
+  mkdirSync(join(f.other, "scripts"), { recursive: true });
+  writeFileSync(join(f.other, "CHANGELOG.md"), "# Changelog\n\n## v1.0: first\n");
+  writeFileSync(join(f.other, "scripts", "config.sh"), 'PORT="${PORT:-8888}"\n');
+  writeFileSync(join(f.other, "README.md"), "| Variable | Default |\n| `PORT` | 8888 |\n");
+  git(f.other, "add", ".");
+  git(f.other, "commit", "-q", "-m", "v1.0");
+  git(f.other, "push", "-q", "origin", "main");
+  git(f.dir, "pull", "-q", "--ff-only");
+  writeFileSync(join(f.other, "CHANGELOG.md"), "# Changelog\n\n## v1.1: a spill tier\n\n### Added\n- x\n\n## v1.0: first\n");
+  writeFileSync(join(f.other, "scripts", "config.sh"), 'PORT="${PORT:-8888}"\nSPILL_GIB="${SPILL_GIB:-0}"\n');
+  writeFileSync(join(f.other, "README.md"), "| Variable | Default |\n| `PORT` | 8888 |\n| `TF_LOOP_GUARD` | `0` |\n");
+  git(f.other, "commit", "-q", "-am", "v1.1");
+  git(f.other, "push", "-q", "origin", "main");
+  await withEnv(f.home, async () => {
+    const m = manager(f);
+    const before = await m.checkUpstream("r");
+    assert.equal(before?.changes?.scope, "pending");
+    assert.deepEqual(before?.changes?.releases, ["v1.1: a spill tier"]);
+    assert.deepEqual(before?.changes?.settings, ["SPILL_GIB", "TF_LOOP_GUARD"]);
+    assert.equal((await m.updateRecipe("r")).ok, true);
+    // Once pulled, the same list stays visible as what the last update brought.
+    const after = m.snapshots()[0]?.upstream;
+    assert.equal(after?.state, "current");
+    assert.equal(after?.changes?.scope, "applied");
+    assert.deepEqual(after?.changes?.settings, ["SPILL_GIB", "TF_LOOP_GUARD"]);
+  });
+});

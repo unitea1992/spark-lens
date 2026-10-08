@@ -39,7 +39,7 @@ wlP9s9 0 0 down -1
 @@ib
 rocep1s0f0 1000 2000 200
 @@docker
-glm53-exl3-head|ghcr.io/example/image:tag|running|Up 2 hours
+glm53-exl3-head|ghcr.io/example/image:tag|running|Up 2 hours|GLM-5.3-Flash-EXL3
 old|img|exited|Exited (0) 4 days ago
 @ok
 @@procs
@@ -69,6 +69,9 @@ test("parses a DGX Spark probe", () => {
   assert.equal(s.net[0]?.speedMbps, 10000);
   assert.equal(s.net[1]?.speedMbps, null);
   assert.equal(s.containers[0]?.state, "running");
+  assert.equal(s.containers[0]?.status, "Up 2 hours");
+  assert.equal(s.containers[0]?.servedName, "GLM-5.3-Flash-EXL3");
+  assert.equal(s.containers[1]?.servedName, null);
   // The "@ok" line marks a list Docker returned; it is not a container.
   assert.equal(s.containers.length, 2);
   assert.equal(s.containersKnown, true);

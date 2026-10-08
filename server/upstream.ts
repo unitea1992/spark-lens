@@ -2,7 +2,7 @@
 // the host it lives on. Recipes are kept as unmodified clones, so following
 // upstream is a fetch, a fast-forward pull and a restart.
 
-import type { UpstreamCommit, UpstreamStatus } from "./types.ts";
+import type { UpstreamChanges, UpstreamCommit, UpstreamStatus } from "./types.ts";
 import { shDir } from "./recipes-shell.ts";
 
 /**
@@ -35,6 +35,33 @@ for example in .env.example .env.sample; do
   rm -f "\${TMPDIR:-/tmp}/sl-up-a.$$" "\${TMPDIR:-/tmp}/sl-up-b.$$"
   break
 done
+# What an update brings, or what the last pull brought once it is in: the
+# release headings from the changelog and the setting names that are new.
+from=""; to=""; scope=""
+if [ -n "$up" ] && [ "$(git rev-list --count HEAD..@{u})" -gt 0 ]; then
+  from=HEAD; to=@{u}; scope=pending
+elif git rev-parse -q --verify ORIG_HEAD >/dev/null && [ "$(git rev-parse ORIG_HEAD)" != "$(git rev-parse HEAD)" ] && git merge-base --is-ancestor ORIG_HEAD HEAD; then
+  from=ORIG_HEAD; to=HEAD; scope=applied
+fi
+if [ -n "$scope" ]; then
+  echo "@@changes $scope $(git rev-parse --short "$from")"
+  echo "@@releases"
+  for f in CHANGELOG.md CHANGELOG CHANGES.md; do
+    git cat-file -e "$to:$f" 2>/dev/null || continue
+    git diff "$from" "$to" -- "$f" | grep -E '^[+]## ' | sed -E 's/^[+]## //' | head -n 20
+    break
+  done
+  echo "@@settings"
+  names() {
+    for f in scripts/config.sh scripts/nodes.sh config.sh start.sh .env.example .env.sample; do git show "$1:$f" 2>/dev/null; done |
+      grep -oE '[$][{][A-Z][A-Z0-9_]*:[-=]' | sed -E 's/^..//; s/:.$//'
+    git show "$1:README.md" 2>/dev/null | grep -oE '^[|] \`[A-Z][A-Z0-9_]*\`' | sed -E 's/^[|] .//; s/.$//'
+  }
+  names "$from" | sort -u > "\${TMPDIR:-/tmp}/sl-up-c.$$"
+  names "$to" | sort -u > "\${TMPDIR:-/tmp}/sl-up-d.$$"
+  comm -13 "\${TMPDIR:-/tmp}/sl-up-c.$$" "\${TMPDIR:-/tmp}/sl-up-d.$$"
+  rm -f "\${TMPDIR:-/tmp}/sl-up-c.$$" "\${TMPDIR:-/tmp}/sl-up-d.$$"
+fi
 echo "@@end"
 `;
 }
@@ -59,6 +86,7 @@ export function parseCheck(text: string, now = Date.now()): UpstreamStatus {
     dirtyFiles: 0,
     commits: [],
     newEnvKeys: [],
+    changes: null,
     checkedAt: now,
     message: null,
     repo: null,
@@ -68,6 +96,7 @@ export function parseCheck(text: string, now = Date.now()): UpstreamStatus {
   let section = "";
   const commits: UpstreamCommit[] = [];
   const keys: string[] = [];
+  let changes: UpstreamChanges | null = null;
   let fetchError: string | null = null;
   for (const line of text.split("\n")) {
     if (line.startsWith("@@")) {
@@ -82,6 +111,7 @@ export function parseCheck(text: string, now = Date.now()): UpstreamStatus {
       if (tag === "behind") base.behind = Number(rest[0]) || 0;
       if (tag === "ahead") base.ahead = Number(rest[0]) || 0;
       if (tag === "dirty") base.dirtyFiles = Number(rest[0]) || 0;
+      if (tag === "changes") changes = { scope: rest[0] === "applied" ? "applied" : "pending", since: rest[1] ?? "", releases: [], settings: [] };
       continue;
     }
     if (line.trim() === "") continue;
@@ -90,6 +120,10 @@ export function parseCheck(text: string, now = Date.now()): UpstreamStatus {
       if (sha) commits.push({ sha, date: Date.parse(date ?? "") || null, subject: subject.join("|") });
     } else if (section === "envkeys") {
       keys.push(line.trim());
+    } else if (section === "releases") {
+      changes?.releases.push(line.trim());
+    } else if (section === "settings") {
+      changes?.settings.push(line.trim());
     }
   }
   const state: UpstreamStatus["state"] =
@@ -99,6 +133,7 @@ export function parseCheck(text: string, now = Date.now()): UpstreamStatus {
     state,
     commits,
     newEnvKeys: keys,
+    changes,
     message: fetchError ? `upstream に接続できませんでした（${fetchError}）。前回取得した情報で表示しています` : null,
   };
 }

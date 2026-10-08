@@ -118,6 +118,8 @@ export interface ContainerInfo {
   image: string;
   state: string;
   status: string;
+  /** The model name its command serves (--name / --served-model-name), when it has one. */
+  servedName?: string | null;
 }
 
 export interface TempReading {
@@ -229,7 +231,7 @@ export interface LlmSnapshot {
   tokensToday: { prompt: number; generation: number };
   tokensTotal: { prompt: number; generation: number } | null;
   requestsTotal: number | null;
-  containers: { host: string; name: string; state: string; status: string }[];
+  containers: { host: string; name: string; state: string; status: string; servedName?: string | null }[];
   history: { stepSec: number; genTps: (number | null)[]; running: (number | null)[] };
 }
 
@@ -332,6 +334,17 @@ export interface UpstreamCommit {
   subject: string;
 }
 
+export interface UpstreamChanges {
+  /** pending: not pulled yet; applied: brought in by the last pull. */
+  scope: "pending" | "applied";
+  /** Short sha the changes are counted from. */
+  since: string;
+  /** Changelog release headings, newest first. */
+  releases: string[];
+  /** Setting names (config scripts, example files, README tables) that did not exist before. */
+  settings: string[];
+}
+
 export interface UpstreamStatus {
   /** current: up to date; behind: updates waiting; modified: tracked files edited; untracked: no upstream branch. */
   state: "current" | "behind" | "modified" | "untracked" | "error" | "unknown";
@@ -347,6 +360,8 @@ export interface UpstreamStatus {
   commits: UpstreamCommit[];
   /** Settings in the upstream example file that the local .env does not mention. */
   newEnvKeys: string[];
+  /** What the waiting update brings, or what the last pull brought; null when neither is known. */
+  changes: UpstreamChanges | null;
   checkedAt: number;
   message: string | null;
   /** "owner/repo" for GitHub remotes, with a link to it. */

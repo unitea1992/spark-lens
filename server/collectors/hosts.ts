@@ -173,8 +173,8 @@ export function parseProbe(text: string): ProbeSample | null {
   const containersKnown = dockerLines.includes("@ok");
   const containers = dockerLines.flatMap((line) => {
     if (line === "@ok") return [];
-    const [name, image, state, ...status] = line.split("|");
-    return name ? [{ name, image: image ?? "", state: state ?? "", status: status.join("|") }] : [];
+    const [name, image, state, status, served] = line.split("|");
+    return name ? [{ name, image: image ?? "", state: state ?? "", status: status ?? "", servedName: served || null }] : [];
   });
 
   const procs = (s.get("procs") ?? []).flatMap((line) => {

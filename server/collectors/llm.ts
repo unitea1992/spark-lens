@@ -128,7 +128,9 @@ export class LlmCollector {
         // An unreachable host's container list is its last reading, not the present.
         .filter((h) => h.online && (nodeIds.size === 0 || nodeIds.has(h.id)))
         .flatMap((h) =>
-          h.containers.filter((c) => wanted.has(c.name)).map((c) => ({ host: h.id, name: c.name, state: c.state, status: c.status })),
+          h.containers
+            .filter((c) => wanted.has(c.name))
+            .map((c) => ({ host: h.id, name: c.name, state: c.state, status: c.status, servedName: c.servedName ?? null })),
         );
 
       // vLLM and TensorFold have a cheap /health. SGLang's /health runs a
@@ -142,16 +144,21 @@ export class LlmCollector {
       // Not answering, or answering as some other model that shares the port.
       const markDown = (other: string | null, otherDetail: string | null = null) => {
         // The same container name may run on every node, so count machines.
-        const nodes = new Set(containers.filter((c) => c.state === "running").map((c) => c.host));
+        const live = containers.filter((c) => c.state === "running");
+        const nodes = new Set(live.map((c) => c.host));
         const running = nodes.size;
-        // Another model answering means the running containers are serving it (two recipes can share containers).
-        const starting = other === null && running > 0;
+        // Two recipes can share containers. Another model answering means they serve it; before anything
+        // answers, the name in the containers' command says which recipe started them.
+        const servedElse = config.model !== undefined && live.some((c) => c.servedName) && !live.some((c) => c.servedName === config.model);
+        const starting = other === null && running > 0 && !servedElse;
         state.snapshot = {
           ...state.snapshot,
           state: starting ? "starting" : "down",
           detail: starting
             ? `${running}/${Math.max(nodeIds.size, running)} 台でコンテナが起動済み`
-            : otherDetail
+            : servedElse && other === null
+              ? `コンテナは ${live.find((c) => c.servedName)!.servedName} を読み込んでいます`
+              : otherDetail
               ? otherDetail
               : other
                 ? `このポートでは ${other} が動いています`

@@ -206,6 +206,24 @@ test("a model sharing its port with another reads as down while the other is ser
     await shared.poll([{ id: "a", online: true, containersKnown: true, containers: [{ name: "glm-tf", image: "", state: "running", status: "Up" }] } as never]);
     assert.equal(shared.snapshots()[0]?.state, "down");
     assert.match(shared.snapshots()[0]?.detail ?? "", /glm/);
+    // While nothing answers yet, the name in the shared containers' command decides which recipe is loading.
+    server.close();
+    const loading = (servedName: string | null) =>
+      [{ id: "a", online: true, containersKnown: true, containers: [{ name: "glm-tf", image: "", state: "running", status: "Up", servedName }] }] as never;
+    const pair = new LlmCollector(
+      [
+        { id: "glm", label: "GLM", baseUrl: `http://127.0.0.1:${port}`, model: "glm", engine: "vllm", nodes: ["a"], containers: ["glm-tf"] },
+        { id: "ablit", label: "GLM Ablit", baseUrl: `http://127.0.0.1:${port}`, model: "glm-ablit", engine: "vllm", nodes: ["a"], containers: ["glm-tf"] },
+      ],
+      store,
+      5,
+    );
+    await pair.poll(loading("glm"));
+    assert.deepEqual(pair.snapshots().map((x) => x.state), ["starting", "down"]);
+    assert.match(pair.snapshots()[1]?.detail ?? "", /glm を読み込んでいます/);
+    // A container without a name in its command proves nothing: both may be starting, as before.
+    await pair.poll(loading(null));
+    assert.deepEqual(pair.snapshots().map((x) => x.state), ["starting", "starting"]);
   } finally {
     server.close();
   }
