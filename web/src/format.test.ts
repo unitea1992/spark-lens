@@ -25,3 +25,10 @@ test("containerUptime reads Docker's own uptime", async () => {
   assert.equal(containerUptime("Up 2 days (unhealthy)"), "2 日");
   assert.equal(containerUptime("Exited (0) 3 days ago"), null);
 });
+
+test("checkedAgo reads naturally right after a check", async () => {
+  const { checkedAgo } = await import("./format.ts");
+  assert.equal(checkedAgo(1000, 3000), "たった今確認");
+  assert.equal(checkedAgo(0, 180_000), "3分前に確認");
+  assert.equal(checkedAgo(null, 0), "未確認");
+});

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { RecipeSnapshot } from "../../../server/types.ts";
-import { ago, shortDate } from "../format.ts";
+import { ago, checkedAgo, shortDate } from "../format.ts";
 import type { UpstreamStatus } from "../../../server/types.ts";
 
 export async function act(id: string, op: "start" | "stop" | "check" | "update" | "switch"): Promise<string> {
@@ -8,6 +8,17 @@ export async function act(id: string, op: "start" | "stop" | "check" | "update" 
     const res = await fetch(`/api/recipes/${id}/${op}`, { method: "POST", headers: { "X-Spark-Lens": "1" } });
     const body = (await res.json()) as { message?: string };
     return body.message ?? (res.ok ? "受け付けました" : "操作できませんでした");
+  } catch {
+    return "サーバーに接続できませんでした";
+  }
+}
+
+/** Check the upstream now; the refreshed status says the result, so only a failure is returned. */
+export async function checkNow(id: string): Promise<string | null> {
+  try {
+    const res = await fetch(`/api/recipes/${id}/check`, { method: "POST", headers: { "X-Spark-Lens": "1" } });
+    const body = (await res.json()) as { ok?: boolean; message?: string };
+    return res.ok && body.ok !== false ? null : (body.message ?? "確認できませんでした");
   } catch {
     return "サーバーに接続できませんでした";
   }
@@ -110,7 +121,7 @@ function Upstream({
           {up.state === "error" && (up.message ?? "確認できませんでした")}
           {up.state === "unknown" && "未確認"}
         </span>
-        <span className="upstream__checked">{ago(up.checkedAt, Date.now())}に確認</span>
+        <span className="upstream__checked">{checkedAgo(up.checkedAt, Date.now())}</span>
         <button type="button" className="link-button" onClick={onCheck}>
           今すぐ確認
         </button>
@@ -169,7 +180,7 @@ export function RecipeControls({ recipe, now, showName }: { recipe: RecipeSnapsh
 
   const run = async (op: "start" | "stop" | "check" | "update") => {
     setConfirming(false);
-    setNotice(await act(recipe.id, op));
+    setNotice(op === "check" ? await checkNow(recipe.id) : await act(recipe.id, op));
     if (op === "start" || op === "update") setShowLogs(true);
   };
 

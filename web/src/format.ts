@@ -94,6 +94,13 @@ export function ago(at: number | null, now: number): string {
   return `${Math.floor(s / 86400)}日前`;
 }
 
+/** When the upstream was last checked: "3分前に確認", or "たった今確認". */
+export function checkedAgo(at: number | null, now: number): string {
+  if (at === null) return "未確認";
+  const when = ago(at, now);
+  return when === "たった今" ? "たった今確認" : `${when}に確認`;
+}
+
 const TIME = new Intl.DateTimeFormat("ja-JP", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 const HM = new Intl.DateTimeFormat("ja-JP", { hour: "2-digit", minute: "2-digit", hour12: false });
 const MD = new Intl.DateTimeFormat("ja-JP", { month: "numeric", day: "numeric", weekday: "short" });

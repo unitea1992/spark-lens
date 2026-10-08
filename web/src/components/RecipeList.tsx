@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { RecipeSnapshot } from "../../../server/types.ts";
-import { ago, shortDate } from "../format.ts";
-import { act, LogViewer } from "./RecipeCard.tsx";
+import { ago, checkedAgo, shortDate } from "../format.ts";
+import { act, checkNow, LogViewer } from "./RecipeCard.tsx";
 import { StatusPill, type Tone } from "./StatusPill.tsx";
 
 const STATUS: Record<RecipeSnapshot["status"], { tone: Tone; text: string }> = {
@@ -34,7 +34,7 @@ function Row({ recipe, now }: { recipe: RecipeSnapshot; now: number }) {
   const busy = recipe.status === "starting" || recipe.status === "stopping" || recipe.status === "updating";
   const blocked = !recipe.canStart && recipe.blockedBy !== null && recipe.status === "stopped";
 
-  const check = async () => setNotice(await act(recipe.id, "check"));
+  const check = async () => setNotice(await checkNow(recipe.id));
 
   const run = async (op: "start" | "switch" | "update") => {
     setPending(null);
@@ -45,8 +45,11 @@ function Row({ recipe, now }: { recipe: RecipeSnapshot; now: number }) {
   return (
     <li className={`rrow rrow--${recipe.status}`}>
       <div className="rrow__main">
-        <StatusPill tone={st.tone}>{st.text}</StatusPill>
-        <span className="rrow__name">{recipe.label}</span>
+        <div className="rrow__title">
+          <StatusPill tone={st.tone}>{st.text}</StatusPill>
+          <span className="rrow__name">{recipe.label}</span>
+        </div>
+        <div className="rrow__details">
         <span className="rrow__meta">実行先 {(recipe.hostLabels ?? [recipe.hostLabel]).join("、")}</span>
         {recipe.upstream?.repo && recipe.upstream.repoUrl && (
           <a className="upstream__repo" href={recipe.upstream.repoUrl} target="_blank" rel="noopener noreferrer">
@@ -54,10 +57,13 @@ function Row({ recipe, now }: { recipe: RecipeSnapshot; now: number }) {
           </a>
         )}
         <span className={`rrow__up rrow__up--${up.tone}`}>{up.text}</span>
-        {recipe.upstream && <span className="rrow__checked">{ago(recipe.upstream.checkedAt, now)}に確認</span>}
-        <button type="button" className="link-button" onClick={() => void check()}>
-          今すぐ確認
-        </button>
+        <span className="rrow__check">
+          {recipe.upstream && <span className="rrow__checked">{checkedAgo(recipe.upstream.checkedAt, now)}</span>}
+          <button type="button" className="link-button" onClick={() => void check()}>
+            今すぐ確認
+          </button>
+        </span>
+        </div>
       </div>
       {recipe.upstream?.state === "behind" && recipe.upstream.commits.length > 0 && (
         <ul className="upstream__commits rrow__commits">
