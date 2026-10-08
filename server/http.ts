@@ -6,6 +6,7 @@ import { extname, join, normalize, sep } from "node:path";
 import { gzipSync } from "node:zlib";
 import type { Snapshot } from "./types.ts";
 import { quotaReport } from "./quota.ts";
+import { usageReport } from "./usage-report.ts";
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -169,6 +170,13 @@ export class HttpServer {
       res
         .writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" })
         .end(req.method === "HEAD" ? undefined : JSON.stringify(quotaReport(this.opts.snapshot(), Date.now())));
+      return;
+    }
+    if (path === "/api/usage") {
+      const model = new URL(req.url ?? "/", "http://x").searchParams.get("model");
+      res
+        .writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" })
+        .end(req.method === "HEAD" ? undefined : JSON.stringify(usageReport(this.opts.snapshot().usage, Date.now(), model)));
       return;
     }
     if (path === "/api/history") {
