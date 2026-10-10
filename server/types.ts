@@ -219,6 +219,9 @@ export interface LlmSnapshot {
   requestsWaiting: number | null;
   /** 0..1 */
   kvCacheUsage: number | null;
+  /** TensorFold only: the shared cache pool's token rows, and rows no stream or kept prompt holds. */
+  poolTokens: number | null;
+  poolFreeTokens: number | null;
   /** Tokens per second over the last poll interval. */
   genTokensPerSec: number | null;
   promptTokensPerSec: number | null;

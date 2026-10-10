@@ -71,6 +71,9 @@ export interface QuotaModel {
   served_model?: string | null;
   requests_running?: number | null;
   requests_waiting?: number | null;
+  /** Local LLMs on TensorFold only: the shared cache pool all conversations draw from, and how much of it is free. */
+  pool_tokens?: number | null;
+  pool_free_tokens?: number | null;
 }
 
 export interface QuotaReport {
@@ -218,6 +221,8 @@ function llmModel(llm: LlmSnapshot): QuotaModel {
     served_model: llm.state === "up" ? (llm.models[0] ?? null) : null,
     requests_running: llm.state === "up" ? llm.requestsRunning : null,
     requests_waiting: llm.state === "up" ? llm.requestsWaiting : null,
+    pool_tokens: llm.state === "up" ? llm.poolTokens : null,
+    pool_free_tokens: llm.state === "up" ? llm.poolFreeTokens : null,
   };
 }
 
