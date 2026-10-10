@@ -181,6 +181,22 @@ export class RecipeManager {
     }
   }
 
+  /**
+   * Record a stop the caller just made without waiting for the next poll.
+   * Models that share the stopped containers (one recipe can serve a variant
+   * of another from the same container) are down with it: their last reading
+   * still saw those containers, and without nameless worker containers to tell
+   * them apart it would call them "starting" and refuse the restart.
+   */
+  private markStopped(r: RecipeConfig): void {
+    if (!r.llm) return;
+    const key = (c: { host: string; name: string }) => `${c.host}/${c.name}`;
+    const own = new Set((this.llms.find((l) => l.id === r.llm)?.containers ?? []).map(key));
+    this.llms = this.llms.map((l) =>
+      l.id === r.llm || (l.containers ?? []).some((c) => own.has(key(c))) ? { ...l, state: "down" } : l,
+    );
+  }
+
   private busy(r: RecipeConfig): boolean {
     const a = this.actions.get(r.id);
     if (a && a.finishedAt === null) return true;
@@ -452,7 +468,7 @@ export class RecipeManager {
       const stopped = await this.doStop(other);
       if (!stopped.ok) return { ok: false, message: `${other.label} を停止できませんでした` };
       // Seen as stopped from here on, without waiting for the next poll.
-      if (other.llm) this.llms = this.llms.map((l) => (l.id === other.llm ? { ...l, state: "down" } : l));
+      this.markStopped(other);
     }
     const started = await this.doStart(r);
     return started.ok ? { ok: true, message: other ? `${other.label} を停止し、起動しています` : started.message } : started;
@@ -517,7 +533,7 @@ export class RecipeManager {
       if (stopped.code !== 0 || stopped.timedOut) return fail("停止できなかったため更新を中止しました");
       // The stop just succeeded; do not wait for the next poll to notice it,
       // or the restart below would be refused as "still running".
-      if (r.llm) this.llms = this.llms.map((l) => (l.id === r.llm ? { ...l, state: "down" } : l));
+      this.markStopped(r);
     }
     action.message = "upstream を取り込んでいます";
     const pulled = await this.exec(host, pullScript(r.dir, logPath(r.id)), 180_000);
@@ -533,6 +549,8 @@ export class RecipeManager {
       return { ok: false, message };
     }
     await this.checkUpstream(id);
+    // Recipes that share this checkout moved with it; do not leave them showing "behind".
+    for (const o of this.recipes) if (o.id !== id && o.host === r.host && o.dir === r.dir) await this.checkUpstream(o.id);
     Object.assign(action, { finishedAt: Date.now(), ok: true, message: `${up.behind} 件の更新を取り込みました` });
     if (wasRunning) {
       // The update's own stop decides here; the latest poll may still show the old run.

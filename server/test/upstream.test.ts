@@ -199,6 +199,35 @@ test("updating a running recipe restarts even if no tick has seen the model go d
   });
 });
 
+test("a variant sharing the checkout and containers neither blocks the restart nor stays behind", async () => {
+  const f = fixture();
+  pushTwo(f);
+  const marks = join(f.home, "marks3");
+  await withEnv(f.home, async () => {
+    const m = new RecipeManager(
+      [
+        { id: "r", label: "R", host: "local", dir: f.dir, start: `echo start >> ${marks}`, stop: "true", llm: "m", group: "g" },
+        { id: "v", label: "V", host: "local", dir: f.dir, start: "true", stop: "true", llm: "mv", group: "g" },
+      ],
+      [{ id: "local", label: "Local", kind: "server", local: true }],
+      join(f.home, "ctl"),
+    );
+    // The variant's last reading still sees the shared container, which it cannot tell apart from its own.
+    const shared = [{ host: "local", name: "c", state: "running", status: "Up" }];
+    await m.update([
+      { id: "m", state: "up", containers: shared } as LlmSnapshot,
+      { id: "mv", state: "starting", containers: shared } as LlmSnapshot,
+    ]);
+    await m.checkAllUpstreams();
+    assert.equal(m.snapshots()[1]?.upstream?.state, "behind");
+    const res = await m.updateRecipe("r");
+    assert.equal(res.ok, true, res.message);
+    for (let i = 0; i < 50 && !existsSync(marks); i++) await sleep(100);
+    assert.ok(existsSync(marks));
+    assert.equal(m.snapshots()[1]?.upstream?.state, "current");
+  });
+});
+
 test("a non-repository is an error and a clone without upstream is untracked", async () => {
   const f = fixture();
   const plain = join(f.home, "plain");
