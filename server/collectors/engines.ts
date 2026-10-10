@@ -62,6 +62,9 @@ export interface MetricsSample {
   waiting: number | null;
   /** 0..1 */
   kvUsage: number | null;
+  /** TensorFold's shared cache pool across streams: all token rows, and rows no stream or kept prompt holds. */
+  poolTokens: number | null;
+  poolFreeTokens: number | null;
   promptTokens: number | null;
   generationTokens: number | null;
   ttftSum: number | null;
@@ -84,6 +87,8 @@ function vllm(p: Prom): MetricsSample {
     running: sum(p, ["vllm:num_requests_running"]),
     waiting: sum(p, ["vllm:num_requests_waiting"]),
     kvUsage: max(p, ["vllm:kv_cache_usage_perc", "vllm:gpu_cache_usage_perc"]),
+    poolTokens: null,
+    poolFreeTokens: null,
     promptTokens: sum(p, ["vllm:prompt_tokens_total", "vllm:prompt_tokens"]),
     generationTokens: sum(p, ["vllm:generation_tokens_total", "vllm:generation_tokens"]),
     ttftSum: sum(p, ["vllm:time_to_first_token_seconds_sum"]),
@@ -106,6 +111,8 @@ function sglang(p: Prom): MetricsSample {
     running: max(p, ["sglang:num_running_reqs"]),
     waiting: max(p, ["sglang:num_queue_reqs"]),
     kvUsage: max(p, ["sglang:token_usage"]),
+    poolTokens: null,
+    poolFreeTokens: null,
     promptTokens: prompt,
     generationTokens: sum(p, ["sglang:generation_tokens_total"]),
     ttftSum: sum(p, ["sglang:time_to_first_token_seconds_sum"]),
@@ -128,6 +135,8 @@ function tensorfold(p: Prom): MetricsSample {
     running: sum(p, ["tensorfold:requests_running"]),
     waiting: sum(p, ["tensorfold:requests_waiting"]),
     kvUsage: max(p, ["tensorfold:kv_cache_usage_ratio"]),
+    poolTokens: max(p, ["tensorfold_health:pool_tokens"]),
+    poolFreeTokens: max(p, ["tensorfold_health:pool_free_tokens"]),
     promptTokens: sum(p, ["tensorfold:prompt_tokens_total"]),
     generationTokens: sum(p, ["tensorfold:generation_tokens_total"]),
     ttftSum: sum(p, ["tensorfold:time_to_first_token_seconds_sum"]),
@@ -158,6 +167,8 @@ export function metricsFromTensorfoldHealth(body: unknown): MetricsSample | null
     running: num(h.requests_running),
     waiting: null,
     kvUsage: null,
+    poolTokens: null,
+    poolFreeTokens: null,
     promptTokens: num(h.prompt_tokens_total),
     generationTokens,
     ttftSum: null,

@@ -113,6 +113,9 @@ test("TensorFold: reads its own names, and kept-prompt hits when /health's figur
   assert.equal(specStats(null, m, 0)?.acceptRate, 0.75);
   const withHealth = parseMetrics(`${TENSORFOLD}tensorfold_health:cached_tokens_total 20\n`, "tensorfold");
   assert.equal(withHealth.prefixHits, 20);
+  assert.equal(m.poolFreeTokens, null);
+  const withPool = parseMetrics(`${TENSORFOLD}tensorfold_health:pool_tokens 1918976\ntensorfold_health:pool_free_tokens 129024\n`, "tensorfold");
+  assert.deepEqual([withPool.poolTokens, withPool.poolFreeTokens], [1918976, 129024]);
   assert.equal(withHealth.prefixQueries, 50);
 });
 
