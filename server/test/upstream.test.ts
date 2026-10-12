@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
+import { after, test } from "node:test";
 import { RecipeManager } from "../recipes.ts";
 import type { LlmSnapshot } from "../types.ts";
 import { checkScript, parseCheck } from "../upstream.ts";
@@ -39,6 +39,21 @@ function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
+// Every fixture dir is removed when the file finishes, on failure too. The exit and signal
+// hooks cover a run that is interrupted before node:test gets to call after().
+const homes: string[] = [];
+function removeHomes(): void {
+  for (const h of homes.splice(0)) rmSync(h, { recursive: true, force: true });
+}
+after(removeHomes);
+process.on("exit", removeHomes);
+for (const sig of ["SIGINT", "SIGTERM"] as const) {
+  process.on(sig, () => {
+    removeHomes();
+    process.exit(1);
+  });
+}
+
 interface Fixture {
   home: string;
   origin: string;
@@ -49,6 +64,7 @@ interface Fixture {
 /** A bare origin with one commit, the recipe checkout, and a second clone for pushing. */
 function fixture(): Fixture {
   const home = mkdtempSync(join(tmpdir(), "sl-up-"));
+  homes.push(home);
   const origin = join(home, "origin.git");
   const seed = join(home, "seed");
   const dir = join(home, "recipe");
