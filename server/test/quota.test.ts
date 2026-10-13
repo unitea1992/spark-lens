@@ -77,11 +77,13 @@ test("reset tickets are listed with their expiry in JST", () => {
     label: "全リセット",
     expires_at: exp,
     expires_at_jst: "2026-10-05T08:46:00+09:00",
-    use_by: NOW + 86400_000,
-    use_by_jst: "2026-10-04T09:00:00+09:00",
+    use_at: NOW + 86400_000,
+    use_at_jst: "2026-10-04T09:00:00+09:00",
+    extra_daily_pct: null,
   });
   assert.equal(m.tickets[1]?.expires_at, null);
-  assert.equal(m.tickets[1]?.use_by, null);
+  assert.equal(m.tickets[1]?.use_at, null);
+  assert.equal(m.tickets[1]?.extra_daily_pct, null);
 });
 
 test("a ticket expiring soon lifts a pace-driven avoid_heavy to use, and says until when", () => {
@@ -156,7 +158,7 @@ test("a stale lag is not described as spare room", () => {
   assert.match(m.reason, /取得が古い/);
 });
 
-test("each reset ticket gets a deadline, and extras that outrun the resets are due at expiry", () => {
+test("each reset ticket is planned for when the window is full, and extras that cannot wait name the extra daily use", () => {
   const reset = NOW + 2 * 86400_000;
   const soon = NOW + 3 * 86400_000;
   const later = NOW + 20 * 86400_000;
@@ -169,13 +171,18 @@ test("each reset ticket gets a deadline, and extras that outrun the resets are d
       ],
     }),
   );
-  const byLabel = Object.fromEntries(m.tickets.map((t) => [t.label, t.use_by]));
-  // Soonest expiry takes the only window end before it. The twin has no slot left, so it is due at expiry.
-  assert.equal(byLabel["先"], reset);
-  assert.equal(byLabel["同じ"], soon);
-  // The later ticket takes the latest window end that still precedes its expiry (reset + 14d).
-  assert.equal(byLabel["後"], reset + 14 * 86400_000);
-  assert.match(m.reason, /リセット券は10\/5\(月\) 09:00までに使う計画/);
+  const byLabel = Object.fromEntries(m.tickets.map((t) => [t.label, t]));
+  // The soonest ticket waits until this window is full (its reset). The ordinary budget already does that.
+  assert.equal(byLabel["先"]?.use_at, reset);
+  assert.equal(byLabel["先"]?.extra_daily_pct, null);
+  // The twin expires before another window can fill, so it is brought forward and that week speeds up.
+  assert.equal(byLabel["同じ"]?.use_at, soon);
+  assert.equal(byLabel["同じ"]?.extra_daily_pct, 85.7);
+  // The later ticket waits for the latest window that fills before it expires.
+  assert.equal(byLabel["後"]?.use_at, reset + 14 * 86400_000);
+  assert.equal(byLabel["後"]?.extra_daily_pct, null);
+  assert.match(m.reason, /リセット券は10\/5\(月\) 09:00、10\/6\(火\) 09:00に使うのがよい/);
+  assert.match(m.reason, /その週は1日あたり85\.7%多く使う/);
   assert.equal(m.recommendation, "use");
 });
 
@@ -218,6 +225,47 @@ test("a refill from an earlier window does not rewrite the one open now", () => 
   assert.equal(w.allowance_reset_at, null);
   // 4% used with 2 of 5 hours gone. The old refill would have flattened this toward 4.
   assert.equal(w.projected_end_pct, 10);
+});
+
+test("a plan change restarts the projection and the pace, and a renewal cuts the budget short", () => {
+  const reset = NOW + 2 * 86400_000;
+  const series: QuotaSeries = {
+    since: NOW - 5 * 86400_000,
+    points: [
+      [NOW - 5 * 86400_000, 10, reset, "Max 20x"],
+      [NOW - 86400_000, 40, reset, "Max 5x"],
+      [NOW, 50, reset, "Max 5x"],
+    ],
+  };
+  const changed = quotaReport(
+    { subscriptions: [sub([win("week", 50, reset, 7 * 86400)])], llms: [] },
+    NOW,
+    { series: () => series },
+  ).models[0]!;
+  // 40% -> 50% over the day since the plan changed, two days left: 50 + 20 = 70. Pace is from that day, not the whole week.
+  assert.equal(changed.windows[0]?.projected_end_pct, 70);
+  assert.equal(changed.windows[0]?.plan_changed_at, NOW - 86400_000);
+  assert.equal(changed.windows[0]?.plan?.pace, "over");
+  assert.equal(changed.windows[0]?.plan?.elapsed_pct, 33.3);
+  assert.equal(changed.windows[0]?.allowance_reset_at, null);
+
+  const renews = NOW + 2 * 86400_000;
+  const cut = report(sub([win("week", 20, NOW + 6 * 86400_000, 7 * 86400)], { renewsAt: renews, nextPlan: "Max 5x" }));
+  assert.equal(cut.renews_at, renews);
+  assert.equal(cut.next_plan, "Max 5x");
+  assert.equal(cut.windows[0]?.projected_end_pct, null);
+  assert.equal(cut.windows[0]?.plan?.days_until_reset, 6);
+  assert.equal(cut.windows[0]?.plan?.daily_allowance_pct, 40);
+  assert.equal(cut.windows[0]?.plan?.elapsed_pct, 33.3);
+});
+
+test("the report lists whatever subscriptions it was given", () => {
+  const week = [win("week", 10, NOW + 3 * 86400_000, 7 * 86400)];
+  const ids = quotaReport(
+    { subscriptions: [sub(week), sub(week, { id: "other", label: "Other" })], llms: [] },
+    NOW,
+  ).models.map((m) => m.id);
+  assert.deepEqual(ids, ["s", "other"]);
 });
 
 test("a drop at the scheduled reset, or a small dip, is not an unannounced refill", () => {

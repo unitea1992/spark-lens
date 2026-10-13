@@ -28,6 +28,16 @@ test("a fetch that did not happen adds nothing, and an unchanged reading is kept
   );
 });
 
+test("a plan change is kept even when the percentage does not move", () => {
+  const h = new QuotaHistory();
+  const reset = NOW + 3 * D;
+  h.record([sub(NOW, [weekly(10, reset)], { plan: "Max 5x" })], NOW);
+  h.record([sub(NOW + 10 * 60_000, [weekly(10, reset)], { plan: "Max 20x" })], NOW + 10 * 60_000);
+  const points = h.series("s", "weekly_scoped:Fable")!.points;
+  assert.equal(points.length, 2);
+  assert.equal(points[1]?.[3], "Max 20x");
+});
+
 test("failed or unconfigured services are not recorded", () => {
   const h = new QuotaHistory();
   h.record([sub(NOW, [weekly(10, NOW + D)], { status: "error" }), sub(NOW, [weekly(10, NOW + D)], { id: "u", fetchedAt: null })], NOW);

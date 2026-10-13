@@ -10,8 +10,12 @@ export const QUOTA_KEEP_DAYS = 35;
 const HEARTBEAT_MS = 30 * 60_000;
 const DAY_MS = 24 * 3600_000;
 
-/** One reading: when it was fetched, the share used, and when the window resets. */
-export type QuotaPoint = [at: number, usedPct: number, resetsAt: number | null];
+/**
+ * One reading: when it was fetched, the share used, when the window resets,
+ * and the plan name when it was known. Older readings have no plan name.
+ * A plan change moves the denominator of `usedPct`, so later maths start over there.
+ */
+export type QuotaPoint = [at: number, usedPct: number, resetsAt: number | null, plan?: string | null];
 
 export interface QuotaSeries {
   /** When this series started (the first reading kept); older history is not known. */
@@ -45,8 +49,10 @@ export class QuotaHistory {
         const series = ((this.data[sub.id] ??= {})[w.id] ??= { since: sub.fetchedAt, points: [] });
         const last = series.points[series.points.length - 1];
         if (last && sub.fetchedAt <= last[0]) continue;
-        if (last && last[1] === w.usedPct && last[2] === w.resetsAt && sub.fetchedAt - last[0] < HEARTBEAT_MS) continue;
-        series.points.push([sub.fetchedAt, w.usedPct, w.resetsAt]);
+        const plan = sub.plan ?? null;
+        // Same percentages on a new plan are not the same reading: the denominator moved.
+        if (last && last[1] === w.usedPct && last[2] === w.resetsAt && (last[3] ?? null) === plan && sub.fetchedAt - last[0] < HEARTBEAT_MS) continue;
+        series.points.push([sub.fetchedAt, w.usedPct, w.resetsAt, plan]);
       }
     }
     this.trim(now);
@@ -121,6 +127,19 @@ export function latestAllowanceReset(series: QuotaSeries, now: number): { at: nu
     if (scheduled === null || cur[0] > scheduled - NATURAL_RESET_SLACK_MS) continue;
     if (prev[1] - cur[1] < ALLOWANCE_DROP_PCT) continue;
     found = { at: cur[0], used_pct: cur[1] };
+  }
+  return found;
+}
+
+/** The latest reading at which the plan name changed. Points with no plan name are skipped. */
+export function latestPlanChange(series: QuotaSeries, now: number): { at: number; from: string; to: string } | null {
+  let found: { at: number; from: string; to: string } | null = null;
+  let prev: string | null = null;
+  for (const p of series.points) {
+    if (p[0] > now) break;
+    const plan = typeof p[3] === "string" && p[3] !== "" ? p[3] : null;
+    if (plan && prev && plan !== prev) found = { at: p[0], from: prev, to: plan };
+    if (plan) prev = plan;
   }
   return found;
 }
