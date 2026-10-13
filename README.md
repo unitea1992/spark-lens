@@ -205,6 +205,11 @@ curl -s http://127.0.0.1:8686/api/quota
 - `state`: `usable`、`limited`（上限に到達）、`loading`（ローカル LLM が読み込み中）、`down`、`unknown` のどれか。
 - `recovers_at_jst`: 上限に届いているとき、使えるようになる時刻。
 - `reset_tickets`、`tickets[]`: リセット券の枚数と、券ごとの `expires_at`・`expires_at_jst`（期限の近い順。期限なしは `null`）。期限が 72 時間以内の券があり、取得が古くなければ、`recommendation` を 1 段階上げ（`avoid_heavy`→`use`、`avoid`→`avoid_heavy`）、`reason` に期限を出します。すでに上限に届いている間は推奨を変えず、期限だけ `reason` に添えます。
+- `tickets[].use_by`、`use_by_jst`: その券をいつまでに使うか。期限の早い券から順に、期限までに来る長い窓の終わりへ 1 枚ずつ割り当てます（週の窓があればそれを使い、なければそれより長い窓）。割り当てる窓が残っていない券は、期限までに自然に使い切れない分なので、`use_by` は期限そのものです。期限がない券と、期限の過ぎた券は `null` です。`use_by` が期限より 1 時間以上早く、かつ 72 時間以内のときは、`reason` にその時刻を出します。
+- `windows[]`: 窓ごとの `used_pct`、`resets_at_jst`、`projected_end_pct`（このペースが続くとリセット時に何%になるか。記録が 2 時間に満たないときは `null`）。
+- `windows[].plan`: 1 日以上の窓で、位置が分かるときだけ付きます。`remaining_pct`（残り）、`days_until_reset`（リセットまでの日数）、`daily_allowance_pct`（残り÷日数。リセット時に 100% へ着地する 1 日あたりの量）、`elapsed_pct`（経過した割合）、`pace`（`under` / `on` / `over`。使った割合と経過の差が 10 ポイント以内なら `on`）。5 時間などの短い窓は `null` です。
+- 経過が 50% を超え、使った割合が経過より 15 ポイント以上少ない窓があると、`reason` に「余りそう。割り振りを増やしてよい」と出します。`recommendation` の種類は増やしません。取得が古いとき、上限に届いているときは出しません。
+- `windows[].allowance_reset_at`、`allowance_reset_at_jst`: いま開いている窓の中で、予告のない枠の戻りを検知した時刻。リセット予定の 1 時間より前に使用率が 10 ポイント以上下がったときです。検知したあとの `projected_end_pct` は、その時刻以降の記録だけで計算します。戻りから 2 時間経つまでは `null` です。検知がなければ `null` です。
 - `fetched_at`、`age_sec`、`stale`: 値を取得した時刻と、古くなっていないか。古いときは `reason` にも出ます。
 
 Codex の「Set up security」の案内のように、画面上の入力待ちで動けない状態は検知できません。

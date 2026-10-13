@@ -1,6 +1,6 @@
-import { pace } from "../web/src/pace.ts";
-import { type QuotaSeries, type WindowTrend, windowTrend } from "./quota-history.ts";
-import type { LlmSnapshot, Snapshot, SubscriptionSnapshot, UsageWindow } from "./types.ts";
+import { elapsedPct, pace } from "../web/src/pace.ts";
+import { type QuotaSeries, type WindowTrend, latestAllowanceReset, windowTrend } from "./quota-history.ts";
+import type { LlmSnapshot, ResetTicket, Snapshot, SubscriptionSnapshot, UsageWindow } from "./types.ts";
 
 /**
  * A routing-oriented view of the subscriptions and local LLMs, for agents
@@ -16,9 +16,33 @@ export const STALE_AFTER_SEC = 15 * 60;
 const PACE_MIN_WINDOW_SEC = 24 * 3600;
 /** A reset ticket expiring within this is worth spending; it restores the limits, so headroom matters less. */
 export const TICKET_SOON_SEC = 72 * 3600;
+/** |used − elapsed| within this many points counts as on pace. */
+const PACE_ON_BAND_PCT = 10;
+/** Surplus is called only in the second half, and only when use lags the calendar by this many points. */
+const SURPLUS_ELAPSED_PCT = 50;
+const SURPLUS_GAP_PCT = 15;
+/** A weekly cadence is preferred for ticket deadlines; anything longer is the fallback. */
+const WEEKLY_MAX_SEC = 8 * 86400;
+/** Readings after an unannounced refill have to cover this long before they replace the projection. */
+const MIN_PROJECT_HOURS = 2;
 
 export type QuotaState = "usable" | "limited" | "loading" | "down" | "unknown";
 export type Recommendation = "use" | "avoid_heavy" | "avoid" | "unknown";
+/** under: use lags the calendar. on: within 10 points of it. over: ahead of it. */
+export type PaceJudgment = "under" | "on" | "over";
+
+/** How to spend a long window so it is used up by the reset, without going over. */
+export interface WindowPlan {
+  /** Share of the window still unused. */
+  remaining_pct: number;
+  /** Days until this window resets. */
+  days_until_reset: number;
+  /** Remaining share divided by the days left: the per-day budget that lands on 100% at the reset. */
+  daily_allowance_pct: number;
+  /** Share of the window that has already passed. */
+  elapsed_pct: number;
+  pace: PaceJudgment;
+}
 
 export interface QuotaWindow {
   id: string;
@@ -26,15 +50,26 @@ export interface QuotaWindow {
   used_pct: number | null;
   resets_at: number | null;
   resets_at_jst: string | null;
-  /** Usage share at the end of the window if use continues like this; null when too early to say. */
+  /**
+   * Usage share at the end of the window if use continues like this; null when too early to say.
+   * After an unannounced refill, this is computed from readings taken after that refill only.
+   */
   projected_end_pct: number | null;
+  /** When an unannounced refill was seen. Null when usage only fell at a scheduled reset. */
+  allowance_reset_at: number | null;
+  allowance_reset_at_jst: string | null;
+  /** Set for windows of at least a day whose position is known. Null for a 5-hour window. */
+  plan: WindowPlan | null;
   /** How the window moved; only with `?days=N`, and null when nothing has been recorded for it yet. */
   trend?: WindowTrend | null;
 }
 
-/** Asked for with `?days=N`: the readings kept for each window. */
+/**
+ * Readings kept for each window. `days` is set only when the caller asked for
+ * `?days=N`; the readings are still used to correct `projected_end_pct`.
+ */
 export interface QuotaTrendSource {
-  days: number;
+  days?: number;
   series: (subscription: string, window: string) => QuotaSeries | null;
 }
 
@@ -43,6 +78,12 @@ export interface QuotaTicket {
   /** Epoch ms; null when the ticket does not expire. */
   expires_at: number | null;
   expires_at_jst: string | null;
+  /**
+   * Latest time to spend this ticket so earlier tickets keep a slot and this one does not expire unused.
+   * Null when it does not expire, or already has.
+   */
+  use_by: number | null;
+  use_by_jst: string | null;
 }
 
 export interface QuotaModel {
@@ -96,17 +137,128 @@ function jstShort(ms: number): string {
   return `${d.getUTCMonth() + 1}/${d.getUTCDate()}(${"日月火水木金土"[d.getUTCDay()]}) ${hm}`;
 }
 
-function quotaWindow(w: UsageWindow, now: number, trend?: { sub: string; source: QuotaTrendSource }): QuotaWindow {
+function round1(n: number): number {
+  return Math.round(n * 10) / 10;
+}
+
+function windowPlan(w: UsageWindow, now: number): WindowPlan | null {
+  if (w.usedPct === null || w.windowSec == null || w.windowSec < PACE_MIN_WINDOW_SEC || w.resetsAt === null) return null;
+  const elapsed = elapsedPct(w, now);
+  if (elapsed === null) return null;
+  const remaining = Math.max(0, Math.round(100 - w.usedPct));
+  const days = (w.resetsAt - now) / 86_400_000;
+  const gap = w.usedPct - elapsed;
+  const judgment: PaceJudgment = gap > PACE_ON_BAND_PCT ? "over" : gap < -PACE_ON_BAND_PCT ? "under" : "on";
+  return {
+    remaining_pct: remaining,
+    days_until_reset: round1(days),
+    // The last fraction of a day still has a per-day budget; dividing by a few minutes would shout thousands of percent.
+    daily_allowance_pct: round1(remaining / Math.max(days, 1 / 24)),
+    elapsed_pct: round1(elapsed),
+    pace: judgment,
+  };
+}
+
+/**
+ * End-of-window share. After an unannounced refill the average since the
+ * nominal window start counts usage that was wiped, so the rate is taken
+ * from readings at and after the refill. Until those cover two hours the
+ * old average is withheld rather than shown.
+ */
+function projectEnd(w: UsageWindow, now: number, series: QuotaSeries | null): { projected: number | null; allowanceResetAt: number | null } {
+  // A refill from a window that already ended must not set the rate for the one open now.
+  // An hour of slack covers Codex sliding `reset_at` forward while the new window is still at 0%.
+  const windowStart = w.resetsAt !== null && w.windowSec != null ? w.resetsAt - w.windowSec * 1000 : null;
+  const raw = series ? latestAllowanceReset(series, now) : null;
+  const drop = raw && (windowStart === null || raw.at >= windowStart - 3_600_000) ? raw : null;
+  if (drop && w.usedPct !== null && w.resetsAt !== null && w.resetsAt > now) {
+    const after = series!.points.filter((p) => p[0] >= drop.at && p[0] <= now);
+    if (after.length >= 2) {
+      const first = after[0]!;
+      const last = after[after.length - 1]!;
+      const hours = (last[0] - first[0]) / 3_600_000;
+      if (hours >= MIN_PROJECT_HOURS) {
+        const rate = (last[1] - first[1]) / hours;
+        const remainH = (w.resetsAt - now) / 3_600_000;
+        return { projected: Math.round(Math.max(0, w.usedPct + rate * remainH)), allowanceResetAt: drop.at };
+      }
+    }
+    return { projected: null, allowanceResetAt: drop.at };
+  }
   const p = pace(w, now);
-  const series = trend ? trend.source.series(trend.sub, w.id) : null;
+  return { projected: p === null || p.projected === null ? null : Math.round(p.projected), allowanceResetAt: null };
+}
+
+interface Cadence {
+  resetsAt: number;
+  windowSec: number;
+}
+
+/** The next long window. A weekly one wins over a longer one, and the soonest reset wins a tie. */
+function planCadence(windows: UsageWindow[], now: number): Cadence | null {
+  const long = windows.filter((w) => w.resetsAt !== null && w.resetsAt > now && w.windowSec != null && w.windowSec >= PACE_MIN_WINDOW_SEC);
+  if (long.length === 0) return null;
+  const weekly = long.filter((w) => w.windowSec! <= WEEKLY_MAX_SEC);
+  const pool = weekly.length > 0 ? weekly : long;
+  const chosen = pool.reduce((a, b) => (a.resetsAt! <= b.resetsAt! ? a : b));
+  return { resetsAt: chosen.resetsAt!, windowSec: chosen.windowSec! };
+}
+
+/**
+ * One ticket per window, soonest expiry first, each taking the latest window
+ * end that still falls on or before its expiry. A ticket left without a slot
+ * has to be spent by its own expiry or it outnumbers the resets before then.
+ */
+function presentTickets(tickets: ResetTicket[], now: number, cadence: Cadence | null): QuotaTicket[] {
+  const expiring = tickets
+    .map((t, index) => ({ t, index }))
+    .filter((x) => x.t.expiresAt !== null && x.t.expiresAt > now)
+    .sort((a, b) => a.t.expiresAt! - b.t.expiresAt! || a.index - b.index);
+  const horizon = expiring.length > 0 ? expiring[expiring.length - 1]!.t.expiresAt! : now;
+  const ends: number[] = [];
+  if (cadence && cadence.windowSec > 0) {
+    const step = cadence.windowSec * 1000;
+    let end = cadence.resetsAt;
+    while (end <= now) end += step;
+    for (let i = 0; i < 36 && end <= horizon; i++) {
+      ends.push(end);
+      end += step;
+    }
+  }
+  const taken = new Set<number>();
+  const useBy = new Map<number, number>();
+  for (const { t, index } of expiring) {
+    const exp = t.expiresAt!;
+    const open = ends.filter((e) => e <= exp && !taken.has(e));
+    if (open.length > 0) {
+      const chosen = open[open.length - 1]!;
+      taken.add(chosen);
+      useBy.set(index, chosen);
+    } else {
+      useBy.set(index, exp);
+    }
+  }
+  return tickets.map((t, index) => {
+    const by = useBy.get(index) ?? null;
+    return { label: t.label, expires_at: t.expiresAt, expires_at_jst: jst(t.expiresAt), use_by: by, use_by_jst: jst(by) };
+  });
+}
+
+function quotaWindow(w: UsageWindow, now: number, history?: { sub: string; source: QuotaTrendSource }): QuotaWindow {
+  const series = history ? history.source.series(history.sub, w.id) : null;
+  const projected = projectEnd(w, now, series);
+  const days = history?.source.days;
   return {
     id: w.id,
     label: w.label,
     used_pct: w.usedPct,
     resets_at: w.resetsAt,
     resets_at_jst: jst(w.resetsAt),
-    projected_end_pct: p?.projected === null || p === null ? null : Math.round(p.projected),
-    ...(trend ? { trend: series ? windowTrend(series, now, trend.source.days) : null } : {}),
+    projected_end_pct: projected.projected,
+    allowance_reset_at: projected.allowanceResetAt,
+    allowance_reset_at_jst: jst(projected.allowanceResetAt),
+    plan: windowPlan(w, now),
+    ...(days !== undefined ? { trend: series ? windowTrend(series, now, days) : null } : {}),
   };
 }
 
@@ -117,7 +269,7 @@ function subscriptionModel(sub: SubscriptionSnapshot, now: number, trend?: Quota
     kind: "subscription" as const,
     plan: sub.plan,
     reset_tickets: sub.tickets.length,
-    tickets: sub.tickets.map((t) => ({ label: t.label, expires_at: t.expiresAt, expires_at_jst: jst(t.expiresAt) })),
+    tickets: presentTickets(sub.tickets, now, planCadence(sub.windows, now)),
     fetched_at: sub.fetchedAt,
     age_sec: sub.fetchedAt === null ? null : Math.max(0, Math.round((now - sub.fetchedAt) / 1000)),
   };
@@ -141,7 +293,10 @@ function subscriptionModel(sub: SubscriptionSnapshot, now: number, trend?: Quota
   const worst = known.reduce((a, b) => (b.usedPct! > a.usedPct! ? b : a));
   const used = worst.usedPct!;
   const full = known.filter((w) => w.usedPct! >= 100);
-  const fast = known.find((w) => w.windowSec && w.windowSec >= PACE_MIN_WINDOW_SEC && pace(w, now)?.untilFullSec != null);
+  const fast = windows.find((w) => {
+    const src = known.find((k) => k.id === w.id);
+    return src?.windowSec != null && src.windowSec >= PACE_MIN_WINDOW_SEC && w.projected_end_pct !== null && w.projected_end_pct > 100;
+  });
 
   let state: QuotaState = "usable";
   let recommendation: Recommendation;
@@ -176,6 +331,17 @@ function subscriptionModel(sub: SubscriptionSnapshot, now: number, trend?: Quota
     } else {
       reason += `。期限が近いリセット券あり（${until}まで）`;
     }
+  }
+  const planned = base.tickets.filter(
+    (t) => t.use_by !== null && t.expires_at !== null && t.use_by - now <= TICKET_SOON_SEC * 1000 && t.expires_at - t.use_by >= 3_600_000,
+  );
+  if (planned.length > 0) {
+    const when = [...new Set(planned.map((t) => jstShort(t.use_by!)))].join("、");
+    reason += `。リセット券は${when}までに使う計画`;
+  }
+  if (!stale && state !== "limited") {
+    const behind = windows.filter((w) => w.plan !== null && w.plan.elapsed_pct >= SURPLUS_ELAPSED_PCT && w.plan.elapsed_pct - (w.used_pct ?? 0) >= SURPLUS_GAP_PCT);
+    if (behind.length > 0) reason += `。${behind.map((w) => w.label).join("・")}は余りそう。割り振りを増やしてよい`;
   }
   if (stale) reason += "（取得が古い）";
   return {
@@ -235,7 +401,7 @@ export function quotaReport(snapshot: Pick<Snapshot, "subscriptions" | "llms">, 
       light_max_used_pct: LIGHT_MAX_USED_PCT,
       stale_after_sec: STALE_AFTER_SEC,
     },
-    ...(trend ? { trend_days: trend.days } : {}),
+    ...(trend?.days !== undefined ? { trend_days: trend.days } : {}),
     models: [...snapshot.subscriptions.map((s) => subscriptionModel(s, now, trend)), ...snapshot.llms.map(llmModel)],
   };
 }

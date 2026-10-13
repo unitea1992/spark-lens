@@ -100,6 +100,31 @@ const SAME_RESET_MS = 10 * 60_000;
 const MIN_RATE_HOURS = 2;
 const sameWindow = (a: number | null, b: number | null) => a === b || (a !== null && b !== null && Math.abs(a - b) < SAME_RESET_MS);
 
+/**
+ * A drop of at least this many points while the scheduled reset is still
+ * more than an hour away is an unannounced refill (Codex grants these
+ * without notice). A natural reset lands on the reset time, so the hour
+ * keeps that from looking like one.
+ */
+export const ALLOWANCE_DROP_PCT = 10;
+const NATURAL_RESET_SLACK_MS = 60 * 60_000;
+
+/** The latest unannounced refill in the series, or null when usage only fell at a reset. */
+export function latestAllowanceReset(series: QuotaSeries, now: number): { at: number; used_pct: number } | null {
+  let found: { at: number; used_pct: number } | null = null;
+  const points = series.points;
+  for (let i = 1; i < points.length; i++) {
+    const prev = points[i - 1]!;
+    const cur = points[i]!;
+    if (cur[0] > now) continue;
+    const scheduled = prev[2];
+    if (scheduled === null || cur[0] > scheduled - NATURAL_RESET_SLACK_MS) continue;
+    if (prev[1] - cur[1] < ALLOWANCE_DROP_PCT) continue;
+    found = { at: cur[0], used_pct: cur[1] };
+  }
+  return found;
+}
+
 /** The trend of one window from its series. Pure, for the quota report. */
 export function windowTrend(series: QuotaSeries, now: number, days: number): WindowTrend {
   const from = now - days * DAY_MS;
