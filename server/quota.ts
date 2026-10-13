@@ -403,7 +403,8 @@ function quotaWindow(w: UsageWindow, now: number, renewsAt: number | null, histo
 }
 
 function subscriptionModel(sub: SubscriptionSnapshot, now: number, trend?: QuotaTrendSource): QuotaModel {
-  const renewsAt = sub.renewsAt ?? null;
+  // A date already past is not the next change. Leaving it in place would also drop every later ticket slot.
+  const renewsAt = sub.renewsAt != null && sub.renewsAt > now ? sub.renewsAt : null;
   const cadence = planCadence(sub.windows, now);
   const base = {
     id: sub.id,
@@ -414,7 +415,7 @@ function subscriptionModel(sub: SubscriptionSnapshot, now: number, trend?: Quota
     tickets: presentTickets(sub.tickets, now, cadence, null, null, renewsAt),
     renews_at: renewsAt,
     renews_at_jst: jst(renewsAt),
-    next_plan: sub.nextPlan ?? null,
+    next_plan: renewsAt !== null ? (sub.nextPlan ?? null) : null,
     fetched_at: sub.fetchedAt,
     age_sec: sub.fetchedAt === null ? null : Math.max(0, Math.round((now - sub.fetchedAt) / 1000)),
   };

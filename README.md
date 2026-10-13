@@ -209,7 +209,7 @@ curl -s http://127.0.0.1:8686/api/quota
 - `tickets[].extra_daily_pct`: その週に、リセットちょうどで使い切る予算へ上乗せする 1 日あたりのポイント。普通の予算で期限までに満杯になる券は `null` です。上乗せがある券の `use_at` が 72 時間以内のときは、`reason` にもその量を出します。
 - `windows[]`: 窓ごとの `used_pct`、`resets_at_jst`、`projected_end_pct`（このペースが続くとリセット時に何%になるか。記録が 2 時間に満たないときは `null`）。
 - `windows[].plan`: 1 日以上の窓で、位置が分かるときだけ付きます。`remaining_pct`（残り）、`days_until_reset`（リセットまでの日数）、`daily_allowance_pct`（残り÷残りの日数。リセット、またはそれより前のプラン変更の時点で 100% へ着地する 1 日あたりの量）、`elapsed_pct`（経過した割合）、`pace`（`under` / `on` / `over`。使った割合と経過の差が 10 ポイント以内なら `on`）。5 時間などの短い窓は `null` です。プランの変更や臨時のリセットをまたぐ記録は使いません。経過とペースは、その時点からリセット（プラン変更が先ならその時刻）までで計算し直します。
-- `renews_at`、`renews_at_jst`、`next_plan`: 次のプラン変更。設定の `subscriptions[]` に `renewsAt`（ISO 時刻）と `nextPlan`（変更後のプラン名）があるときだけ入り、なければ `null` です。変更がこの窓のリセットより前なら、`daily_allowance_pct` と `elapsed_pct` はその時刻までで切り、`projected_end_pct` は `null` です（変更後の分母は今は分からないため）。
+- `renews_at`、`renews_at_jst`、`next_plan`: 次のプラン変更。設定の `subscriptions[]` に `renewsAt`（ISO 時刻）と `nextPlan`（変更後のプラン名）があり、その時刻がまだ先のときだけ入ります。無いか、時刻を過ぎていれば `null` です。変更がこの窓のリセットより前なら、`daily_allowance_pct` と `elapsed_pct` はその時刻までで切り、`projected_end_pct` は `null` です（変更後の分母は今は分からないため）。
 - `windows[].plan_changed_at`、`plan_changed_at_jst`: 記録の中でプラン名が変わった時刻。それより前の使用率は見込みに使いません。検知がなければ `null` です。プラン名は取得のたびに記録します。
 - 経過が 50% を超え、使った割合が経過より 15 ポイント以上少ない窓があると、`reason` に「余りそう。割り振りを増やしてよい」と出します。`recommendation` の種類は増やしません。取得が古いとき、上限に届いているときは出しません。
 - `windows[].allowance_reset_at`、`allowance_reset_at_jst`: いま開いている窓の中で、予告のない枠の戻りを検知した時刻。リセット予定の 1 時間より前に使用率が 10 ポイント以上下がったときです。検知したあとの `projected_end_pct` は、その時刻以降の記録だけで計算します。戻りから 2 時間経つまでは `null` です。検知がなければ `null` です。

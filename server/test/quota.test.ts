@@ -257,6 +257,20 @@ test("a plan change restarts the projection and the pace, and a renewal cuts the
   assert.equal(cut.windows[0]?.plan?.days_until_reset, 6);
   assert.equal(cut.windows[0]?.plan?.daily_allowance_pct, 40);
   assert.equal(cut.windows[0]?.plan?.elapsed_pct, 33.3);
+
+  const passed = report(
+    sub([win("week", 30, reset, 7 * 86400)], {
+      renewsAt: NOW - 86400_000,
+      nextPlan: "Max 5x",
+      tickets: [{ label: "券", expiresAt: NOW + 10 * 86400_000 }],
+    }),
+  );
+  assert.equal(passed.renews_at, null);
+  assert.equal(passed.next_plan, null);
+  assert.equal(passed.windows[0]?.projected_end_pct, 42);
+  // The passed date must not cancel the later natural slot (reset + one week).
+  assert.equal(passed.tickets[0]?.use_at, reset + 7 * 86400_000);
+  assert.equal(passed.tickets[0]?.extra_daily_pct, null);
 });
 
 test("the report lists whatever subscriptions it was given", () => {
