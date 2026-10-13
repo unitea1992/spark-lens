@@ -78,7 +78,8 @@ export class SubscriptionCollector {
   }
 
   snapshots(): SubscriptionSnapshot[] {
-    return this.entries.map((e) => e.snapshot);
+    // Renewal is config, not a fetched fact, so it stays out of the saved snapshot and is applied on read.
+    return this.entries.map((e) => ({ ...e.snapshot, renewsAt: e.config.renewsAt ?? null, nextPlan: e.config.nextPlan ?? null }));
   }
 
   /** Polls every entry that is due. Safe to call often. */

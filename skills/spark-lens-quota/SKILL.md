@@ -18,8 +18,11 @@ curl -s http://127.0.0.1:8686/api/quota
 - `recommendation`: `use` / `avoid_heavy` / `avoid` / `unknown`。基本はこれに従う。
 - `state`: `usable` / `limited`（上限に到達）/ `loading`（ローカルLLMの読み込み中）/ `down` / `unknown`。
 - `recovers_at_jst`: `limited` のとき、使えるようになる時刻。
-- `tickets[]`: リセット券ごとの期限（`expires_at_jst`）。期限が近い券があると、`recommendation` が上がり `reason` に期限が出る。券を使うのはオーナーの操作で、エージェントは使わない。
-- `stale`: `true` なら取得が古い。値を信用せず、`avoid_heavy` 以下として扱う。
+- `tickets[]`: リセット券ごとの期限（`expires_at_jst`）と、使うのがよい時刻（`use_at_jst`）。基本は窓が満杯になる時刻。期限までに使い切れない券は、期限から逆算した時刻になり、`extra_daily_pct` にその週へ上乗せする 1 日あたりのポイントが出る。期限が近い券があると、`recommendation` が上がり `reason` に期限が出る。`use_at_jst` が 72 時間以内のときも `reason` に出る。券を使うのはオーナーの操作で、エージェントは使わない。全部、期限までに使う前提で読む。
+- 長い窓（1 日以上）の `windows[].plan`: `remaining_pct`（残り）、`days_until_reset`、`daily_allowance_pct`（残り÷日数。リセットまでに使い切る 1 日の予算）、`elapsed_pct`、`pace`（`under` は経過より少ない、`on` は差が 10 ポイント以内、`over` は進みすぎ）。`reason` に「余りそう。割り振りを増やしてよい」とあるときは、窓の後半で使用が経過より明らかに少なく、配分を増やしてよい。`recommendation` の種類は増えない。プラン変更や臨時リセットの前の記録は、予算とペースに混ぜない。
+- `renews_at_jst` と `next_plan`: 次のプラン変更。設定が持っていて、その時刻がまだ先のときだけ入る。過ぎた日付は `null`。この窓のリセットより前なら、1 日の予算はその時刻までで、`projected_end_pct` は `null`。
+- `windows[].projected_end_pct`: このペースが続くとリセット時に何%か。`allowance_reset_at_jst` や `plan_changed_at_jst` があるときは、その時刻より前の記録を見込みに使っていない。`null` は、まだ判断しないか、次のプラン変更が先に来る。
+- `stale`: `true` なら取得が古い。値を信用せず、`avoid_heavy` 以下として扱う。「余りそう」は、取得が古いときには出ない。
 - `reason`: 判断の理由。
 - ローカルLLM（`kind: local_llm`）だけ、稼働中のとき次も付く。同じ口を複数のモデルで共有していることがあるので、振る前にどれが動いているかをここで確かめる。
   - `served_model`: いま答えているモデルの名前。クライアント側では、これに対応するモデル名を指定する（サーバーによっては、別の名前を指定しても黙ってこのモデルが答える）。作業の記録には、実際に答えたこのモデル名を残す。

@@ -75,7 +75,7 @@ export interface HttpOptions {
   history?: (key: string) => { t: number; v: number }[];
   /** The series names /api/history knows. */
   historyKeys?: () => string[];
-  /** A subscription window's kept readings, for /api/quota?days=N. */
+  /** A subscription window's kept readings. Used to correct a projection, and to attach `trend` when `?days=N` is set. */
   quotaSeries?: (subscription: string, window: string) => import("./quota-history.ts").QuotaSeries | null;
   /** Called after a state-changing request so viewers see it at once. */
   changed?: () => void;
@@ -183,7 +183,17 @@ export class HttpServer {
     if (path === "/api/quota") {
       res
         .writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" })
-        .end(req.method === "HEAD" ? undefined : JSON.stringify(quotaReport(this.opts.snapshot(), Date.now(), days && this.opts.quotaSeries ? { days, series: this.opts.quotaSeries } : undefined)));
+        .end(
+          req.method === "HEAD"
+            ? undefined
+            : JSON.stringify(
+                quotaReport(
+                  this.opts.snapshot(),
+                  Date.now(),
+                  this.opts.quotaSeries ? { series: this.opts.quotaSeries, ...(days ? { days } : {}) } : undefined,
+                ),
+              ),
+        );
       return;
     }
     if (path === "/api/usage") {

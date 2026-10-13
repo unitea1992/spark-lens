@@ -118,6 +118,14 @@ function parseLlm(raw: unknown, i: number, hostIds: Set<string>): LlmConfig {
   };
 }
 
+function optTime(value: unknown, where: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") fail(`${where} must be an ISO time`);
+  const ms = Date.parse(value);
+  if (!Number.isFinite(ms)) fail(`${where} must be an ISO time`);
+  return ms;
+}
+
 function parseSubscription(raw: unknown, i: number): SubscriptionConfig {
   const where = `subscriptions[${i}]`;
   const o = asObject(raw, where);
@@ -125,6 +133,8 @@ function parseSubscription(raw: unknown, i: number): SubscriptionConfig {
     type: asString(o.type, `${where}.type`),
     label: optString(o.label, `${where}.label`),
     options: o.options === undefined ? undefined : asObject(o.options, `${where}.options`),
+    renewsAt: optTime(o.renewsAt, `${where}.renewsAt`),
+    nextPlan: optString(o.nextPlan, `${where}.nextPlan`),
   };
 }
 

@@ -13,6 +13,13 @@ test("an empty config monitors this machine with the default subscriptions", () 
   assert.equal(c.pollSeconds, 5);
 });
 
+test("a subscription can name its next plan change", () => {
+  const c = parseConfig({ subscriptions: [{ type: "claude-code", renewsAt: "2026-11-01T00:00:00+09:00", nextPlan: "Max 5x" }] });
+  assert.equal(c.subscriptions[0]?.nextPlan, "Max 5x");
+  assert.equal(c.subscriptions[0]?.renewsAt, Date.parse("2026-11-01T00:00:00+09:00"));
+  assert.throws(() => parseConfig({ subscriptions: [{ type: "claude-code", renewsAt: "tomorrow" }] }), /renewsAt/);
+});
+
 test("the shipped example config is valid", () => {
   const c = parseConfig(JSON.parse(readFileSync(new URL("../../config/config.example.json", import.meta.url), "utf8")));
   assert.equal(c.hosts.length, 3);

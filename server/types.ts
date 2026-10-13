@@ -40,6 +40,10 @@ export interface SubscriptionConfig {
   label?: string;
   /** Provider-specific options (paths, commands). */
   options?: Record<string, unknown>;
+  /** When the paid plan next changes, if the operator knows. Epoch ms. */
+  renewsAt?: number;
+  /** Plan name after `renewsAt`. The percentage's denominator changes then. */
+  nextPlan?: string;
 }
 
 export interface AgentProcessRule {
@@ -278,6 +282,9 @@ export interface SubscriptionSnapshot {
   notes: string[];
   tickets: ResetTicket[];
   fetchedAt: number | null;
+  /** Next known plan change, copied from config. Absent when nobody has said. */
+  renewsAt?: number | null;
+  nextPlan?: string | null;
   /** Per window id: how it moved, from the kept readings (see quota-history.ts); absent before anything is recorded. */
   trends?: Record<string, { ratePctPerHour24h: number | null; rateSpanHours: number | null; previousPeakPct: number | null; since: number }>;
 }
