@@ -18,13 +18,19 @@ const PACE_MIN_WINDOW_SEC = 24 * 3600;
 export const TICKET_SOON_SEC = 72 * 3600;
 /** |used − elapsed| within this many points counts as on pace. */
 const PACE_ON_BAND_PCT = 10;
-/** Surplus is called only in the second half, and only when use lags the calendar by this many points. */
+/** Surplus is called only in the second half, and only when use lags the calendar by this many points, or the recent pace ends short of full. */
 const SURPLUS_ELAPSED_PCT = 50;
 const SURPLUS_GAP_PCT = 15;
 /** A weekly cadence is preferred for ticket deadlines; anything longer is the fallback. */
 const WEEKLY_MAX_SEC = 8 * 86400;
 /** Readings after an unannounced refill have to cover this long before they replace the projection. */
 const MIN_PROJECT_HOURS = 2;
+/** A long window is projected from this much of its latest readings; the whole-window average lags behind a changed pace. */
+const RECENT_PACE_HOURS = 12;
+/** A long window this full is not given heavy work whatever its pace says; one more task could end it. */
+const NEARLY_FULL_PCT = 95;
+/** A window projected to end this many points short of full has room to spare. */
+const SURPLUS_LEFT_PCT = 10;
 /** A window this full is already worth a reset ticket; waiting longer only blocks work. */
 const NEAR_LIMIT_PCT = 90;
 /** A refill or plan change this long before the nominal window start still belongs to it (Codex slides `reset_at` while at 0%). */
@@ -218,19 +224,27 @@ function projectEnd(
   const horizonAt = renewalCuts ? renewsAt : null;
   const blank = { ...basis, anchorAt, horizonAt, projected: null as number | null };
   if (renewalCuts) return blank;
-  if (anchorAt !== null && w.usedPct !== null && w.resetsAt !== null && w.resetsAt > now) {
-    const after = (series?.points ?? []).filter((p) => p[0] >= anchorAt && p[0] <= now);
-    if (after.length >= 2) {
-      const first = after[0]!;
-      const last = after[after.length - 1]!;
-      const hours = (last[0] - first[0]) / 3_600_000;
-      if (hours >= MIN_PROJECT_HOURS) {
+  if (w.usedPct !== null && w.resetsAt !== null && w.resetsAt > now) {
+    // A long window is read at its recent speed, and only over readings that belong to it (after any refill or plan change).
+    const long = w.windowSec != null && w.windowSec >= PACE_MIN_WINDOW_SEC;
+    const start = windowStartMs(w);
+    const from = Math.max(anchorAt ?? -Infinity, long ? now - RECENT_PACE_HOURS * 3_600_000 : -Infinity, start === null ? -Infinity : start - BASIS_SLACK_MS);
+    if (anchorAt !== null || long) {
+      // Recent readings first; when they are too few to give a speed, everything since the refill or plan change.
+      const floors = anchorAt !== null && from > anchorAt ? [from, anchorAt] : [from];
+      for (const floor of floors) {
+        const after = (series?.points ?? []).filter((p) => p[0] >= floor && p[0] <= now);
+        if (after.length < 2) continue;
+        const first = after[0]!;
+        const last = after[after.length - 1]!;
+        const hours = (last[0] - first[0]) / 3_600_000;
+        if (hours < MIN_PROJECT_HOURS) continue;
         const rate = (last[1] - first[1]) / hours;
         const remainH = (w.resetsAt - now) / 3_600_000;
-        return { ...basis, anchorAt, horizonAt, projected: Math.round(Math.max(0, w.usedPct + rate * remainH)) };
+        return { ...basis, anchorAt, horizonAt, projected: Math.round(Math.max(w.usedPct, w.usedPct + rate * remainH)) };
       }
+      if (anchorAt !== null) return blank;
     }
-    return blank;
   }
   const paced = pace(w, now);
   return { ...basis, anchorAt, horizonAt, projected: paced === null || paced.projected === null ? null : Math.round(paced.projected) };
@@ -439,9 +453,28 @@ function subscriptionModel(sub: SubscriptionSnapshot, now: number, trend?: Quota
   const worst = known.reduce((a, b) => (b.usedPct! > a.usedPct! ? b : a));
   const used = worst.usedPct!;
   const full = known.filter((w) => w.usedPct! >= 100);
-  const fast = windows.find((w) => {
-    const src = known.find((k) => k.id === w.id);
-    return src?.windowSec != null && src.windowSec >= PACE_MIN_WINDOW_SEC && w.projected_end_pct !== null && w.projected_end_pct > 100;
+  // A long window is judged by where it ends at its recent speed; a short one (or one whose end is unknown) by how full it is.
+  const verdictOf = (w: QuotaWindow, src: UsageWindow): { rec: Recommendation; reason: string } | null => {
+    const u = src.usedPct!;
+    const longKnown = w.plan !== null && w.projected_end_pct !== null;
+    if (!longKnown) {
+      if (u > LIGHT_MAX_USED_PCT) return { rec: "avoid", reason: `${w.label}が${Math.round(u)}%` };
+      if (u > HEAVY_MAX_USED_PCT) return { rec: "avoid_heavy", reason: `${w.label}が${Math.round(u)}%。軽い作業向き` };
+      return null;
+    }
+    const end = w.projected_end_pct!;
+    if (end > 100) {
+      if (u > LIGHT_MAX_USED_PCT) return { rec: "avoid", reason: `${w.label}が${Math.round(u)}%で、最近のペースだと上限を超える見込み` };
+      return { rec: "avoid_heavy", reason: `${w.label}の最近の消費ペースが速く、リセット前に上限へ届く見込み（約${end}%）` };
+    }
+    if (u >= NEARLY_FULL_PCT) return { rec: "avoid", reason: `${w.label}が${Math.round(u)}%` };
+    return null;
+  };
+  const rank: Record<Recommendation, number> = { use: 0, avoid_heavy: 1, avoid: 2, unknown: 3 };
+  let verdict: { rec: Recommendation; reason: string } | null = null;
+  windows.forEach((w, i) => {
+    const v = verdictOf(w, known[i]!);
+    if (v && (verdict === null || rank[v.rec] > rank[verdict.rec])) verdict = v;
   });
 
   let state: QuotaState = "usable";
@@ -454,15 +487,10 @@ function subscriptionModel(sub: SubscriptionSnapshot, now: number, trend?: Quota
     const resets = full.map((w) => w.resetsAt);
     recoversAt = resets.some((r) => r === null) ? null : Math.max(...(resets as number[]));
     reason = `${full.map((w) => w.label).join("・")}が上限`;
-  } else if (used > LIGHT_MAX_USED_PCT) {
-    recommendation = "avoid";
-    reason = `${worst.label}が${Math.round(used)}%`;
-  } else if (used > HEAVY_MAX_USED_PCT) {
-    recommendation = "avoid_heavy";
-    reason = `${worst.label}が${Math.round(used)}%。軽い作業向き`;
-  } else if (fast) {
-    recommendation = "avoid_heavy";
-    reason = `${fast.label}の消費ペースが速く、終了前に上限へ届く見込み`;
+  } else if (verdict !== null) {
+    const v = verdict as { rec: Recommendation; reason: string };
+    recommendation = v.rec;
+    reason = v.reason;
   } else {
     recommendation = "use";
     reason = `最大でも${worst.label}の${Math.round(used)}%`;
@@ -488,7 +516,12 @@ function subscriptionModel(sub: SubscriptionSnapshot, now: number, trend?: Quota
     if (extra?.extra_daily_pct != null) reason += `。その週は1日あたり${extra.extra_daily_pct}%多く使う`;
   }
   if (!stale && state !== "limited") {
-    const behind = windows.filter((w) => w.plan !== null && w.plan.elapsed_pct >= SURPLUS_ELAPSED_PCT && w.plan.elapsed_pct - (w.used_pct ?? 0) >= SURPLUS_GAP_PCT);
+    const behind = windows.filter(
+      (w) =>
+        w.plan !== null &&
+        w.plan.elapsed_pct >= SURPLUS_ELAPSED_PCT &&
+        (w.plan.elapsed_pct - (w.used_pct ?? 0) >= SURPLUS_GAP_PCT || (w.projected_end_pct !== null && w.projected_end_pct <= 100 - SURPLUS_LEFT_PCT)),
+    );
     if (behind.length > 0) reason += `。${behind.map((w) => w.label).join("・")}は余りそう。割り振りを増やしてよい`;
   }
   if (stale) reason += "（取得が古い）";
