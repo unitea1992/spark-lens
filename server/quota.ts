@@ -26,7 +26,7 @@ const WEEKLY_MAX_SEC = 8 * 86400;
 /** Readings after an unannounced refill have to cover this long before they replace the projection. */
 const MIN_PROJECT_HOURS = 2;
 /** A long window is projected from this much of its latest readings; the whole-window average lags behind a changed pace. */
-const RECENT_PACE_HOURS = 24;
+const RECENT_PACE_HOURS = 12;
 /** A long window this full is not given heavy work whatever its pace says; one more task could end it. */
 const NEARLY_FULL_PCT = 95;
 /** A window projected to end this many points short of full has room to spare. */
