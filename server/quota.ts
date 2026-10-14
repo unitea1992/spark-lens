@@ -230,16 +230,18 @@ function projectEnd(
     const start = windowStartMs(w);
     const from = Math.max(anchorAt ?? -Infinity, long ? now - RECENT_PACE_HOURS * 3_600_000 : -Infinity, start === null ? -Infinity : start - BASIS_SLACK_MS);
     if (anchorAt !== null || long) {
-      const after = (series?.points ?? []).filter((p) => p[0] >= from && p[0] <= now);
-      if (after.length >= 2) {
+      // Recent readings first; when they are too few to give a speed, everything since the refill or plan change.
+      const floors = anchorAt !== null && from > anchorAt ? [from, anchorAt] : [from];
+      for (const floor of floors) {
+        const after = (series?.points ?? []).filter((p) => p[0] >= floor && p[0] <= now);
+        if (after.length < 2) continue;
         const first = after[0]!;
         const last = after[after.length - 1]!;
         const hours = (last[0] - first[0]) / 3_600_000;
-        if (hours >= MIN_PROJECT_HOURS) {
-          const rate = (last[1] - first[1]) / hours;
-          const remainH = (w.resetsAt - now) / 3_600_000;
-          return { ...basis, anchorAt, horizonAt, projected: Math.round(Math.max(w.usedPct, w.usedPct + rate * remainH)) };
-        }
+        if (hours < MIN_PROJECT_HOURS) continue;
+        const rate = (last[1] - first[1]) / hours;
+        const remainH = (w.resetsAt - now) / 3_600_000;
+        return { ...basis, anchorAt, horizonAt, projected: Math.round(Math.max(w.usedPct, w.usedPct + rate * remainH)) };
       }
       if (anchorAt !== null) return blank;
     }

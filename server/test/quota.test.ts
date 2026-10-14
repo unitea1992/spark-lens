@@ -348,3 +348,40 @@ test("a long window at recent speed over the limit is avoid_heavy; nearly full i
   assert.equal(full.windows[0]?.projected_end_pct, 96);
   assert.equal(full.recommendation, "avoid");
 });
+
+test("any window shape is projected at its recent speed by the same rule: Codex-like, Grok-like, and a subscription added later", () => {
+  const reset = NOW + 2.3 * 86400_000;
+  const slow = (r: number): QuotaSeries => ({
+    since: NOW - 5 * 86400_000,
+    points: [[NOW - 5 * 86400_000, 20, r], [NOW - 2 * 86400_000, 60, r], [NOW - 11 * H, 75, r], [NOW, 77, r]],
+  });
+  const run = (s: SubscriptionSnapshot, series: QuotaSeries) =>
+    quotaReport({ subscriptions: [s], llms: [] }, NOW, { series: () => series }).models[0]!;
+
+  // Codex shape: a 5-hour and a weekly window, plus a reset ticket.
+  const codex = run(
+    sub([win("5h", 10, NOW + 3 * H, 5 * 3600), win("week", 77, reset, 7 * 86400)], {
+      id: "codex", tickets: [{ label: "券", expiresAt: NOW + 10 * 86400_000 }],
+    }),
+    slow(reset),
+  );
+  const codexWeek = codex.windows.find((w) => w.id === "week")!;
+  assert.equal(codexWeek.projected_end_pct, 87);
+  assert.equal(codex.recommendation, "use");
+
+  // Grok shape: one window only.
+  const grok = run(sub([win("week", 77, reset, 7 * 86400)], { id: "grok", plan: null }), slow(reset));
+  assert.equal(grok.windows[0]?.projected_end_pct, 87);
+  assert.equal(grok.recommendation, "use");
+  assert.match(grok.reason, /余りそう/);
+
+  // A subscription nobody special-cased: unknown id, a 30-day window, same rule.
+  const monthReset = NOW + 10 * 86400_000;
+  const fresh = run(
+    sub([win("month", 70, monthReset, 30 * 86400)], { id: "brand-new", label: "New" }),
+    { since: NOW - 3 * 86400_000, points: [[NOW - 11 * H, 68, monthReset], [NOW, 70, monthReset]] },
+  );
+  // 2 points / 11 h over 240 h left: 70 + 43.6 = 114 -> over the limit at its own recent speed.
+  assert.equal(fresh.windows[0]?.projected_end_pct, 114);
+  assert.equal(fresh.recommendation, "avoid_heavy");
+});
