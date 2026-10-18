@@ -63,7 +63,8 @@ export interface QuotaWindow {
   resets_at: number | null;
   resets_at_jst: string | null;
   /**
-   * Usage share at the end of the window if use continues at the speed of the last 24 hours; null when too early to say.
+   * Usage share at the end of the window if use continues at the speed of the last 24 hours. Without enough readings,
+   * the window average from its first hour on, unless a refill or plan change makes it misleading; null when too early to say.
    * That speed counts use on both sides of a reset or refill (they zero the counter, not the limit), not before a plan change.
    */
   projected_end_pct: number | null;
