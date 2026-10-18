@@ -27,6 +27,8 @@ const WEEKLY_MAX_SEC = 8 * 86400;
 const MIN_PROJECT_HOURS = 2;
 /** Speed is read over the last day of readings: a whole day evens out working and sleeping hours, and still follows a changed pace. */
 const PACE_HOURS = 24;
+/** The speed is stretched over at most this many times the time it was read over; one step of use must not swing a week. */
+const MAX_STRETCH = 24;
 /** A long window this full is not given heavy work whatever its pace says; one more task could end it. */
 const NEARLY_FULL_PCT = 95;
 /** A window projected to end this many points short of full has room to spare. */
@@ -210,9 +212,9 @@ function basisOf(w: UsageWindow, now: number, series: QuotaSeries | null): { all
  * zeroes the counter, so use on both sides counts and a fresh window is not
  * read from its first burst alone. A plan change moves the denominator, so
  * nothing before it counts. Time spent at the limit is left out: nothing
- * could be used then.
+ * could be used then. Readings too short for the time left give no speed.
  */
-function recentSpeed(series: QuotaSeries | null, now: number): number | null {
+function recentSpeed(series: QuotaSeries | null, now: number, remainMs: number): number | null {
   if (!series) return null;
   const change = latestPlanChange(series, now);
   const from = Math.max(change?.at ?? -Infinity, now - PACE_HOURS * 3_600_000);
@@ -226,7 +228,7 @@ function recentSpeed(series: QuotaSeries | null, now: number): number | null {
     ms += b[0] - a[0];
     if (b[1] > a[1]) used += b[1] - a[1];
   }
-  return ms >= MIN_PROJECT_HOURS * 3_600_000 ? used / (ms / 3_600_000) : null;
+  return ms >= Math.max(MIN_PROJECT_HOURS * 3_600_000, remainMs / MAX_STRETCH) ? used / (ms / 3_600_000) : null;
 }
 
 /**
@@ -249,10 +251,9 @@ function projectEnd(
   const blank = { ...basis, anchorAt, horizonAt, projected: null as number | null };
   if (renewalCuts) return blank;
   if (w.usedPct !== null && w.resetsAt !== null && w.resetsAt > now) {
-    const speed = recentSpeed(series, now);
+    const speed = recentSpeed(series, now, w.resetsAt - now);
     if (speed !== null) {
-      const remainH = (w.resetsAt - now) / 3_600_000;
-      return { ...basis, anchorAt, horizonAt, projected: Math.round(w.usedPct + speed * remainH) };
+      return { ...basis, anchorAt, horizonAt, projected: Math.round(w.usedPct + (speed * (w.resetsAt - now)) / 3_600_000) };
     }
     if (anchorAt !== null) return blank;
   }

@@ -446,13 +446,20 @@ test("a weekly window just after a refill does not multiply one step of use acro
 });
 
 test("after a natural reset, last week's full readings neither pull the projection down nor count as use", () => {
-  // Grok shape: at 100% until the reset three hours ago, 1% since.
-  const reset = NOW + 7 * 86400_000 - 3 * H;
-  const old = NOW - 3 * H;
-  const series: QuotaSeries = {
-    since: NOW - 24 * H,
-    points: [[NOW - 24 * H, 100, old], [NOW - 3.5 * H, 100, old], [NOW - 3 * H + 5 * MIN, 0, reset], [NOW - H, 0, reset], [NOW, 1, reset]],
+  // Grok shape: at 100% until the reset eight hours ago, 1% since.
+  const series = (hoursSince: number): QuotaSeries => {
+    const old = NOW - hoursSince * H;
+    const reset = old + 7 * 86400_000;
+    return {
+      since: NOW - 24 * H,
+      points: [[NOW - 24 * H, 100, old], [old - 30 * MIN, 100, old], [old + 5 * MIN, 0, reset], [NOW - H, 0, reset], [NOW, 1, reset]],
+    };
   };
-  // The 100% readings used to give a negative speed, clamped to the 1% in use. Now: 1 point / 2.9 h over 165 h = 58.
-  assert.equal(at(win("week", 1, reset, 7 * 86400), series).projected_end_pct, 58);
+  const week = (hoursSince: number) => at(win("week", 1, NOW - hoursSince * H + 7 * 86400_000, 7 * 86400), series(hoursSince));
+  // The 100% readings used to give a negative speed, clamped to the 1% in use. Now: 1 point / 7.9 h over 160 h = 21.
+  assert.equal(week(8).projected_end_pct, 21);
+  // Three hours after the reset, one point would be stretched 57-fold over the week; it waits instead.
+  const early = quotaReport({ subscriptions: [sub([win("week", 2, NOW - 3 * H + 7 * 86400_000, 7 * 86400)])], llms: [] }, NOW, { series: () => series(3) }).models[0]!;
+  assert.equal(early.windows[0]!.projected_end_pct, null);
+  assert.equal(early.recommendation, "use");
 });
