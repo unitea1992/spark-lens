@@ -23,10 +23,10 @@ const SURPLUS_ELAPSED_PCT = 50;
 const SURPLUS_GAP_PCT = 15;
 /** A weekly cadence is preferred for ticket deadlines; anything longer is the fallback. */
 const WEEKLY_MAX_SEC = 8 * 86400;
-/** Readings after an unannounced refill have to cover this long before they replace the projection. */
+/** The speed needs readings covering this long; minutes of readings scaled to hours swing wildly. */
 const MIN_PROJECT_HOURS = 2;
-/** A long window is projected from this much of its latest readings; the whole-window average lags behind a changed pace. */
-const RECENT_PACE_HOURS = 12;
+/** Speed is read over the last day of readings: a whole day evens out working and sleeping hours, and still follows a changed pace. */
+const PACE_HOURS = 24;
 /** A long window this full is not given heavy work whatever its pace says; one more task could end it. */
 const NEARLY_FULL_PCT = 95;
 /** A window projected to end this many points short of full has room to spare. */
@@ -61,8 +61,8 @@ export interface QuotaWindow {
   resets_at: number | null;
   resets_at_jst: string | null;
   /**
-   * Usage share at the end of the window if use continues like this; null when too early to say.
-   * After an unannounced refill, this is computed from readings taken after that refill only.
+   * Usage share at the end of the window if use continues at the speed of the last 24 hours; null when too early to say.
+   * That speed counts use on both sides of a reset or refill (they zero the counter, not the limit), not before a plan change.
    */
   projected_end_pct: number | null;
   /** When an unannounced refill was seen. Null when usage only fell at a scheduled reset. */
@@ -206,9 +206,33 @@ function basisOf(w: UsageWindow, now: number, series: QuotaSeries | null): { all
 }
 
 /**
- * End-of-window share. After an unannounced refill or a plan change, readings
- * from before that moment use a different denominator, so the rate starts over.
- * Until the new readings cover two hours the old average is withheld.
+ * Points used per hour over the last day of readings. A reset or refill only
+ * zeroes the counter, so use on both sides counts and a fresh window is not
+ * read from its first burst alone. A plan change moves the denominator, so
+ * nothing before it counts. Time spent at the limit is left out: nothing
+ * could be used then.
+ */
+function recentSpeed(series: QuotaSeries | null, now: number): number | null {
+  if (!series) return null;
+  const change = latestPlanChange(series, now);
+  const from = Math.max(change?.at ?? -Infinity, now - PACE_HOURS * 3_600_000);
+  let used = 0;
+  let ms = 0;
+  const points = series.points;
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1]!;
+    const b = points[i]!;
+    if (a[0] < from || b[0] > now || a[1] >= 100) continue;
+    ms += b[0] - a[0];
+    if (b[1] > a[1]) used += b[1] - a[1];
+  }
+  return ms >= MIN_PROJECT_HOURS * 3_600_000 ? used / (ms / 3_600_000) : null;
+}
+
+/**
+ * End-of-window share at the speed of the last day. Without enough readings
+ * it falls back to the window average, except after a refill or plan change,
+ * whose earlier share would mislead it.
  * A known renewal before the reset means the end of the window is not knowable.
  */
 function projectEnd(
@@ -225,26 +249,12 @@ function projectEnd(
   const blank = { ...basis, anchorAt, horizonAt, projected: null as number | null };
   if (renewalCuts) return blank;
   if (w.usedPct !== null && w.resetsAt !== null && w.resetsAt > now) {
-    // A long window is read at its recent speed, and only over readings that belong to it (after any refill or plan change).
-    const long = w.windowSec != null && w.windowSec >= PACE_MIN_WINDOW_SEC;
-    const start = windowStartMs(w);
-    const from = Math.max(anchorAt ?? -Infinity, long ? now - RECENT_PACE_HOURS * 3_600_000 : -Infinity, start === null ? -Infinity : start - BASIS_SLACK_MS);
-    if (anchorAt !== null || long) {
-      // Recent readings first; when they are too few to give a speed, everything since the refill or plan change.
-      const floors = anchorAt !== null && from > anchorAt ? [from, anchorAt] : [from];
-      for (const floor of floors) {
-        const after = (series?.points ?? []).filter((p) => p[0] >= floor && p[0] <= now);
-        if (after.length < 2) continue;
-        const first = after[0]!;
-        const last = after[after.length - 1]!;
-        const hours = (last[0] - first[0]) / 3_600_000;
-        if (hours < MIN_PROJECT_HOURS) continue;
-        const rate = (last[1] - first[1]) / hours;
-        const remainH = (w.resetsAt - now) / 3_600_000;
-        return { ...basis, anchorAt, horizonAt, projected: Math.round(Math.max(w.usedPct, w.usedPct + rate * remainH)) };
-      }
-      if (anchorAt !== null) return blank;
+    const speed = recentSpeed(series, now);
+    if (speed !== null) {
+      const remainH = (w.resetsAt - now) / 3_600_000;
+      return { ...basis, anchorAt, horizonAt, projected: Math.round(w.usedPct + speed * remainH) };
     }
+    if (anchorAt !== null) return blank;
   }
   const paced = pace(w, now);
   return { ...basis, anchorAt, horizonAt, projected: paced === null || paced.projected === null ? null : Math.round(paced.projected) };

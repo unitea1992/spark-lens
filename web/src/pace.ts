@@ -18,6 +18,9 @@ export interface Pace {
   untilFullSec: number | null;
 }
 
+/** A window this young is read from its first burst alone; a 5-hour window's first minutes swing several fold. */
+const MIN_PACE_SEC = 3600;
+
 /**
  * Where this window ends up if use continues at the rate seen so far.
  * Too early in a window the projection is noise, so it stays quiet.
@@ -26,7 +29,7 @@ export function pace(w: UsageWindow, now: number): Pace | null {
   if (w.usedPct === null) return null;
   if (w.usedPct >= 100) return { tone: "critical", projected: 100, untilFullSec: 0 };
   const elapsed = elapsedPct(w, now);
-  if (elapsed === null || elapsed < 5 || !w.windowSec) return null;
+  if (elapsed === null || elapsed < 5 || !w.windowSec || (elapsed / 100) * w.windowSec < MIN_PACE_SEC) return null;
   const projected = (w.usedPct / elapsed) * 100;
   if (projected <= 75) return { tone: "good", projected, untilFullSec: null };
   if (projected <= 100) return { tone: "ok", projected, untilFullSec: null };

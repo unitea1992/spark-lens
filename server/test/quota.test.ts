@@ -223,8 +223,8 @@ test("a refill from an earlier window does not rewrite the one open now", () => 
     { series: () => series },
   ).models[0]!.windows[0]!;
   assert.equal(w.allowance_reset_at, null);
-  // 4% used with 2 of 5 hours gone. The old refill would have flattened this toward 4.
-  assert.equal(w.projected_end_pct, 10);
+  // 1% -> 4% over the last 2 hours, 3 hours left: 4 + 4.5. The old refill would have flattened this toward 4.
+  assert.equal(w.projected_end_pct, 9);
 });
 
 test("a plan change restarts the projection and the pace, and a renewal cuts the budget short", () => {
@@ -384,4 +384,75 @@ test("any window shape is projected at its recent speed by the same rule: Codex-
   // 2 points / 11 h over 240 h left: 70 + 43.6 = 114 -> over the limit at its own recent speed.
   assert.equal(fresh.windows[0]?.projected_end_pct, 114);
   assert.equal(fresh.recommendation, "avoid_heavy");
+});
+
+// Seen 2026-10-18 on Codex. Each case is what the projection did then, and what a day of readings says instead.
+const MIN = 60_000;
+const at = (s: UsageWindow, series: QuotaSeries | null) =>
+  quotaReport({ subscriptions: [sub([s])], llms: [] }, NOW, series ? { series: () => series } : undefined).models[0]!.windows[0]!;
+
+test("a 5-hour window ten minutes into a burst is read at the day's speed, not the burst's", () => {
+  // Started 17 minutes ago and already at 10%. The window average says 10 / 5.7% = 176%.
+  const reset = NOW + 5 * H - 17 * MIN;
+  const idle = Array.from({ length: 48 }, (_, i): QuotaSeries["points"][number] => [NOW - 24 * H + i * 30 * MIN, 0, NOW + 5 * H - 24 * H + i * 30 * MIN]);
+  const series: QuotaSeries = { since: NOW - 24 * H, points: [...idle, [NOW - 12 * MIN, 3, reset], [NOW - 7 * MIN, 8, reset], [NOW, 10, reset]] };
+  // 10 points in the last day: 10 + 0.42 * 4.7 h = 12.
+  assert.equal(at(win("5h", 10, reset, 5 * 3600), series).projected_end_pct, 12);
+  // Without readings the first hour stays quiet instead of guessing from the burst.
+  assert.equal(at(win("5h", 10, reset, 5 * 3600), null).projected_end_pct, null);
+  // From an hour on, the window average: 10 / 20.3% = 49.
+  assert.equal(at(win("5h", 10, NOW + 4 * H - MIN, 5 * 3600), null).projected_end_pct, 49);
+});
+
+test("a refill at the start of a 5-hour window does not blank its projection", () => {
+  // The weekly refill also emptied the 5-hour window, 67 minutes before its scheduled reset; use resumed 35 minutes ago.
+  const series: QuotaSeries = {
+    since: NOW - 24 * H,
+    points: [
+      [NOW - 24 * H, 0, NOW - 19 * H],
+      [NOW - 290 * MIN, 2, NOW + 10 * MIN],
+      [NOW - 2 * H, 16, NOW + 10 * MIN],
+      [NOW - H, 0, NOW + 4 * H],
+      [NOW - 35 * MIN, 8, NOW + 265 * MIN],
+      [NOW, 8, NOW + 265 * MIN],
+    ],
+  };
+  const w = at(win("5h", 8, NOW + 265 * MIN, 5 * 3600), series);
+  assert.equal(w.allowance_reset_at, NOW - H);
+  // Was null until two hours of readings followed the refill. 24 points in the day: 8 + 1 * 4.4 h = 12.
+  assert.equal(w.projected_end_pct, 12);
+});
+
+test("a weekly window just after a refill does not multiply one step of use across the week", () => {
+  // Refilled 8.5 hours ago; a single 2-point step now. Projecting from the refill alone jumped 41% -> 78% on that step.
+  const reset = NOW + 160 * H;
+  const series = (last: number): QuotaSeries => ({
+    since: NOW - 24 * H,
+    points: [
+      [NOW - 24 * H, 70, NOW + 60 * H],
+      [NOW - 9 * H, 76, NOW + 60 * H],
+      [NOW - 8.5 * H, 0, reset],
+      [NOW - 2 * H, 2, reset],
+      [NOW - 10 * MIN, 2, reset],
+      ...(last === 4 ? ([[NOW, 4, reset]] as QuotaSeries["points"]) : []),
+    ],
+  });
+  const was = at(win("week", 2, reset, 7 * 86400), series(2)).projected_end_pct!;
+  const now = at(win("week", 4, reset, 7 * 86400), series(4));
+  assert.equal(now.allowance_reset_at, NOW - 8.5 * H);
+  // 10 points in the last day (6 before the refill, 4 after): 4 + 0.42 * 160 h = 71.
+  assert.equal(now.projected_end_pct, 71);
+  assert.ok(now.projected_end_pct! - was <= 16, `${was} -> ${now.projected_end_pct}`);
+});
+
+test("after a natural reset, last week's full readings neither pull the projection down nor count as use", () => {
+  // Grok shape: at 100% until the reset three hours ago, 1% since.
+  const reset = NOW + 7 * 86400_000 - 3 * H;
+  const old = NOW - 3 * H;
+  const series: QuotaSeries = {
+    since: NOW - 24 * H,
+    points: [[NOW - 24 * H, 100, old], [NOW - 3.5 * H, 100, old], [NOW - 3 * H + 5 * MIN, 0, reset], [NOW - H, 0, reset], [NOW, 1, reset]],
+  };
+  // The 100% readings used to give a negative speed, clamped to the 1% in use. Now: 1 point / 2.9 h over 165 h = 58.
+  assert.equal(at(win("week", 1, reset, 7 * 86400), series).projected_end_pct, 58);
 });
