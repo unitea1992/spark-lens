@@ -29,7 +29,7 @@ export function pace(w: UsageWindow, now: number): Pace | null {
   if (w.usedPct === null) return null;
   if (w.usedPct >= 100) return { tone: "critical", projected: 100, untilFullSec: 0 };
   const elapsed = elapsedPct(w, now);
-  if (elapsed === null || elapsed < 5 || !w.windowSec || (elapsed / 100) * w.windowSec < MIN_PACE_SEC) return null;
+  if (elapsed === null || elapsed < 5 || !w.windowSec || w.windowSec - (w.resetsAt! - now) / 1000 < MIN_PACE_SEC) return null;
   const projected = (w.usedPct / elapsed) * 100;
   if (projected <= 75) return { tone: "good", projected, untilFullSec: null };
   if (projected <= 100) return { tone: "ok", projected, untilFullSec: null };

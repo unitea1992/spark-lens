@@ -419,8 +419,8 @@ test("a refill at the start of a 5-hour window does not blank its projection", (
   };
   const w = at(win("5h", 8, NOW + 265 * MIN, 5 * 3600), series);
   assert.equal(w.allowance_reset_at, NOW - H);
-  // Was null until two hours of readings followed the refill. 24 points in the day: 8 + 1 * 4.4 h = 12.
-  assert.equal(w.projected_end_pct, 12);
+  // Was null until two hours of readings followed the refill. 24 points over the 23 hours without a drop: 8 + 1.04 * 4.4 h = 13.
+  assert.equal(w.projected_end_pct, 13);
 });
 
 test("a weekly window just after a refill does not multiply one step of use across the week", () => {
@@ -440,8 +440,8 @@ test("a weekly window just after a refill does not multiply one step of use acro
   const was = at(win("week", 2, reset, 7 * 86400), series(2)).projected_end_pct!;
   const now = at(win("week", 4, reset, 7 * 86400), series(4));
   assert.equal(now.allowance_reset_at, NOW - 8.5 * H);
-  // 10 points in the last day (6 before the refill, 4 after): 4 + 0.42 * 160 h = 71.
-  assert.equal(now.projected_end_pct, 71);
+  // 10 points over the 23.5 hours without a drop (6 before the refill, 4 after): 4 + 0.43 * 160 h = 72.
+  assert.equal(now.projected_end_pct, 72);
   assert.ok(now.projected_end_pct! - was <= 16, `${was} -> ${now.projected_end_pct}`);
 });
 
@@ -462,4 +462,11 @@ test("after a natural reset, last week's full readings neither pull the projecti
   const early = quotaReport({ subscriptions: [sub([win("week", 2, NOW - 3 * H + 7 * 86400_000, 7 * 86400)])], llms: [] }, NOW, { series: () => series(3) }).models[0]!;
   assert.equal(early.windows[0]!.projected_end_pct, null);
   assert.equal(early.recommendation, "use");
+});
+
+test("the hours across a refill do not count as hours of no use", () => {
+  // 80% eight hours ago, refilled to 0% since: what was used in between is unknown, so there is no speed to stretch.
+  const reset = NOW + 6 * 86400_000;
+  const series: QuotaSeries = { since: NOW - 8 * H, points: [[NOW - 8 * H, 80, NOW + 2 * H], [NOW, 0, reset]] };
+  assert.equal(at(win("week", 0, reset, 7 * 86400), series).projected_end_pct, null);
 });

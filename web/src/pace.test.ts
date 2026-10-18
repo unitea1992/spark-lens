@@ -34,6 +34,9 @@ test("pace projects the end-of-window share from use so far", () => {
 
 test("pace stays quiet too early in a window or without numbers", () => {
   assert.equal(pace(window(1, 4.9), now), null);
+  // Past 5% but short of an hour: still the first burst.
+  assert.equal(pace(window(10, 4.1), now), null);
+  assert.equal(Math.round(pace(window(10, 4), now)?.projected ?? 0), 50);
   assert.equal(pace({ ...window(10, 3), usedPct: null }, now), null);
 });
 
