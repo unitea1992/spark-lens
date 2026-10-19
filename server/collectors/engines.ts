@@ -80,6 +80,14 @@ export interface MetricsSample {
   /** Engines that only publish ready-made ratios (SGLang). */
   acceptRateGauge: number | null;
   acceptLengthGauge: number | null;
+  /**
+   * Rates the server reports itself (tokens/s), for engines whose counters move only when a request ends
+   * (TensorFold's native engine).
+   */
+  liveDecodeRate?: number | null;
+  livePrefillRate?: number | null;
+  /** Seconds spent on prompts by finished requests (TensorFold). */
+  prefillSeconds?: number | null;
 }
 
 function vllm(p: Prom): MetricsSample {
@@ -131,14 +139,18 @@ function sglang(p: Prom): MetricsSample {
 // TensorFold's /metrics counts tokens when a request finishes, so prompt rates are bursty;
 // the generation counter is replaced by /health's live one (withLiveTensorfoldTokens).
 function tensorfold(p: Prom): MetricsSample {
+  const running = sum(p, ["tensorfold:requests_running"]);
+  const kv = max(p, ["tensorfold:kv_cache_usage_ratio"]);
   return {
-    running: sum(p, ["tensorfold:requests_running"]),
+    running,
     waiting: sum(p, ["tensorfold:requests_waiting"]),
-    kvUsage: max(p, ["tensorfold:kv_cache_usage_ratio"]),
+    // A running request always holds cache rows: 0 then means the family reports no stream lengths (native DeepSeek).
+    kvUsage: kv === 0 && (running ?? 0) > 0 ? null : kv,
     poolTokens: max(p, ["tensorfold_health:pool_tokens"]),
     poolFreeTokens: max(p, ["tensorfold_health:pool_free_tokens"]),
     promptTokens: sum(p, ["tensorfold:prompt_tokens_total"]),
     generationTokens: sum(p, ["tensorfold:generation_tokens_total"]),
+    prefillSeconds: sum(p, ["tensorfold:request_prefill_seconds_sum"]),
     ttftSum: sum(p, ["tensorfold:time_to_first_token_seconds_sum"]),
     ttftCount: sum(p, ["tensorfold:time_to_first_token_seconds_count"]),
     // Recipes that also export /health's figures count prompt tokens served from kept prompts.
@@ -191,7 +203,14 @@ export function metricsFromTensorfoldHealth(body: unknown): MetricsSample | null
  */
 export function withLiveTensorfoldTokens(metrics: MetricsSample, healthBody: unknown): MetricsSample {
   const live = metricsFromTensorfoldHealth(healthBody)?.generationTokens ?? null;
-  return live === null ? metrics : { ...metrics, generationTokens: live };
+  // The native engine counts tokens only when a request ends, and reports its current rates under /health's "live".
+  const rates = (healthBody as { live?: { decode_tokens_per_second?: unknown; prefill_tokens_per_second?: unknown } } | null)?.live;
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const out =
+    rates && typeof rates === "object"
+      ? { ...metrics, liveDecodeRate: num(rates.decode_tokens_per_second), livePrefillRate: num(rates.prefill_tokens_per_second) }
+      : metrics;
+  return live === null ? out : { ...out, generationTokens: live };
 }
 
 const ADAPTERS: Record<Engine, (p: Prom) => MetricsSample> = { vllm, sglang, tensorfold };

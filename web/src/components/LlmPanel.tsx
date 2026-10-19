@@ -143,6 +143,7 @@ export function LlmPanel({
           <dl className="factline">
             {spec && <Fact label="ドラフト採用率" value={spec.acceptRate === null ? "–" : pct(spec.acceptRate * 100)} />}
             {spec && running && <Fact label="ドラフト / 採用" value={`${rate(spec.draftTokensPerSec)} / ${rate(spec.acceptedTokensPerSec)} トークン/秒`} />}
+            {running && <Fact label="プレフィル" value={`${rate(llm.promptTokensPerSec)} トークン/秒`} />}
             <Fact label="TTFT（平均）" value={llm.ttftSec === null ? "–" : `${llm.ttftSec.toFixed(2)} 秒`} />
             <Fact label="キャッシュヒット率" value={llm.prefixCacheHitRate === null ? "–" : pct(llm.prefixCacheHitRate * 100)} />
             {/* Docker knows when the model started; the dashboard only knows since it last restarted. */}
