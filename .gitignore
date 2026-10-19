@@ -7,3 +7,6 @@ dist/
 config/config.json
 config/*.local.json
 .DS_Store
+
+# Benchmark results and measurements kept with the checkout (not published)
+bench-data/

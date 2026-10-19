@@ -19,6 +19,7 @@
   },
   "include": [
     "server/**/*.ts",
+    "scripts/**/*.ts",
     "web/src/**/*.test.ts"
   ]
 }

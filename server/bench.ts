@@ -3,6 +3,8 @@
 // prompt. Runs are kept with the recipe's upstream commit, so a version can
 // be compared with the last one.
 
+import { appendFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
 import type { BenchCase, BenchRun } from "./types.ts";
 
 interface Case {
@@ -164,7 +166,16 @@ export function newRun(llmId: string, model: string, commit: string | null, repo
   return { id: `${llmId}-${Date.now()}`, llmId, model, commit, repo, at: Date.now(), cases: [], error: null };
 }
 
-/** One benchmark at a time per model; results go to the store. */
+/**
+ * Every finished run, one JSON line each, in dir/runs.jsonl: the store keeps only the last 100, and runs are worth
+ * comparing across months.
+ */
+export function appendBenchRun(dir: string, run: BenchRun): void {
+  mkdirSync(dir, { recursive: true });
+  appendFileSync(join(dir, "runs.jsonl"), `${JSON.stringify(run)}\n`);
+}
+
+/** One benchmark at a time per model; results go to the store (and the archive, when given). */
 export class BenchRunner {
   private readonly state = new Map<string, { running: boolean; stage: string | null; done: number; total: number }>();
   private readonly controllers = new Map<string, AbortController>();
@@ -173,9 +184,16 @@ export class BenchRunner {
   /** Replaceable for tests. */
   private readonly runImpl: typeof runBench | null;
 
-  constructor(store: { benchRuns(): BenchRun[]; addBenchRun(run: BenchRun): void }, runImpl: typeof runBench | null = null) {
+  private readonly archive: ((run: BenchRun) => void) | null;
+
+  constructor(
+    store: { benchRuns(): BenchRun[]; addBenchRun(run: BenchRun): void },
+    runImpl: typeof runBench | null = null,
+    archive: ((run: BenchRun) => void) | null = null,
+  ) {
     this.store = store;
     this.runImpl = runImpl;
+    this.archive = archive;
   }
 
   snapshot(llmIds: string[]): Record<string, import("./types.ts").BenchState> {
@@ -212,7 +230,12 @@ export class BenchRunner {
     )
       .catch((err: unknown) => ({ cases: [] as BenchCase[], error: `計測に失敗しました（${err instanceof Error ? err.message : String(err)}）` }))
       // A run the owner stopped is not a measurement; keep it out of the history.
-      .then(({ cases, error }) => (controller.signal.aborted ? undefined : this.store.addBenchRun({ ...run, cases, error })))
+      .then(({ cases, error }) => {
+        if (controller.signal.aborted) return;
+        const done = { ...run, cases, error };
+        this.store.addBenchRun(done);
+        this.archive?.(done);
+      })
       .catch(() => {})
       .finally(() => {
         this.controllers.delete(llmId);
