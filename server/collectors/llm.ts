@@ -6,6 +6,7 @@ export { parseMetrics } from "./engines.ts";
 
 const HISTORY_POINTS = 120;
 const REQUEST_TIMEOUT_MS = 3000;
+const SPEC_WINDOW_MS = 60_000;
 
 /**
  * Growth of a monotonic counter between two samples. A counter that went
@@ -21,6 +22,8 @@ interface LlmState {
   config: LlmConfig;
   snapshot: LlmSnapshot;
   prev: { at: number; metrics: MetricsSample } | null;
+  /** Samples of about the last minute, oldest first, for the draft rates. */
+  window: { at: number; metrics: MetricsSample }[];
   busy: boolean;
   /** Configured engine, or the one detected while the server was up. */
   engine: Engine | null;
@@ -66,6 +69,7 @@ export class LlmCollector {
     this.states = configs.map((config) => ({
       config,
       prev: null,
+      window: [],
       busy: false,
       engine: config.engine && config.engine !== "auto" ? config.engine : null,
       snapshot: {
@@ -181,6 +185,7 @@ export class LlmCollector {
           tokensToday: this.store.tokensOn(config.id),
         };
         state.prev = null;
+        state.window = [];
         if (!config.engine || config.engine === "auto") state.engine = null;
         push(state.snapshot.history.genTps, null);
         push(state.snapshot.history.running, null);
@@ -261,7 +266,25 @@ export class LlmCollector {
         const dCount = counterDelta(prev.metrics.ttftCount, metrics.ttftCount);
         if (dCount > 0) ttft = counterDelta(prev.metrics.ttftSum, metrics.ttftSum) / dCount;
       }
-      const spec = metrics ? specStats(prev?.metrics ?? null, metrics, prev ? (now - prev.at) / 1000 : 0) : null;
+      // Counters that move only when a request ends would read 0 mid-request: the server's own rates win.
+      if (metrics?.liveDecodeRate != null) genTps = metrics.liveDecodeRate;
+      // On those engines the draft counters too move only when a request ends, so their rates are taken over the
+      // last minute; every other engine keeps the rate since the previous poll.
+      if (metrics?.liveDecodeRate != null) {
+        state.window.push({ at: now, metrics });
+        while (state.window.length > 1 && now - state.window[1]!.at >= SPEC_WINDOW_MS) state.window.shift();
+      } else state.window = [];
+      const first = state.window[0] ?? prev;
+      if (metrics?.livePrefillRate != null) {
+        // The native engine's live prefill rate fills in only as a prompt completes; otherwise the prompts finished
+        // in the last minute, over the seconds their prefill took.
+        const dSec = first ? counterDelta(first.metrics.prefillSeconds ?? null, metrics.prefillSeconds ?? null) : 0;
+        const dPrompt = first ? counterDelta(first.metrics.promptTokens, metrics.promptTokens) : 0;
+        promptTps = metrics.livePrefillRate > 0 ? metrics.livePrefillRate : dSec > 0 ? dPrompt / dSec : null;
+      }
+      const spec = metrics
+        ? specStats(first && first.at < now ? first.metrics : null, metrics, first ? (now - first.at) / 1000 : 0)
+        : null;
       if (metrics) state.prev = { at: now, metrics };
 
       state.snapshot = {

@@ -312,3 +312,30 @@ test("TensorFold with /metrics: generated tokens follow /health while a request 
   assert.equal(withLiveTensorfoldTokens(fromMetrics, { ok: true }).generationTokens, 70);
   assert.equal(withLiveTensorfoldTokens(fromMetrics, null).generationTokens, 70);
 });
+
+test("TensorFold native: rates come from /health's live figures, and an unreported KV reads as unknown", () => {
+  const native = `tensorfold:requests_running 1
+tensorfold:requests_waiting 0
+tensorfold:generation_tokens_running 120
+tensorfold:prompt_tokens_total 427766
+tensorfold:generation_tokens_total 14725
+tensorfold:kv_cache_usage_ratio{pool="0"} 0
+tensorfold:mtp_drafted_total 14446
+tensorfold:mtp_accepted_total 9416
+`;
+  const m = withLiveTensorfoldTokens(parseMetrics(native, "tensorfold"), {
+    status: "ok",
+    live: { connections: 1, waiting: 0, decode_tokens_per_second: 58.4, prefill_tokens_per_second: 1520.2 },
+  });
+  // Finished requests only: the live gauge is not added, so the counter never goes backwards.
+  assert.equal(m.generationTokens, 14725);
+  assert.equal(m.liveDecodeRate, 58.4);
+  assert.equal(m.livePrefillRate, 1520.2);
+  assert.equal(parseMetrics(`${native}tensorfold:request_prefill_seconds_sum 290.5\n`, "tensorfold").prefillSeconds, 290.5);
+  // A running request holds cache rows, so a 0 here is "not reported".
+  assert.equal(m.kvUsage, null);
+  // Idle, 0 is a reading.
+  assert.equal(parseMetrics(native.replace("requests_running 1", "requests_running 0"), "tensorfold").kvUsage, 0);
+  // The Python engine's /health has no "live": no rates are invented.
+  assert.equal(withLiveTensorfoldTokens(parseMetrics(native, "tensorfold"), { completion_tokens_total: 9 }).liveDecodeRate, undefined);
+});
