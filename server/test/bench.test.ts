@@ -94,3 +94,31 @@ test("a stopped benchmark ends promptly and is not kept", async () => {
   assert.equal(runs.length, 0);
   assert.equal(runner.stop("m").ok, false);
 });
+
+test("finished runs are also appended to the archive, one JSON line each", async () => {
+  const { BenchRunner, appendBenchRun } = await import("../bench.ts");
+  const { mkdtempSync, readFileSync, rmSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const dir = mkdtempSync(join(tmpdir(), "sl-bench-"));
+  try {
+    const runner = new BenchRunner(
+      { benchRuns: () => [], addBenchRun: () => {} },
+      async () => ({ cases: [], error: null }),
+      (run) => appendBenchRun(join(dir, "archive"), run),
+    );
+    for (const id of ["a", "b"]) {
+      let done!: () => void;
+      const finished = new Promise<void>((r) => (done = r));
+      let calls = 0;
+      runner.start(id, { baseUrl: "http://x", model: id, commit: null, repo: null }, () => {
+        if (++calls >= 2) done();
+      });
+      await finished;
+    }
+    const lines = readFileSync(join(dir, "archive", "runs.jsonl"), "utf8").trim().split("\n");
+    assert.deepEqual(lines.map((l) => (JSON.parse(l) as { llmId: string }).llmId), ["a", "b"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

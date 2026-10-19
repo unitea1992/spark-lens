@@ -16,7 +16,8 @@
     "test": "node --test 'server/test/*.test.ts' 'web/src/*.test.ts'",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p web/tsconfig.json",
     "check": "pnpm typecheck && pnpm test && pnpm build",
-    "scan:secrets": "docker run --rm --user \"$(id -u):$(id -g)\" -v \"$PWD:/repo:ro\" ghcr.io/betterleaks/betterleaks:v1 git /repo --no-banner --redact && docker run --rm --user \"$(id -u):$(id -g)\" -v \"$PWD:/repo:ro\" ghcr.io/betterleaks/betterleaks:v1 dir /repo --no-banner --redact"
+    "scan:secrets": "docker run --rm --user \"$(id -u):$(id -g)\" -v \"$PWD:/repo:ro\" ghcr.io/betterleaks/betterleaks:v1 git /repo --no-banner --redact && docker run --rm --user \"$(id -u):$(id -g)\" -v \"$PWD:/repo:ro\" ghcr.io/betterleaks/betterleaks:v1 dir /repo --no-banner --redact",
+    "bench": "node scripts/bench.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.3",

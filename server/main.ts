@@ -10,7 +10,7 @@ import { UsageCollector } from "./collectors/usage.ts";
 import { loadConfig, stateDir } from "./config.ts";
 import { HttpServer } from "./http.ts";
 import { RecipeManager } from "./recipes.ts";
-import { BenchRunner } from "./bench.ts";
+import { appendBenchRun, BenchRunner } from "./bench.ts";
 import { History } from "./history.ts";
 import { QuotaHistory, windowTrend } from "./quota-history.ts";
 import { Store } from "./store.ts";
@@ -31,7 +31,15 @@ async function main(): Promise<void> {
   const store = new Store(stateDir());
   const history = new History(store.history());
   const quotaHistory = new QuotaHistory(store.quotaHistory());
-  const bench = new BenchRunner(store);
+  // Kept beside the checkout, untracked (.gitignore), unless SPARK_LENS_BENCH_DIR says otherwise.
+  const benchDir = process.env.SPARK_LENS_BENCH_DIR || fileURLToPath(new URL("../bench-data/spark-lens-bench", import.meta.url));
+  const bench = new BenchRunner(store, null, (run) => {
+    try {
+      appendBenchRun(benchDir, run);
+    } catch (err) {
+      log(`benchmark archive: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  });
   const hosts = new HostCollector(config.hosts, {
     procRegex: procRegex(config.agents.processes),
     pollSeconds: config.pollSeconds,
