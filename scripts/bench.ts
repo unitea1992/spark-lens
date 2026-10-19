@@ -13,7 +13,7 @@ if (!llmId) {
   process.exit(2);
 }
 const host = config.server.host === "0.0.0.0" || config.server.host === "::" ? "127.0.0.1" : config.server.host;
-const base = `http://${host}:${config.server.port}`;
+const base = `http://${host.includes(":") ? `[${host}]` : host}:${config.server.port}`;
 
 const started = await fetch(`${base}/api/llms/${llmId}/bench`, { method: "POST", headers: { [ACTION_HEADER]: "1" } });
 const answer = (await started.json()) as { ok: boolean; message: string };
@@ -40,5 +40,7 @@ for (;;) {
     process.exit(1);
   }
   console.log(JSON.stringify(run, null, 2));
-  process.exit(run.error ? 1 : 0);
+  // Not process.exit(): a piped stdout would be cut short.
+  process.exitCode = run.error ? 1 : 0;
+  break;
 }
