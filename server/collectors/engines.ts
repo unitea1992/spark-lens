@@ -86,8 +86,6 @@ export interface MetricsSample {
    */
   liveDecodeRate?: number | null;
   livePrefillRate?: number | null;
-  /** Seconds spent on prompts by finished requests (TensorFold). */
-  prefillSeconds?: number | null;
 }
 
 function vllm(p: Prom): MetricsSample {
@@ -150,7 +148,6 @@ function tensorfold(p: Prom): MetricsSample {
     poolFreeTokens: max(p, ["tensorfold_health:pool_free_tokens"]),
     promptTokens: sum(p, ["tensorfold:prompt_tokens_total"]),
     generationTokens: sum(p, ["tensorfold:generation_tokens_total"]),
-    prefillSeconds: sum(p, ["tensorfold:request_prefill_seconds_sum"]),
     ttftSum: sum(p, ["tensorfold:time_to_first_token_seconds_sum"]),
     ttftCount: sum(p, ["tensorfold:time_to_first_token_seconds_count"]),
     // Recipes that also export /health's figures count prompt tokens served from kept prompts.

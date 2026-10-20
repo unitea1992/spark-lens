@@ -18,6 +18,19 @@ export function counterDelta(prev: number | null, next: number | null): number {
   return next >= prev ? next - prev : next;
 }
 
+/**
+ * TensorFold's prefill rate for the last minute. /health fills it in only while a prompt pass completes, so between
+ * passes the latest non-zero reading stands. The counters are no substitute: the prompt token counter includes the
+ * tokens a kept prompt served, which take no prefill time, so a long agent history over a short pass read ~90K tok/s.
+ */
+export function livePrefillRate(window: { at: number; metrics: MetricsSample }[], now: number): number | null {
+  for (let i = window.length - 1; i >= 0 && now - window[i]!.at < SPEC_WINDOW_MS; i--) {
+    const rate = window[i]!.metrics.livePrefillRate;
+    if (rate != null && rate > 0) return rate;
+  }
+  return null;
+}
+
 interface LlmState {
   config: LlmConfig;
   snapshot: LlmSnapshot;
@@ -275,13 +288,7 @@ export class LlmCollector {
         while (state.window.length > 1 && now - state.window[1]!.at >= SPEC_WINDOW_MS) state.window.shift();
       } else state.window = [];
       const first = state.window[0] ?? prev;
-      if (metrics?.livePrefillRate != null) {
-        // The native engine's live prefill rate fills in only as a prompt completes; otherwise the prompts finished
-        // in the last minute, over the seconds their prefill took.
-        const dSec = first ? counterDelta(first.metrics.prefillSeconds ?? null, metrics.prefillSeconds ?? null) : 0;
-        const dPrompt = first ? counterDelta(first.metrics.promptTokens, metrics.promptTokens) : 0;
-        promptTps = metrics.livePrefillRate > 0 ? metrics.livePrefillRate : dSec > 0 ? dPrompt / dSec : null;
-      }
+      if (metrics?.livePrefillRate != null) promptTps = livePrefillRate(state.window, now);
       const spec = metrics
         ? specStats(first && first.at < now ? first.metrics : null, metrics, first ? (now - first.at) / 1000 : 0)
         : null;

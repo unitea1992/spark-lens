@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { engineFromMetrics, engineFromOwner, metricsFromTensorfoldHealth, parseProm, withLiveTensorfoldTokens } from "../collectors/engines.ts";
-import { counterDelta, parseMetrics, specStats } from "../collectors/llm.ts";
+import { counterDelta, livePrefillRate, parseMetrics, specStats } from "../collectors/llm.ts";
 
 const METRICS = `# HELP vllm:num_requests_running Number of requests currently running.
 # TYPE vllm:num_requests_running gauge
@@ -331,11 +331,24 @@ tensorfold:mtp_accepted_total 9416
   assert.equal(m.generationTokens, 14725);
   assert.equal(m.liveDecodeRate, 58.4);
   assert.equal(m.livePrefillRate, 1520.2);
-  assert.equal(parseMetrics(`${native}tensorfold:request_prefill_seconds_sum 290.5\n`, "tensorfold").prefillSeconds, 290.5);
   // A running request holds cache rows, so a 0 here is "not reported".
   assert.equal(m.kvUsage, null);
   // Idle, 0 is a reading.
   assert.equal(parseMetrics(native.replace("requests_running 1", "requests_running 0"), "tensorfold").kvUsage, 0);
   // The Python engine's /health has no "live": no rates are invented.
   assert.equal(withLiveTensorfoldTokens(parseMetrics(native, "tensorfold"), { completion_tokens_total: 9 }).liveDecodeRate, undefined);
+});
+
+test("the native prefill rate holds its latest reading for the minute, and never comes from the counters", () => {
+  const at = (livePrefillRate: number | undefined, promptTokens: number, sec = 0) => ({
+    at: sec * 1000,
+    metrics: { ...parseMetrics("", "tensorfold"), livePrefillRate, promptTokens },
+  });
+  // A 185K-token history served from a kept prompt with a 1 s pass: the counters would read ~185K tok/s.
+  assert.equal(livePrefillRate([at(0, 174_243_041), at(1264.8, 174_243_041), at(0, 174_427_765)], 0), 1264.8);
+  assert.equal(livePrefillRate([at(961.1, 0), at(1835.6, 0), at(0, 0)], 0), 1835.6);
+  assert.equal(livePrefillRate([at(0, 1), at(0, 185_000)], 0), null);
+  assert.equal(livePrefillRate([], 0), null);
+  // The window keeps one sample older than the minute as the counters' baseline; its reading has expired.
+  assert.equal(livePrefillRate([at(1264.8, 0, 0), at(0, 0, 30)], 65_000), null);
 });
