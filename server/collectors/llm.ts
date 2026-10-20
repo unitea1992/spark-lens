@@ -23,8 +23,8 @@ export function counterDelta(prev: number | null, next: number | null): number {
  * passes the latest non-zero reading stands. The counters are no substitute: the prompt token counter includes the
  * tokens a kept prompt served, which take no prefill time, so a long agent history over a short pass read ~90K tok/s.
  */
-export function livePrefillRate(window: { metrics: MetricsSample }[]): number | null {
-  for (let i = window.length - 1; i >= 0; i--) {
+export function livePrefillRate(window: { at: number; metrics: MetricsSample }[], now: number): number | null {
+  for (let i = window.length - 1; i >= 0 && now - window[i]!.at < SPEC_WINDOW_MS; i--) {
     const rate = window[i]!.metrics.livePrefillRate;
     if (rate != null && rate > 0) return rate;
   }
@@ -288,7 +288,7 @@ export class LlmCollector {
         while (state.window.length > 1 && now - state.window[1]!.at >= SPEC_WINDOW_MS) state.window.shift();
       } else state.window = [];
       const first = state.window[0] ?? prev;
-      if (metrics?.livePrefillRate != null) promptTps = livePrefillRate(state.window);
+      if (metrics?.livePrefillRate != null) promptTps = livePrefillRate(state.window, now);
       const spec = metrics
         ? specStats(first && first.at < now ? first.metrics : null, metrics, first ? (now - first.at) / 1000 : 0)
         : null;
