@@ -1,0 +1,603 @@
+/* Local AI page: the schematic of machines, cables and models. */
+
+/* -------------------------------------------------------------- stage */
+
+/*
+ * The stage: the lab drawn as a schematic on a quiet dotted ground, in the
+ * page's own theme. Machines are rings, cables are lines, models are rails.
+ */
+.stage {
+  position: relative;
+  margin-top: 22px;
+  padding: 34px clamp(18px, 4vw, 56px) 22px;
+  border-radius: 28px;
+  background:
+    radial-gradient(60% 90% at 66% 30%, color-mix(in srgb, var(--series-1) 9%, transparent), transparent 70%),
+    radial-gradient(color-mix(in srgb, var(--ink-3) 30%, transparent) 1px, transparent 1.3px) 0 0 / 22px 22px,
+    var(--surface);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--line) 60%, transparent);
+}
+
+.stage__map {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+
+.stage__map--with-side {
+  grid-template-columns: auto minmax(60px, 1fr) auto;
+}
+
+.stage__side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* The monitoring link runs all the way from the dev machine to the lab. */
+.stage__tether {
+  position: relative;
+  height: 0;
+  margin: 102px 0 0;
+  border-top: 1.5px dashed color-mix(in srgb, var(--ink-3) 70%, transparent);
+}
+
+.stage__tether span {
+  position: absolute;
+  left: 50%;
+  bottom: 7px;
+  transform: translateX(-50%);
+  font-size: 11px;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.stage__clusters {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  min-width: 0;
+}
+
+.cluster__nodes {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.cluster__cell {
+  display: flex;
+  align-items: flex-start;
+}
+
+.cluster__bands {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.cluster__more {
+  padding: 0 6px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.stage__legend {
+  margin-top: 22px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.legend-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-key::before {
+  content: "";
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+.legend-key--1 {
+  color: var(--series-1);
+}
+.legend-key--2 {
+  color: var(--series-2);
+}
+.legend-key--3 {
+  color: var(--series-3);
+}
+.legend-key--center {
+  color: var(--ink-3);
+}
+.legend-key--center::before {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  background: none;
+}
+
+/* ---------------------------------------------------------------- dial */
+
+.dial {
+  position: relative;
+  flex: none;
+  width: clamp(128px, 38%, 168px);
+  aspect-ratio: 1;
+}
+
+.dial svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.dial circle {
+  fill: none;
+}
+
+.dial__track {
+  stroke: var(--track);
+}
+
+.dial__arc {
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.6s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dial__arc {
+    transition: none;
+  }
+}
+
+.dial--dimmed {
+  opacity: 0.35;
+}
+
+.dial__center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.dial__value {
+  font-family: var(--font-figure);
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.dial__unit {
+  font-size: 0.5em;
+  margin-left: 1px;
+  color: var(--ink-2);
+}
+
+.dial__caption {
+  margin-top: 3px;
+  font-size: 10.5px;
+  color: var(--ink-2);
+}
+
+/* ---------------------------------------------------------------- node */
+
+.node {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 14px 10px;
+  border: 0;
+  border-radius: 20px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.node:hover {
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+}
+
+.node .dial {
+  width: 172px;
+}
+
+.node .dial svg {
+  overflow: visible;
+  transition: filter 0.6s ease;
+}
+
+.node--working .dial svg {
+  filter: drop-shadow(0 0 14px color-mix(in srgb, var(--series-1) 45%, transparent));
+}
+
+.node .dial__value {
+  font-size: 34px;
+}
+
+.node .dial__caption {
+  letter-spacing: 0.06em;
+}
+
+.node__name {
+  margin-top: 10px;
+  font-weight: 600;
+  font-size: 16px;
+  letter-spacing: 0.01em;
+}
+
+.node__figures {
+  display: flex;
+  gap: 14px;
+  font-family: var(--font-figure);
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.node__fig small {
+  margin-right: 4px;
+  font-family: var(--font);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+}
+
+.node__fig--1 {
+  color: var(--series-1);
+}
+.node__fig--2 {
+  color: var(--series-2);
+}
+.node__fig--3 {
+  color: var(--series-3);
+}
+
+.node__flag {
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--warn);
+}
+
+.node__flag::before {
+  content: "▲ ";
+  font-size: 9px;
+}
+
+.node__flag--critical {
+  color: var(--critical);
+}
+
+.node__flag--critical::before {
+  content: "■ ";
+}
+
+.node--offline .node__name {
+  color: var(--ink-3);
+}
+
+/* -------------------------------------------------------------- fabric */
+
+/* The cable. Light travels along it while data does; --flow sets the pace. */
+.fabric {
+  position: relative;
+  width: clamp(80px, 11vw, 180px);
+  height: 190px;
+  display: flex;
+  align-items: center;
+}
+
+.fabric__line {
+  width: 100%;
+  height: 2px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--ink-3) 35%, transparent);
+}
+
+.fabric--active .fabric__line {
+  height: 3px;
+  background-image: linear-gradient(90deg, transparent 0, var(--series-2) 30%, color-mix(in srgb, var(--series-2) 35%, white) 50%, var(--series-2) 70%, transparent 100%);
+  background-size: 60px 3px;
+  background-repeat: repeat-x;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--series-2) 45%, transparent);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .fabric--active .fabric__line {
+    animation: flow var(--flow, 1s) linear infinite;
+  }
+}
+
+@keyframes flow {
+  to {
+    background-position: 60px 0;
+  }
+}
+
+.fabric__label {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, calc(-100% - 8px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: 11px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  line-height: 1.35;
+}
+
+.fabric__label strong {
+  font-weight: 600;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.fabric--active .fabric__label strong {
+  color: var(--series-2);
+}
+
+/* ---------------------------------------------------------------- band */
+
+/* The model under its machines: a rail with bracket ends. */
+.band {
+  display: block;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  min-height: 0;
+  background: none;
+  font-size: 13.5px;
+}
+
+.band__rail {
+  position: relative;
+  display: block;
+  height: 3px;
+  margin: 0 6px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--series-1) 45%, transparent);
+}
+
+.band__rail::before,
+.band__rail::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: inherit;
+}
+
+.band__rail::before {
+  left: 0;
+}
+
+.band__rail::after {
+  right: 0;
+}
+
+.band__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 16px;
+  padding: 10px 6px 0;
+}
+
+.band__name {
+  font-weight: 650;
+  font-size: 17px;
+}
+
+.band__state {
+  color: var(--ink-2);
+}
+
+.band__state::before {
+  content: "● ";
+  font-size: 9px;
+  vertical-align: 2px;
+  color: var(--good);
+}
+
+.band__figures {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 20px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.band__figures strong {
+  font-family: var(--font-figure);
+  font-size: 16px;
+  color: var(--ink);
+}
+
+.band__hero strong {
+  font-size: 24px;
+}
+
+.band--busy .band__state {
+  color: var(--series-1);
+  font-weight: 600;
+}
+
+.band--busy .band__rail {
+  background: linear-gradient(90deg, var(--series-1) 0%, color-mix(in srgb, var(--series-1) 40%, white) 50%, var(--series-1) 100%);
+  background-size: 200% 100%;
+  box-shadow: 0 0 12px color-mix(in srgb, var(--series-1) 55%, transparent);
+}
+
+.band--busy .band__rail::before,
+.band--busy .band__rail::after {
+  background: var(--series-1);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .band--busy .band__rail {
+    animation: rail 1.8s linear infinite;
+  }
+}
+
+@keyframes rail {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.band--busy .band__state::before {
+  content: "◆ ";
+  color: var(--series-1);
+}
+
+.band--starting .band__state {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+/* A starting model's rail fills as it loads. */
+.band--starting .band__rail {
+  background:
+    linear-gradient(90deg, var(--warn) 0 var(--progress, 0%), transparent var(--progress, 0%)),
+    repeating-linear-gradient(90deg, color-mix(in srgb, var(--warn) 45%, transparent) 0 8px, transparent 8px 14px);
+}
+
+.band--starting .band__rail::before,
+.band--starting .band__rail::after {
+  background: var(--warn);
+}
+
+.band--starting .band__state::before {
+  content: "▲ ";
+  color: var(--warn);
+}
+
+/* A stopped model is only a dashed outline: present, but clearly not running. */
+.band--down {
+  color: var(--ink-3);
+}
+
+.band--down .band__name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.band--down .band__rail {
+  height: 2px;
+  background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--ink-3) 60%, transparent) 0 6px, transparent 6px 11px);
+}
+
+.band--down .band__rail::before,
+.band--down .band__rail::after {
+  height: 8px;
+  width: 2px;
+  background: color-mix(in srgb, var(--ink-3) 60%, transparent);
+}
+
+.band--down .band__state::before {
+  content: "○ ";
+  color: var(--ink-3);
+}
+
+.band--down .band__row {
+  padding-top: 6px;
+}
+
+@media (max-width: 720px) {
+  .stage {
+    padding: 22px 10px 16px;
+    border-radius: 22px;
+  }
+
+  .stage__map--with-side {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+  }
+
+  .stage__tether {
+    width: 0;
+    height: 26px;
+    margin: 2px 0;
+    border-top: 0;
+    border-left: 1.5px dashed color-mix(in srgb, var(--ink-3) 70%, transparent);
+  }
+
+  .stage__tether span {
+    left: 10px;
+    bottom: auto;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+
+  .stage__clusters {
+    width: 100%;
+  }
+
+  .node {
+    padding: 4px 2px 8px;
+  }
+
+  .node .dial {
+    width: 124px;
+  }
+
+  .node .dial__value {
+    font-size: 25px;
+  }
+
+  .node__name {
+    margin-top: 6px;
+    font-size: 14.5px;
+  }
+
+  .node__figures {
+    gap: 8px;
+    font-size: 13px;
+  }
+
+  .fabric {
+    width: 44px;
+    height: 136px;
+  }
+
+  .fabric__label {
+    font-size: 10px;
+  }
+
+  .band__figures {
+    margin-left: 0;
+  }
+
+  .stage__legend {
+    padding: 0 8px;
+  }
+}
