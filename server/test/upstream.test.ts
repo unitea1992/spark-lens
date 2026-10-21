@@ -100,6 +100,10 @@ function manager(f: Fixture, extra: { start?: string; stop?: string } = {}): Rec
 
 const llm = (state: LlmSnapshot["state"]): LlmSnapshot => ({ id: "m", state }) as LlmSnapshot;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// The recipe's own start runs after the call returns; a loaded machine can take seconds to get there.
+async function waitFor(ok: () => boolean, ms = 30_000): Promise<void> {
+  for (const end = Date.now() + ms; !ok() && Date.now() < end; ) await sleep(100);
+}
 
 test("a fresh clone is current", async () => {
   const f = fixture();
@@ -194,7 +198,7 @@ test("updating a running recipe stops, pulls, then starts, passing through updat
     await tick;
     assert.equal(res.ok, true, res.message);
     assert.ok(seen.has("updating"));
-    for (let i = 0; i < 50 && !(existsSync(marks) && readFileSync(marks, "utf8").includes("start")); i++) await sleep(100);
+    await waitFor(() => existsSync(marks) && readFileSync(marks, "utf8").includes("start"));
     const newHead = git(f.origin, "rev-parse", "--short", "main");
     assert.deepEqual(readFileSync(marks, "utf8").trim().split("\n"), [`stop ${old}`, `start ${newHead}`]);
     assert.equal(git(f.dir, "rev-parse", "--short", "HEAD"), newHead);
@@ -238,7 +242,7 @@ test("a variant sharing the checkout and containers neither blocks the restart n
     assert.equal(m.snapshots()[1]?.upstream?.state, "behind");
     const res = await m.updateRecipe("r");
     assert.equal(res.ok, true, res.message);
-    for (let i = 0; i < 50 && !existsSync(marks); i++) await sleep(100);
+    await waitFor(() => existsSync(marks));
     assert.ok(existsSync(marks));
     assert.equal(m.snapshots()[1]?.upstream?.state, "current");
   });
@@ -329,7 +333,7 @@ test("two update clicks at once run one stop and one pull; a stop during the upd
     const [first, second] = await Promise.all([m.updateRecipe("r"), m.updateRecipe("r"), m.stop("r").then((s) => assert.equal(s.ok, false))]);
     assert.equal(first.ok, true, first.message);
     assert.equal(second.ok, false);
-    for (let i = 0; i < 50 && !(existsSync(marks) && readFileSync(marks, "utf8").includes("start")); i++) await sleep(100);
+    await waitFor(() => existsSync(marks) && readFileSync(marks, "utf8").includes("start"));
     assert.deepEqual(readFileSync(marks, "utf8").trim().split("\n"), ["stop", "start"]);
     // The lock is released afterwards: a stop now goes through.
     assert.equal((await m.stop("r")).ok, true);
@@ -349,7 +353,7 @@ test("a stale 'still running' reading during the pull does not cancel the restar
     const res = await done;
     clearInterval(poll);
     assert.equal(res.ok, true, res.message);
-    for (let i = 0; i < 50 && !(existsSync(marks) && readFileSync(marks, "utf8").includes("start")); i++) await sleep(100);
+    await waitFor(() => existsSync(marks) && readFileSync(marks, "utf8").includes("start"));
     assert.deepEqual(readFileSync(marks, "utf8").trim().split("\n"), ["stop", "start"]);
   });
 });
@@ -390,7 +394,7 @@ test("a failed pull brings the previous version back up", async () => {
     const res = await m.updateRecipe("r");
     assert.equal(res.ok, false);
     assert.match(res.message, /元の版で起動し直しています/);
-    for (let i = 0; i < 50 && !(existsSync(marks) && readFileSync(marks, "utf8").includes("start")); i++) await sleep(100);
+    await waitFor(() => existsSync(marks) && readFileSync(marks, "utf8").includes("start"));
     assert.deepEqual(readFileSync(marks, "utf8").trim().split("\n"), [`stop ${old}`, `start ${old}`]);
   });
 });
