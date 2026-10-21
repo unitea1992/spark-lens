@@ -352,3 +352,13 @@ test("the native prefill rate holds its latest reading for the minute, and never
   // The window keeps one sample older than the minute as the counters' baseline; its reading has expired.
   assert.equal(livePrefillRate([at(1264.8, 0, 0), at(0, 0, 30)], 65_000), null);
 });
+
+test("metricsSample reads /metrics, and only TensorFold falls back to /health", async () => {
+  const { metricsSample } = await import("../collectors/engines.ts");
+  const text = "vllm:num_requests_running 2\nvllm:generation_tokens_total 50\n";
+  assert.deepEqual(metricsSample("vllm", text, null), parseMetrics(text, "vllm"));
+  assert.equal(metricsSample("vllm", null, { completion_tokens_total: 5 }), null);
+  assert.equal(metricsSample("tensorfold", null, { completion_tokens_total: 5 })?.generationTokens, 5);
+  const tf = "tensorfold:generation_tokens_total 10\n";
+  assert.equal(metricsSample("tensorfold", tf, { completion_tokens_total: 12 })?.generationTokens, 12);
+});

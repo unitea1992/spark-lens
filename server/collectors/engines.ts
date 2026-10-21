@@ -1,6 +1,7 @@
 // Inference-server adapters. Each engine exposes the same few facts under
 // different Prometheus names; this file maps them onto one MetricsSample so
-// the collector and the screen never need to know which engine is running.
+// the screen never needs to know which engine is running. The collector still
+// picks which endpoints to ask per engine (llm.ts); `metricsSample` reads them.
 
 export type Engine = "vllm" | "sglang" | "tensorfold";
 export const ENGINES: Engine[] = ["vllm", "sglang", "tensorfold"];
@@ -38,6 +39,10 @@ export function parseProm(text: string): Map<string, Series[]> {
 }
 
 type Prom = Map<string, Series[]>;
+
+function finite(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
 
 /** Counters add up across label sets (finish reasons, streaming or not, ranks). */
 function sum(p: Prom, names: string[], where?: (labels: Record<string, string>) => boolean): number | null {
@@ -169,16 +174,15 @@ function tensorfold(p: Prom): MetricsSample {
 export function metricsFromTensorfoldHealth(body: unknown): MetricsSample | null {
   if (body === null || typeof body !== "object") return null;
   const h = body as Record<string, unknown>;
-  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
-  const generationTokens = num(h.completion_tokens_total);
+  const generationTokens = finite(h.completion_tokens_total);
   if (generationTokens === null) return null;
   return {
-    running: num(h.requests_running),
+    running: finite(h.requests_running),
     waiting: null,
     kvUsage: null,
     poolTokens: null,
     poolFreeTokens: null,
-    promptTokens: num(h.prompt_tokens_total),
+    promptTokens: finite(h.prompt_tokens_total),
     generationTokens,
     ttftSum: null,
     ttftCount: null,
@@ -202,10 +206,9 @@ export function withLiveTensorfoldTokens(metrics: MetricsSample, healthBody: unk
   const live = metricsFromTensorfoldHealth(healthBody)?.generationTokens ?? null;
   // The native engine counts tokens only when a request ends, and reports its current rates under /health's "live".
   const rates = (healthBody as { live?: { decode_tokens_per_second?: unknown; prefill_tokens_per_second?: unknown } } | null)?.live;
-  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
   const out =
     rates && typeof rates === "object"
-      ? { ...metrics, liveDecodeRate: num(rates.decode_tokens_per_second), livePrefillRate: num(rates.prefill_tokens_per_second) }
+      ? { ...metrics, liveDecodeRate: finite(rates.decode_tokens_per_second), livePrefillRate: finite(rates.prefill_tokens_per_second) }
       : metrics;
   return live === null ? out : { ...out, generationTokens: live };
 }
@@ -214,6 +217,16 @@ const ADAPTERS: Record<Engine, (p: Prom) => MetricsSample> = { vllm, sglang, ten
 
 export function parseMetrics(text: string, engine: Engine): MetricsSample {
   return ADAPTERS[engine](parseProm(text));
+}
+
+/**
+ * One poll's figures: from /metrics when the server answered it, with
+ * TensorFold's live counters from its /health body; a TensorFold build
+ * without /metrics falls back to /health alone. null when there is nothing.
+ */
+export function metricsSample(engine: Engine, metricsText: string | null, healthBody: unknown): MetricsSample | null {
+  if (metricsText) return engine === "tensorfold" ? withLiveTensorfoldTokens(parseMetrics(metricsText, engine), healthBody) : parseMetrics(metricsText, engine);
+  return engine === "tensorfold" ? metricsFromTensorfoldHealth(healthBody) : null;
 }
 
 /** Engine named by a /v1/models `owned_by`, if it names one. */
