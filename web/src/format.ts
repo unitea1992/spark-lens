@@ -111,14 +111,12 @@ export function clock(at: number): string {
 
 /** Just the time when it is today, otherwise with the date. */
 export function when(at: number, now: number): string {
-  return new Date(at).toDateString() === new Date(now).toDateString() ? HM.format(at) : `${MD.format(at)} ${HM.format(at)}`;
+  return new Date(at).toDateString() === new Date(now).toDateString() ? HM.format(at) : shortDate(at);
 }
 
 /** Reset time: just the time when it is today, otherwise with the date. */
 export function resetAt(at: number | null, now: number): string {
-  if (at === null) return "リセット時刻不明";
-  const sameDay = new Date(at).toDateString() === new Date(now).toDateString();
-  return sameDay ? `${HM.format(at)} にリセット` : `${MD.format(at)} ${HM.format(at)} にリセット`;
+  return at === null ? "リセット時刻不明" : `${when(at, now)} にリセット`;
 }
 
 /** "10/4(土) 08:46" */
