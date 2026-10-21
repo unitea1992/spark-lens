@@ -1,5 +1,5 @@
 import { run, sshBashArgs } from "./exec.ts";
-import { shDir, shq } from "./recipes-shell.ts";
+import { shDir } from "./recipes-shell.ts";
 import { checkScript, parseCheck, pullScript } from "./upstream.ts";
 import { externalProgress, parseDockerTime, parseMemoryPlan, parseProgress, startedAt, type MemoryPlan } from "./progress.ts";
 import type { HostConfig, LlmSnapshot, RecipeConfig, RecipeSnapshot, UpstreamStatus } from "./types.ts";

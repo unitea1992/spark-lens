@@ -112,8 +112,9 @@ async function main(): Promise<void> {
       if (!cfg || !live) return { ok: false, message: "モデルが見つかりません" };
       if (live.state !== "up") return { ok: false, message: "モデルが稼働していません" };
       let recipe = recipes.snapshots().find((r) => r.llm === llmId);
-      // Record which upstream version is being measured, even right after a restart.
-      if (recipe && !recipe.upstream) {
+      // Record which upstream version is being measured: read it now, since the checkout may have been pulled
+      // outside the dashboard since the last scheduled check.
+      if (recipe) {
         await recipes.checkUpstream(recipe.id);
         recipe = recipes.snapshots().find((r) => r.llm === llmId);
       }
