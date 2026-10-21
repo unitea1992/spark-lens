@@ -1,10 +1,13 @@
-import { pace } from "../web/src/pace.ts";
-import { type QuotaSeries, type WindowTrend, latestAllowanceReset, latestPlanChange, windowTrend } from "./quota-history.ts";
-import type { LlmSnapshot, ResetTicket, Snapshot, SubscriptionSnapshot, UsageWindow } from "./types.ts";
+import { jst, jstShort } from "./jst.ts";
+import { planCadence, presentTickets } from "./quota-tickets.ts";
+import { quotaWindow } from "./quota-window.ts";
+import type { QuotaSeries, WindowTrend } from "./quota-history.ts";
+import type { LlmSnapshot, Snapshot, SubscriptionSnapshot, UsageWindow } from "./types.ts";
 
 /**
  * A routing-oriented view of the subscriptions and local LLMs, for agents
  * deciding where to send work. Pure: the same snapshot gives the same report.
+ * The window projections are in quota-window.ts, the reset-ticket plan in quota-tickets.ts.
  */
 
 /** Heavy work (implementation, E2E) needs this much headroom; light work (research, drafts) needs the second. */
@@ -12,31 +15,15 @@ export const HEAVY_MAX_USED_PCT = 70;
 export const LIGHT_MAX_USED_PCT = 90;
 /** Subscriptions refresh every 5 minutes; older than this means the fetch has been failing. */
 export const STALE_AFTER_SEC = 15 * 60;
-/** Pace only means something over a window this long; a 5-hour window swings too much. */
-const PACE_MIN_WINDOW_SEC = 24 * 3600;
 /** A reset ticket expiring within this is worth spending; it restores the limits, so headroom matters less. */
 export const TICKET_SOON_SEC = 72 * 3600;
-/** |used − elapsed| within this many points counts as on pace. */
-const PACE_ON_BAND_PCT = 10;
 /** Surplus is called only in the second half, and only when use lags the calendar by this many points, or the recent pace ends short of full. */
 const SURPLUS_ELAPSED_PCT = 50;
 const SURPLUS_GAP_PCT = 15;
-/** A weekly cadence is preferred for ticket deadlines; anything longer is the fallback. */
-const WEEKLY_MAX_SEC = 8 * 86400;
-/** The speed needs readings covering this long; minutes of readings scaled to hours swing wildly. */
-const MIN_PROJECT_HOURS = 2;
-/** Speed is read over the last day of readings: a whole day evens out working and sleeping hours, and still follows a changed pace. */
-const PACE_HOURS = 24;
-/** The speed is stretched over at most this many times the time it was read over; one step of use must not swing a week. */
-const MAX_STRETCH = 24;
 /** A long window this full is not given heavy work whatever its pace says; one more task could end it. */
 const NEARLY_FULL_PCT = 95;
 /** A window projected to end this many points short of full has room to spare. */
 const SURPLUS_LEFT_PCT = 10;
-/** A window this full is already worth a reset ticket; waiting longer only blocks work. */
-const NEAR_LIMIT_PCT = 90;
-/** A refill or plan change this long before the nominal window start still belongs to it (Codex slides `reset_at` while at 0%). */
-const BASIS_SLACK_MS = 3_600_000;
 
 export type QuotaState = "usable" | "limited" | "loading" | "down" | "unknown";
 export type Recommendation = "use" | "avoid_heavy" | "avoid" | "unknown";
@@ -149,284 +136,6 @@ export interface QuotaReport {
   /** The days of history asked for with `?days=N`. */
   trend_days?: number;
   models: QuotaModel[];
-}
-
-export function jst(ms: number | null): string | null {
-  return ms === null ? null : `${new Date(ms + 9 * 3600_000).toISOString().slice(0, 19)}+09:00`;
-}
-
-/** "10/5(月) 08:46" in JST, for reasons read by people. */
-function jstShort(ms: number): string {
-  const d = new Date(ms + 9 * 3600_000);
-  const hm = `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
-  return `${d.getUTCMonth() + 1}/${d.getUTCDate()}(${"日月火水木金土"[d.getUTCDay()]}) ${hm}`;
-}
-
-function round1(n: number): number {
-  return Math.round(n * 10) / 10;
-}
-
-function windowPlan(w: UsageWindow, now: number, anchorAt: number | null, horizonAt: number | null): WindowPlan | null {
-  if (w.usedPct === null || w.windowSec == null || w.windowSec < PACE_MIN_WINDOW_SEC || w.resetsAt === null || w.resetsAt <= now) return null;
-  const start = w.resetsAt - w.windowSec * 1000;
-  const horizon = horizonAt !== null && horizonAt > now && horizonAt < w.resetsAt ? horizonAt : w.resetsAt;
-  const anchor = anchorAt !== null && anchorAt > start && anchorAt < horizon ? anchorAt : start;
-  if (horizon <= anchor || now < anchor) return null;
-  const elapsed = ((now - anchor) / (horizon - anchor)) * 100;
-  if (elapsed < 0 || elapsed > 100) return null;
-  const remaining = Math.max(0, Math.round(100 - w.usedPct));
-  const daysReset = (w.resetsAt - now) / 86_400_000;
-  const daysBudget = (horizon - now) / 86_400_000;
-  const gap = w.usedPct - elapsed;
-  const judgment: PaceJudgment = gap > PACE_ON_BAND_PCT ? "over" : gap < -PACE_ON_BAND_PCT ? "under" : "on";
-  return {
-    remaining_pct: remaining,
-    days_until_reset: round1(daysReset),
-    // Budget runs to the reset, or to a plan change that arrives first. A few minutes left must not read as thousands of percent.
-    daily_allowance_pct: round1(remaining / Math.max(daysBudget, 1 / 24)),
-    elapsed_pct: round1(elapsed),
-    pace: judgment,
-  };
-}
-
-function windowStartMs(w: UsageWindow): number | null {
-  return w.resetsAt === null || w.windowSec == null ? null : w.resetsAt - w.windowSec * 1000;
-}
-
-/** A moment belongs to this window when it is not clearly inside the previous one. */
-function inThisWindow(at: number, start: number | null): boolean {
-  return start === null || at >= start - BASIS_SLACK_MS;
-}
-
-function basisOf(w: UsageWindow, now: number, series: QuotaSeries | null): { allowanceResetAt: number | null; planChangedAt: number | null } {
-  const start = windowStartMs(w);
-  const drop = series ? latestAllowanceReset(series, now) : null;
-  const change = series ? latestPlanChange(series, now) : null;
-  return {
-    allowanceResetAt: drop && inThisWindow(drop.at, start) ? drop.at : null,
-    planChangedAt: change && inThisWindow(change.at, start) ? change.at : null,
-  };
-}
-
-/**
- * Points used per hour over the last day of readings. A reset or refill only
- * zeroes the counter, so use on both sides counts and a fresh window is not
- * read from its first burst alone; the stretch across the drop itself is
- * left out, since its use is not known. A plan change moves the denominator, so
- * nothing before it counts. Time spent at the limit is left out: nothing
- * could be used then. Readings too short for the time left give no speed.
- */
-function recentSpeed(series: QuotaSeries | null, now: number, remainMs: number): number | null {
-  if (!series) return null;
-  const change = latestPlanChange(series, now);
-  const from = Math.max(change?.at ?? -Infinity, now - PACE_HOURS * 3_600_000);
-  let used = 0;
-  let ms = 0;
-  const points = series.points;
-  for (let i = 1; i < points.length; i++) {
-    const a = points[i - 1]!;
-    const b = points[i]!;
-    if (a[0] < from || b[0] > now || a[1] >= 100 || b[1] < a[1]) continue;
-    ms += b[0] - a[0];
-    used += b[1] - a[1];
-  }
-  return ms >= Math.max(MIN_PROJECT_HOURS * 3_600_000, remainMs / MAX_STRETCH) ? used / (ms / 3_600_000) : null;
-}
-
-/**
- * End-of-window share at the speed of the last day. Without enough readings
- * it falls back to the window average, except after a refill or plan change,
- * whose earlier share would mislead it.
- * A known renewal before the reset means the end of the window is not knowable.
- */
-function projectEnd(
-  w: UsageWindow,
-  now: number,
-  series: QuotaSeries | null,
-  renewsAt: number | null,
-): { projected: number | null; allowanceResetAt: number | null; planChangedAt: number | null; anchorAt: number | null; horizonAt: number | null } {
-  const basis = basisOf(w, now, series);
-  const anchors = [basis.allowanceResetAt, basis.planChangedAt].filter((t): t is number => t !== null);
-  const anchorAt = anchors.length > 0 ? Math.max(...anchors) : null;
-  const renewalCuts = renewsAt !== null && w.resetsAt !== null && renewsAt > now && renewsAt < w.resetsAt;
-  const horizonAt = renewalCuts ? renewsAt : null;
-  const blank = { ...basis, anchorAt, horizonAt, projected: null as number | null };
-  if (renewalCuts) return blank;
-  if (w.usedPct !== null && w.resetsAt !== null && w.resetsAt > now) {
-    const speed = recentSpeed(series, now, w.resetsAt - now);
-    if (speed !== null) {
-      return { ...basis, anchorAt, horizonAt, projected: Math.round(w.usedPct + (speed * (w.resetsAt - now)) / 3_600_000) };
-    }
-    if (anchorAt !== null) return blank;
-  }
-  const paced = pace(w, now);
-  return { ...basis, anchorAt, horizonAt, projected: paced === null || paced.projected === null ? null : Math.round(paced.projected) };
-}
-
-interface Cadence {
-  id: string;
-  resetsAt: number;
-  windowSec: number;
-}
-
-/** The next long window. A weekly one wins over a longer one, and the soonest reset wins a tie. */
-function planCadence(windows: UsageWindow[], now: number): Cadence | null {
-  const long = windows.filter((w) => w.resetsAt !== null && w.resetsAt > now && w.windowSec != null && w.windowSec >= PACE_MIN_WINDOW_SEC);
-  if (long.length === 0) return null;
-  const weekly = long.filter((w) => w.windowSec! <= WEEKLY_MAX_SEC);
-  const pool = weekly.length > 0 ? weekly : long;
-  const chosen = pool.reduce((a, b) => (a.resetsAt! <= b.resetsAt! ? a : b));
-  return { id: chosen.id, resetsAt: chosen.resetsAt!, windowSec: chosen.windowSec! };
-}
-
-/** When this window is full. Near the cap already, that is now; a fast pace hits before the reset. */
-function fillAt(now: number, used: number | null, resetsAt: number, projected: number | null): number {
-  if (used !== null && used >= NEAR_LIMIT_PCT) return now;
-  if (used !== null && projected !== null && projected > Math.max(100, used)) {
-    const hit = now + ((100 - used) / (projected - used)) * (resetsAt - now);
-    if (hit > now && hit < resetsAt) return Math.round(hit);
-  }
-  return resetsAt;
-}
-
-interface PlannedUse {
-  useAt: number;
-  extra: number | null;
-}
-
-/**
- * Every expiring ticket is given a time to spend it. The best time is when a
- * window is full. A ticket that would expire before any such moment is brought
- * forward, and `extra` is how many points per day that week must add so the
- * window is full then. Slots after a known renewal are not offered: the
- * percentage would mean something else.
- */
-function planUses(
-  expiring: { index: number; exp: number }[],
-  now: number,
-  cadence: Cadence,
-  usedPct: number | null,
-  projected: number | null,
-  renewsAt: number | null,
-): Map<number, PlannedUse> {
-  const step = cadence.windowSec * 1000;
-  const day = 86_400_000;
-  let end = cadence.resetsAt;
-  while (end <= now) end += step;
-  const first = fillAt(now, usedPct, end, projected);
-  const slots: number[] = [];
-  if (renewsAt === null || first <= renewsAt) slots.push(first);
-  for (let e = end + step, i = 0; i < 36; i++, e += step) {
-    if (renewsAt !== null && e > renewsAt) break;
-    if (e !== first) slots.push(e);
-  }
-  const taken = new Set<number>();
-  const planned = new Map<number, PlannedUse>();
-  const pending = [...expiring].sort((a, b) => a.exp - b.exp || a.index - b.index);
-  const surplus: { index: number; exp: number }[] = [];
-  for (const ticket of pending) {
-    const open = slots.filter((s) => s <= ticket.exp && !taken.has(s));
-    if (open.length > 0) {
-      const chosen = open[open.length - 1]!;
-      taken.add(chosen);
-      planned.set(ticket.index, { useAt: chosen, extra: null });
-    } else {
-      surplus.push(ticket);
-    }
-  }
-
-  const cap = (exp: number) => (renewsAt !== null && renewsAt > now && renewsAt < exp ? renewsAt : exp);
-  const groups = new Map<number, { index: number; exp: number }[]>();
-  for (const ticket of surplus) {
-    const deadline = cap(ticket.exp);
-    const cycleEnd = deadline <= end ? end : end + Math.ceil((deadline - end) / step) * step;
-    const list = groups.get(cycleEnd) ?? [];
-    list.push({ index: ticket.index, exp: deadline });
-    groups.set(cycleEnd, list);
-  }
-  for (const [cycleEnd, group] of groups) {
-    const cycleStart = cycleEnd - step;
-    const current = now >= cycleStart && now < cycleEnd;
-    const alreadyFull = current && (usedPct ?? 0) >= NEAR_LIMIT_PCT;
-    const list = [...group].sort((a, b) => a.exp - b.exp || a.index - b.index);
-    let rest = list;
-    if (alreadyFull && rest.length > 0) {
-      const firstTicket = rest[0]!;
-      planned.set(firstTicket.index, { useAt: Math.min(now, firstTicket.exp), extra: null });
-      rest = rest.slice(1);
-    }
-    if (rest.length === 0) continue;
-    const origin = current ? now : cycleStart;
-    const level = current && !alreadyFull ? Math.min(usedPct ?? 0, 100) : 0;
-    let rate = 0;
-    let percent = 0;
-    for (let k = 0; k < rest.length; k++) {
-      percent += k === 0 ? 100 - level : 100;
-      const days = Math.max((rest[k]!.exp - origin) / day, 1 / 24);
-      rate = Math.max(rate, percent / days);
-    }
-    const ordinary = current && !alreadyFull
-      ? Math.max(0, 100 - (usedPct ?? 0)) / Math.max((cycleEnd - now) / day, 1 / 24)
-      : 100 / (cadence.windowSec / 86400);
-    const extra = round1(rate - ordinary);
-    const extraOut = extra > 0.05 ? extra : null;
-    let consumed = 0;
-    for (let k = 0; k < rest.length; k++) {
-      consumed += k === 0 ? 100 - level : 100;
-      const at = origin + (consumed / rate) * day;
-      planned.set(rest[k]!.index, { useAt: Math.min(Math.round(at), rest[k]!.exp), extra: extraOut });
-    }
-  }
-  return planned;
-}
-
-function presentTickets(
-  tickets: ResetTicket[],
-  now: number,
-  cadence: Cadence | null,
-  usedPct: number | null,
-  projected: number | null,
-  renewsAt: number | null,
-): QuotaTicket[] {
-  const expiring = tickets
-    .map((t, index) => ({ index, exp: t.expiresAt }))
-    .filter((x): x is { index: number; exp: number } => x.exp !== null && x.exp > now);
-  const uses = cadence && cadence.windowSec > 0 ? planUses(expiring, now, cadence, usedPct, projected, renewsAt) : new Map<number, PlannedUse>();
-  if (!cadence) {
-    for (const ticket of expiring) uses.set(ticket.index, { useAt: ticket.exp, extra: null });
-  }
-  return tickets.map((t, index) => {
-    const use = uses.get(index);
-    const at = use?.useAt ?? null;
-    return {
-      label: t.label,
-      expires_at: t.expiresAt,
-      expires_at_jst: jst(t.expiresAt),
-      use_at: at,
-      use_at_jst: jst(at),
-      extra_daily_pct: use?.extra ?? null,
-    };
-  });
-}
-
-function quotaWindow(w: UsageWindow, now: number, renewsAt: number | null, history?: { sub: string; source: QuotaTrendSource }): QuotaWindow {
-  const series = history ? history.source.series(history.sub, w.id) : null;
-  const projected = projectEnd(w, now, series, renewsAt);
-  const days = history?.source.days;
-  return {
-    id: w.id,
-    label: w.label,
-    used_pct: w.usedPct,
-    resets_at: w.resetsAt,
-    resets_at_jst: jst(w.resetsAt),
-    projected_end_pct: projected.projected,
-    allowance_reset_at: projected.allowanceResetAt,
-    allowance_reset_at_jst: jst(projected.allowanceResetAt),
-    plan_changed_at: projected.planChangedAt,
-    plan_changed_at_jst: jst(projected.planChangedAt),
-    plan: windowPlan(w, now, projected.anchorAt, projected.horizonAt),
-    ...(days !== undefined ? { trend: series ? windowTrend(series, now, days) : null } : {}),
-  };
 }
 
 function subscriptionModel(sub: SubscriptionSnapshot, now: number, trend?: QuotaTrendSource): QuotaModel {

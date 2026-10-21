@@ -2,17 +2,14 @@ import { join } from "node:path";
 import { run } from "./exec.ts";
 import { shDir, shq } from "./recipes-shell.ts";
 import { checkScript, parseCheck, pullScript } from "./upstream.ts";
-import { externalProgress, parseDockerTime, parseMemoryPlan, parseProgress, startedAt, type MemoryPlan, type StartProgress } from "./progress.ts";
+import { externalProgress, parseDockerTime, parseMemoryPlan, parseProgress, startedAt, type MemoryPlan } from "./progress.ts";
 import type { HostConfig, LlmSnapshot, RecipeConfig, RecipeSnapshot, UpstreamStatus } from "./types.ts";
+import { cleanLog, externalStartScript, launcherCheckScript, logPath, memoryScript, pidPath, recoverScript, startScript, stopScript } from "./recipe-scripts.ts";
 
 // Starting, stopping and reading the logs of model "recipes" — upstream
 // launchers such as start.sh, run unchanged on the machine they belong to.
-//
-// A start runs detached on the target host (nohup + setsid) with its output
-// in ~/.local/state/spark-lens/recipe-<id>.log there, so it survives this
-// dashboard restarting and can be followed from the log viewer.
+// The scripts themselves are in recipe-scripts.ts.
 
-const LOG_DIR = "$HOME/.local/state/spark-lens";
 const LOG_LINES = 400;
 const MAX_LOG_BYTES = 256 * 1024;
 
@@ -29,75 +26,6 @@ export const REMOTE_LOCALE = "if [ -r /etc/default/locale ]; then set -a; . /etc
 
 export function withoutLocale(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return Object.fromEntries(Object.entries(env).filter(([k]) => k !== "LANG" && k !== "LANGUAGE" && !k.startsWith("LC_")));
-}
-
-function logPath(id: string): string {
-  return `${LOG_DIR}/recipe-${id}.log`;
-}
-
-function pidPath(id: string): string {
-  return `${LOG_DIR}/recipe-${id}.pid`;
-}
-
-export function startScript(r: RecipeConfig): string {
-  const log = logPath(r.id);
-  // The exit marker lets the dashboard tell a finished launcher from a failed one.
-  // A subshell, so an `exit` inside the command cannot skip the marker.
-  const body = `cd ${shDir(r.dir)} && ( ${r.start}
- ); echo "=== spark-lens: exit $?" >> "${log}"`;
-  return [
-    "set -e",
-    `mkdir -p "${LOG_DIR}"`,
-    `echo "=== spark-lens: start $(date '+%F %T')" > "${log}"`,
-    `nohup setsid bash -c ${shq(body)} >> "${log}" 2>&1 < /dev/null &`,
-    // Kept on the host, so a restarted dashboard can find a launcher still preparing.
-    `echo $! > "${pidPath(r.id)}"`,
-    "echo $!",
-  ].join("\n");
-}
-
-/**
- * Reads a launcher's log tail and whether its pid still lives. A download's
- * progress bar leaves the log without a final newline, so the marker lines
- * start after one: otherwise `ALIVE <pid>` is glued to the bar, goes unseen,
- * and a launcher that is still working reads as gone (a false failure).
- */
-export function launcherCheckScript(id: string, pidExpr: string | number): string {
-  return `tail -n 400 "${logPath(id)}" 2>/dev/null; echo; p=${pidExpr}; kill -0 "$p" 2>/dev/null && echo "ALIVE $p"; echo "@@checked"`;
-}
-
-export function stopScript(r: RecipeConfig, launcherPid: number | null = null): string {
-  const log = logPath(r.id);
-  return [
-    // A launcher still running holds its own lock and would refuse the stop.
-    launcherPid ? `kill -TERM -- -${launcherPid} 2>/dev/null && sleep 2` : ":",
-    `mkdir -p "${LOG_DIR}"`,
-    `echo "=== spark-lens: stop $(date '+%F %T')" >> "${log}"`,
-    `cd ${shDir(r.dir)} && ( ${r.stop}
- ) 2>&1 | tee -a "${log}"`,
-    "exit ${PIPESTATUS[0]}",
-  ].join("\n");
-}
-
-/** Terminal output to plain lines: colour codes dropped, progress-bar redraws collapsed. */
-export function cleanLog(text: string): string {
-  const lines = text
-    .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "")
-    .split("\n")
-    .map((line) => {
-      const parts = line.split("\r").filter((p) => p.trim() !== "");
-      return parts[parts.length - 1] ?? "";
-    });
-  // Progress bars piped through a log arrive one update per line; keep only
-  // the latest of a run that shares the text before its percentage.
-  const out: string[] = [];
-  const key = (line: string) => /^(.*?)\d+(?:\.\d+)?%/.exec(line)?.[1] ?? null;
-  for (const line of lines) {
-    const k = key(line);
-    if (k !== null && k.trim() !== "" && out.length > 0 && key(out[out.length - 1]!) === k) out[out.length - 1] = line;
-    else out.push(line);
-  }
-  return out.join("\n");
 }
 
 interface Action {
@@ -179,6 +107,13 @@ export class RecipeManager {
     } finally {
       this.locks.delete(group);
     }
+  }
+
+  /** One operation on one recipe, under its machine group's lock. */
+  private async act(id: string, op: (r: RecipeConfig) => Promise<{ ok: boolean; message: string }>): Promise<{ ok: boolean; message: string }> {
+    const r = this.recipes.find((x) => x.id === id);
+    if (!r) return { ok: false, message: "レシピが見つかりません" };
+    return this.locked(r, () => op(r));
   }
 
   /**
@@ -273,11 +208,7 @@ export class RecipeManager {
     }
     const known = this.memory.get(r.id);
     if (known && (known.weightsGiB !== null || Date.now() - known.readAt < 60_000)) return;
-    const res = await this.exec(
-      this.hosts.get(r.host)!,
-      `grep -aoE "Model loading took [0-9.]+ ?GiB|Available KV cache memory: [0-9.]+ ?GiB|kv-cache-memory-bytes[ =][0-9]+|Load weight end\\.[^\\r]*mem usage=[0-9.]+ ?GB|KV Cache is allocated\\.[^\\r]*V size: [0-9.]+ ?GB" "${logPath(r.id)}" 2>/dev/null | tail -n 5`,
-      10_000,
-    );
+    const res = await this.exec(this.hosts.get(r.host)!, memoryScript(r.id), 10_000);
     if (res.code === null || res.timedOut) return;
     this.memory.set(r.id, { ...parseMemoryPlan(res.stdout), readAt: Date.now() });
   }
@@ -295,13 +226,7 @@ export class RecipeManager {
           this.recovered.add(r.id);
           return;
         }
-        const pidFile = pidPath(r.id);
-        const res = await this.exec(
-          this.hosts.get(r.host)!,
-          // The command line check guards against a recycled pid.
-          `p=$(cat "${pidFile}" 2>/dev/null) && kill -0 "$p" 2>/dev/null && ps -o args= -p "$p" | grep -q "spark-lens: exit" && echo "$p"; head -n 1 "${logPath(r.id)}" 2>/dev/null; echo "@@checked"`,
-          10_000,
-        );
+        const res = await this.exec(this.hosts.get(r.host)!, recoverScript(r.id), 10_000);
         // An unreachable host proves nothing; ask again on the next tick.
         if (res.timedOut || !res.stdout.includes("@@checked")) return;
         this.recovered.add(r.id);
@@ -332,15 +257,7 @@ export class RecipeManager {
           if (this.llmState(r) === "starting") {
             const llm = r.llm ? this.llms.find((l) => l.id === r.llm) : undefined;
             const containers = [...new Set((llm?.containers ?? []).filter((c) => c.host === r.host).map((c) => c.name))];
-            const inspect = containers.length
-              ? `docker inspect -f '{{.State.StartedAt}}' ${containers.map(shq).join(" ")} 2>/dev/null | sort | tail -n 1`
-              : "true";
-            const res = await this.exec(
-              this.hosts.get(r.host)!,
-              `tail -n 400 "${logPath(r.id)}" 2>/dev/null; echo; head -n 1 "${logPath(r.id)}" 2>/dev/null; ` +
-                `echo "@@mtime $(stat -c %Y "${logPath(r.id)}" 2>/dev/null)"; echo "@@cstart $(${inspect})"`,
-              10_000,
-            );
+            const res = await this.exec(this.hosts.get(r.host)!, externalStartScript(r.id, containers), 10_000);
             if (res.code === 0) {
               const mtime = Number(/^@@mtime (\d+)$/m.exec(res.stdout)?.[1] ?? NaN);
               const cstart = /^@@cstart (.+)$/m.exec(res.stdout)?.[1] ?? "";
@@ -386,10 +303,8 @@ export class RecipeManager {
     );
   }
 
-  async start(id: string): Promise<{ ok: boolean; message: string }> {
-    const r = this.recipes.find((x) => x.id === id);
-    if (!r) return { ok: false, message: "レシピが見つかりません" };
-    return this.locked(r, () => this.doStart(r));
+  start(id: string): Promise<{ ok: boolean; message: string }> {
+    return this.act(id, (r) => this.doStart(r));
   }
 
   /**
@@ -421,10 +336,8 @@ export class RecipeManager {
     return { ok: true, message: "起動を開始しました" };
   }
 
-  async stop(id: string): Promise<{ ok: boolean; message: string }> {
-    const r = this.recipes.find((x) => x.id === id);
-    if (!r) return { ok: false, message: "レシピが見つかりません" };
-    return this.locked(r, () => this.doStop(r));
+  stop(id: string): Promise<{ ok: boolean; message: string }> {
+    return this.act(id, (r) => this.doStop(r));
   }
 
   private async doStop(r: RecipeConfig): Promise<{ ok: boolean; message: string }> {
@@ -454,10 +367,8 @@ export class RecipeManager {
    * Make this recipe the one running on its machines: stop whichever recipe
    * of the same group is running, then start this one.
    */
-  async switchTo(id: string): Promise<{ ok: boolean; message: string }> {
-    const r = this.recipes.find((x) => x.id === id);
-    if (!r) return { ok: false, message: "レシピが見つかりません" };
-    return this.locked(r, () => this.doSwitch(r));
+  switchTo(id: string): Promise<{ ok: boolean; message: string }> {
+    return this.act(id, (r) => this.doSwitch(r));
   }
 
   private async doSwitch(r: RecipeConfig): Promise<{ ok: boolean; message: string }> {
@@ -503,10 +414,8 @@ export class RecipeManager {
    * again if it was running. Refuses when tracked files were edited, since
    * those would be custom patches the owner wants to avoid.
    */
-  async updateRecipe(id: string): Promise<{ ok: boolean; message: string }> {
-    const r = this.recipes.find((x) => x.id === id);
-    if (!r) return { ok: false, message: "レシピが見つかりません" };
-    return this.locked(r, () => this.doUpdate(r));
+  updateRecipe(id: string): Promise<{ ok: boolean; message: string }> {
+    return this.act(id, (r) => this.doUpdate(r));
   }
 
   private async doUpdate(r: RecipeConfig): Promise<{ ok: boolean; message: string }> {

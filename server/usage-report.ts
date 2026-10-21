@@ -1,4 +1,4 @@
-import { jst } from "./quota.ts";
+import { jst } from "./jst.ts";
 import type { ModelUsage, UsageSnapshot } from "./types.ts";
 
 /**
