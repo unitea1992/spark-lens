@@ -149,8 +149,7 @@ export class HttpServer {
     }
     const bench = /^\/api\/llms\/([a-z0-9][a-z0-9-]*)\/bench(\/stop)?$/.exec(path);
     if (bench) {
-      const json = (status: number, body: unknown) =>
-        void res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }).end(JSON.stringify(body));
+      const json = (status: number, body: unknown) => sendJson(res, status, body);
       if (req.method !== "POST") return void res.writeHead(405, { Allow: "POST" }).end();
       if (req.headers[ACTION_HEADER] !== "1") return json(403, { ok: false, message: "この操作はダッシュボードの画面から行ってください" });
       if (!this.opts.bench) return json(404, { ok: false, message: "ベンチマークは使えません" });
@@ -173,47 +172,23 @@ export class HttpServer {
       res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" }).end("ok\n");
       return;
     }
-    if (path === "/api/state") {
-      res
-        .writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" })
-        .end(req.method === "HEAD" ? undefined : JSON.stringify(this.opts.snapshot()));
-      return;
-    }
+    // HEAD gets the headers alone, so the body is not even built.
+    const head = req.method === "HEAD";
+    const reply = (build: () => unknown) => sendJson(res, 200, head ? undefined : build());
+    if (path === "/api/state") return reply(() => this.opts.snapshot());
+    const query = new URL(req.url ?? "/", "http://x").searchParams;
     const days = daysParam(req.url, path === "/api/usage" ? MAX_USAGE_DAYS : QUOTA_KEEP_DAYS);
     if (path === "/api/quota") {
-      res
-        .writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" })
-        .end(
-          req.method === "HEAD"
-            ? undefined
-            : JSON.stringify(
-                quotaReport(
-                  this.opts.snapshot(),
-                  Date.now(),
-                  this.opts.quotaSeries ? { series: this.opts.quotaSeries, ...(days ? { days } : {}) } : undefined,
-                ),
-              ),
-        );
-      return;
+      const trend = this.opts.quotaSeries ? { series: this.opts.quotaSeries, ...(days ? { days } : {}) } : undefined;
+      return reply(() => quotaReport(this.opts.snapshot(), Date.now(), trend));
     }
-    if (path === "/api/usage") {
-      const model = new URL(req.url ?? "/", "http://x").searchParams.get("model");
-      res
-        .writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" })
-        .end(req.method === "HEAD" ? undefined : JSON.stringify(usageReport(this.opts.snapshot().usage, Date.now(), model, days)));
-      return;
-    }
+    if (path === "/api/usage") return reply(() => usageReport(this.opts.snapshot().usage, Date.now(), query.get("model"), days));
     if (path === "/api/history") {
-      const key = new URL(req.url ?? "/", "http://x").searchParams.get("key") ?? "";
-      res
-        .writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" })
-        .end(
-          JSON.stringify(
-            // Without a key, the list of keys, so a caller can find what is recorded.
-            key === "" ? { keys: this.opts.historyKeys?.() ?? [] } : this.opts.history && /^[\w:.-]{1,80}$/.test(key) ? this.opts.history(key) : [],
-          ),
-        );
-      return;
+      const key = query.get("key") ?? "";
+      // Without a key, the list of keys, so a caller can find what is recorded.
+      return reply(() =>
+        key === "" ? { keys: this.opts.historyKeys?.() ?? [] } : this.opts.history && /^[\w:.-]{1,80}$/.test(key) ? this.opts.history(key) : [],
+      );
     }
     if (path === "/api/stream") {
       this.stream(req, res);
@@ -227,9 +202,7 @@ export class HttpServer {
   }
 
   private async recipe(req: IncomingMessage, res: ServerResponse, id: string, op: RecipeOp): Promise<void> {
-    const json = (status: number, body: unknown): void => {
-      res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }).end(JSON.stringify(body));
-    };
+    const json = (status: number, body: unknown): void => sendJson(res, status, body);
     const actions = this.opts.recipes;
     if (!actions) return json(404, { ok: false, message: "レシピは設定されていません" });
     const wantMethod = op === "logs" ? "GET" : "POST";
@@ -324,6 +297,13 @@ export class HttpServer {
     }
     createReadStream(file).on("error", () => res.destroy()).pipe(res);
   }
+}
+
+/** A JSON reply that is never cached. `undefined` sends the headers alone (HEAD). */
+function sendJson(res: ServerResponse, status: number, body: unknown): void {
+  res
+    .writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" })
+    .end(body === undefined ? undefined : JSON.stringify(body));
 }
 
 function decodePath(url: string): string | null {

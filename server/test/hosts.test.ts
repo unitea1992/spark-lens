@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { cpuPercent, parseProbe } from "../collectors/hosts.ts";
+import { counterRate, cpuPercent, parseProbe } from "../collectors/hosts.ts";
+import { pushRecent, RECENT_POINTS } from "../collectors/recent.ts";
 
 const SPARK = `@@host
 hostname=spark-1
@@ -118,4 +119,52 @@ test("cpuPercent measures the busy share between two readings", () => {
 test("reads the old three-field frequency line", () => {
   const s = parseProbe("@@freq\n100 200 2\n@@end\n");
   assert.deepEqual(s?.freq, { curKhz: 100, maxKhz: 200, cores: 2, hwMaxKhz: 200 });
+});
+
+test("counterRate gives no rate without an earlier reading, over no time, or when the counter went back", () => {
+  assert.equal(counterRate(3000, 1000, 2), 1000);
+  assert.equal(counterRate(3000, undefined, 2), null);
+  assert.equal(counterRate(3000, 1000, 0), null);
+  assert.equal(counterRate(500, 1000, 2), null);
+});
+
+test("pushRecent keeps only the newest samples", () => {
+  const arr: number[] = [];
+  for (let i = 0; i < RECENT_POINTS + 5; i++) pushRecent(arr, i);
+  assert.equal(arr.length, RECENT_POINTS);
+  assert.equal(arr[0], 5);
+});
+
+test("probes reach a remote host through one shared ssh connection, with short timeouts", async () => {
+  const { sshBashArgs } = await import("../exec.ts");
+  const { PROBE_SSH_OPTIONS } = await import("../collectors/hosts.ts");
+  assert.deepEqual(sshBashArgs("/run/sl", "spark-1", PROBE_SSH_OPTIONS), [
+    "-T",
+    "-o", "BatchMode=yes",
+    "-o", "ConnectTimeout=5",
+    "-o", "ServerAliveInterval=5",
+    "-o", "ServerAliveCountMax=2",
+    "-o", "ControlMaster=auto",
+    "-o", "ControlPath=/run/sl/ssh-%C",
+    "-o", "ControlPersist=120",
+    "--",
+    "spark-1",
+    "bash -s",
+  ]);
+});
+
+test("recipe commands use the same shared connection, with only a connect timeout", async () => {
+  const { sshBashArgs } = await import("../exec.ts");
+  const { RECIPE_SSH_OPTIONS } = await import("../recipes.ts");
+  assert.deepEqual(sshBashArgs("/run/sl", "spark-1", RECIPE_SSH_OPTIONS), [
+    "-T",
+    "-o", "BatchMode=yes",
+    "-o", "ConnectTimeout=8",
+    "-o", "ControlMaster=auto",
+    "-o", "ControlPath=/run/sl/ssh-%C",
+    "-o", "ControlPersist=120",
+    "--",
+    "spark-1",
+    "bash -s",
+  ]);
 });

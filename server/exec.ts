@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { join } from "node:path";
 
 export interface RunResult {
   code: number | null;
@@ -47,4 +48,23 @@ export function run(
     child.stdin.on("error", () => {});
     child.stdin.end(opts.input ?? "");
   });
+}
+
+/**
+ * Arguments for `ssh` to run `bash -s` on `target`. Each host's connection is
+ * kept open under `controlDir` for two minutes and reused by the next call.
+ * `options` (timeouts) go after BatchMode.
+ */
+export function sshBashArgs(controlDir: string, target: string, options: string[]): string[] {
+  return [
+    "-T",
+    "-o", "BatchMode=yes",
+    ...options,
+    "-o", "ControlMaster=auto",
+    "-o", `ControlPath=${join(controlDir, "ssh-%C")}`,
+    "-o", "ControlPersist=120",
+    "--",
+    target,
+    "bash -s",
+  ];
 }

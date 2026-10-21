@@ -1,5 +1,4 @@
-import { join } from "node:path";
-import { run } from "./exec.ts";
+import { run, sshBashArgs } from "./exec.ts";
 import { shDir, shq } from "./recipes-shell.ts";
 import { checkScript, parseCheck, pullScript } from "./upstream.ts";
 import { externalProgress, parseDockerTime, parseMemoryPlan, parseProgress, startedAt, type MemoryPlan, type StartProgress } from "./progress.ts";
@@ -17,6 +16,9 @@ const LOG_LINES = 400;
 const MAX_LOG_BYTES = 256 * 1024;
 
 export { shDir, shq } from "./recipes-shell.ts";
+
+/** Recipe commands run for minutes, so only connecting has a short limit; each call sets its own overall timeout. */
+export const RECIPE_SSH_OPTIONS = ["-o", "ConnectTimeout=8"];
 
 /**
  * Recipes run in the machine's configured locale, not the dashboard's. ssh
@@ -139,21 +141,11 @@ export class RecipeManager {
   private exec(host: HostConfig, script: string, timeoutMs: number) {
     if (host.local) return run("bash", ["-s"], { input: script, timeoutMs });
     // In the remote's own locale, as after a normal ssh login there (see REMOTE_LOCALE).
-    return run(
-      "ssh",
-      [
-        "-T",
-        "-o", "BatchMode=yes",
-        "-o", "ConnectTimeout=8",
-        "-o", "ControlMaster=auto",
-        "-o", `ControlPath=${join(this.controlDir, "ssh-%C")}`,
-        "-o", "ControlPersist=120",
-        "--",
-        host.ssh!,
-        "bash -s",
-      ],
-      { input: REMOTE_LOCALE + script, timeoutMs, env: withoutLocale(process.env) },
-    );
+    return run("ssh", sshBashArgs(this.controlDir, host.ssh!, RECIPE_SSH_OPTIONS), {
+      input: REMOTE_LOCALE + script,
+      timeoutMs,
+      env: withoutLocale(process.env),
+    });
   }
 
   private llmState(r: RecipeConfig): LlmSnapshot["state"] | null {

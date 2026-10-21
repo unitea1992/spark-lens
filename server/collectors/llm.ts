@@ -1,10 +1,10 @@
 import type { Store } from "../store.ts";
+import { pushRecent } from "./recent.ts";
 import type { HostSnapshot, LlmConfig, LlmSnapshot, SpecStats } from "../types.ts";
-import { ENGINE_LABELS, engineFromMetrics, engineFromOwner, metricsFromTensorfoldHealth, parseMetrics, withLiveTensorfoldTokens, type Engine, type MetricsSample } from "./engines.ts";
+import { ENGINE_LABELS, engineFromMetrics, engineFromOwner, metricsSample, type Engine, type MetricsSample } from "./engines.ts";
 
 export { parseMetrics } from "./engines.ts";
 
-const HISTORY_POINTS = 120;
 const REQUEST_TIMEOUT_MS = 3000;
 const SPEC_WINDOW_MS = 60_000;
 
@@ -66,11 +66,6 @@ export function specStats(prev: MetricsSample | null, next: MetricsSample, dt: n
     draftTokensPerSec: rate(next.draftTokens, prev?.draftTokens ?? null),
     acceptedTokensPerSec: rate(next.acceptedTokens, prev?.acceptedTokens ?? null),
   };
-}
-
-function push<T>(arr: T[], value: T): void {
-  arr.push(value);
-  if (arr.length > HISTORY_POINTS) arr.splice(0, arr.length - HISTORY_POINTS);
 }
 
 export class LlmCollector {
@@ -200,8 +195,8 @@ export class LlmCollector {
         state.prev = null;
         state.window = [];
         if (!config.engine || config.engine === "auto") state.engine = null;
-        push(state.snapshot.history.genTps, null);
-        push(state.snapshot.history.running, null);
+        pushRecent(state.snapshot.history.genTps, null);
+        pushRecent(state.snapshot.history.running, null);
       };
 
       if (!health || health.status !== 200) {
@@ -256,13 +251,7 @@ export class LlmCollector {
       const engine: Engine = state.engine ?? "vllm";
 
       const now = Date.now();
-      const metrics = metricsText
-        ? engine === "tensorfold"
-          ? withLiveTensorfoldTokens(parseMetrics(metricsText, engine), healthBody)
-          : parseMetrics(metricsText, engine)
-        : engine === "tensorfold"
-          ? metricsFromTensorfoldHealth(healthBody)
-          : null;
+      const metrics = metricsSample(engine, metricsText, healthBody);
       const prev = state.prev;
       let genTps: number | null = null;
       let promptTps: number | null = null;
@@ -329,8 +318,8 @@ export class LlmCollector {
         requestsTotal: metrics?.requests ?? null,
         containers,
       };
-      push(state.snapshot.history.genTps, genTps);
-      push(state.snapshot.history.running, metrics?.running ?? null);
+      pushRecent(state.snapshot.history.genTps, genTps);
+      pushRecent(state.snapshot.history.running, metrics?.running ?? null);
     } finally {
       state.busy = false;
     }

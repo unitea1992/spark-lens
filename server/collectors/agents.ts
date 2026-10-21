@@ -1,9 +1,9 @@
-import { existsSync } from "node:fs";
 import { open, readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { run } from "../exec.ts";
+import { codexHome as defaultCodexHome, findBin, findOpencode } from "./local-tools.ts";
 import type { AgentProcessRule, AgentSnapshot, AgentStatus, HostConfig, HostProcess } from "../types.ts";
 
 const TOOL_LABELS: Record<string, string> = {
@@ -146,7 +146,7 @@ async function readTail(path: string, bytes: number): Promise<{ text: string; mt
   }
 }
 
-export async function codexThreads(codexHome = process.env.CODEX_HOME || join(homedir(), ".codex")): Promise<Partial[]> {
+export async function codexThreads(codexHome = defaultCodexHome()): Promise<Partial[]> {
   let dbPath: string | null = null;
   try {
     const version = (n: string) => Number(/^state_(\d+)\.sqlite$/.exec(n)?.[1] ?? -1);
@@ -381,7 +381,7 @@ export class AgentCollector {
 
   constructor(rules: AgentProcessRule[]) {
     this.rules = rules;
-    this.opencodeBin = findBin("opencode", [join(this.home, ".opencode", "bin", "opencode")]);
+    this.opencodeBin = findOpencode();
     this.orcaBin = findBin("orca", [join(this.home, ".local", "bin", "orca")]);
   }
 
@@ -437,12 +437,4 @@ export class AgentCollector {
   private tilde(path: string): string {
     return path === this.home ? "~" : path.startsWith(`${this.home}/`) ? `~${path.slice(this.home.length)}` : path;
   }
-}
-
-function findBin(name: string, extra: string[]): string | null {
-  const dirs = (process.env.PATH ?? "").split(":").filter(Boolean);
-  for (const candidate of [...dirs.map((d) => join(d, name)), ...extra]) {
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
 }

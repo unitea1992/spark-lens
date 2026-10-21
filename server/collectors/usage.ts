@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { open, readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -6,6 +5,7 @@ import { stateDir } from "../config.ts";
 import { run } from "../exec.ts";
 import { applyPrices, PriceBook } from "../pricing.ts";
 import { localDate, type Store } from "../store.ts";
+import { codexHome, findOpencode } from "./local-tools.ts";
 import type { LlmConfig, ModelUsage, UsageSnapshot } from "../types.ts";
 
 // Token use per model, today and over the last 7 and 30 days, gathered from the
@@ -30,10 +30,17 @@ interface Tally {
 
 type DayModel = Map<string, Map<string, Tally>>; // day -> "source\0model" -> tally
 
+/** The source name of the local LLMs' rows; every other source is a cloud tool. */
+const LOCAL_SOURCE = "ローカル";
+
+function emptyTally(): Tally {
+  return { input: 0, output: 0, cached: 0, cacheWrite: 0, writeKnown: false, totalOnly: 0 };
+}
+
 function add(target: DayModel, day: string, source: string, model: string, t: Partial<Omit<Tally, "writeKnown">>): void {
   const key = `${source}\0${model}`;
   const byModel = target.get(day) ?? new Map<string, Tally>();
-  const cur = byModel.get(key) ?? { input: 0, output: 0, cached: 0, cacheWrite: 0, writeKnown: false, totalOnly: 0 };
+  const cur = byModel.get(key) ?? emptyTally();
   cur.input += t.input ?? 0;
   cur.output += t.output ?? 0;
   cur.cached += t.cached ?? 0;
@@ -208,7 +215,7 @@ export function parseCodexRollout(text: string, state: { model: string | null })
 /** Codex rollouts, read incrementally: a growing file is read from where the last poll stopped. */
 class CodexSource {
   private readonly files = new Map<string, { offset: number; mtimeMs: number; model: string | null; entries: CodexEntry[] }>();
-  private readonly root = join(process.env.CODEX_HOME || join(homedir(), ".codex"), "sessions");
+  private readonly root = join(codexHome(), "sessions");
 
   async collect(target: DayModel): Promise<void> {
     const since = Date.now() - SCAN_DAYS * 86400_000;
@@ -291,11 +298,11 @@ export function parseOpencodeStats(stdout: string): { model: string; input: numb
 
 // ------------------------------------------------------------- collector
 
-function rows(tallies: Map<string, Tally>[], localSources: Set<string>): ModelUsage[] {
+function rows(tallies: Map<string, Tally>[]): ModelUsage[] {
   const merged = new Map<string, Tally>();
   for (const byModel of tallies) {
     for (const [key, t] of byModel) {
-      const cur = merged.get(key) ?? { input: 0, output: 0, cached: 0, cacheWrite: 0, writeKnown: false, totalOnly: 0 };
+      const cur = merged.get(key) ?? emptyTally();
       cur.input += t.input;
       cur.output += t.output;
       cur.cached += t.cached;
@@ -312,7 +319,7 @@ function rows(tallies: Map<string, Tally>[], localSources: Set<string>): ModelUs
       return {
         model,
         source,
-        local: localSources.has(source),
+        local: source === LOCAL_SOURCE,
         input: split ? t.input : null,
         output: split ? t.output : null,
         cached: split ? t.cached : null,
@@ -339,8 +346,7 @@ export class UsageCollector {
   constructor(llms: LlmConfig[], store: Store) {
     this.llms = llms;
     this.store = store;
-    const candidates = [...(process.env.PATH ?? "").split(":").filter(Boolean).map((d) => join(d, "opencode")), join(homedir(), ".opencode", "bin", "opencode")];
-    this.opencodeBin = candidates.find((c) => existsSync(c)) ?? null;
+    this.opencodeBin = findOpencode();
   }
 
   snapshot(): UsageSnapshot {
@@ -360,15 +366,15 @@ export class UsageCollector {
       for (const llm of this.llms) {
         for (const day of recentDays(MONTH_DAYS)) {
           const t = this.store.tokensOn(llm.id, new Date(`${day}T12:00:00`));
-          add(byDay, day, "ローカル", llm.label, { input: t.prompt, output: t.generation });
+          add(byDay, day, LOCAL_SOURCE, llm.label, { input: t.prompt, output: t.generation });
         }
       }
       const days = recentDays(MONTH_DAYS);
-      const today = rows([byDay.get(days[0]!) ?? new Map()], new Set(["ローカル"]));
-      const range = (n: number) => rows(days.slice(0, n).map((d) => byDay.get(d) ?? new Map()), new Set(["ローカル"]));
+      const today = rows([byDay.get(days[0]!) ?? new Map()]);
+      const range = (n: number) => rows(days.slice(0, n).map((d) => byDay.get(d) ?? new Map()));
       const week = range(WEEK_DAYS);
       const month = range(MONTH_DAYS);
-      const daily = days.map((day) => ({ day, models: rows([byDay.get(day) ?? new Map()], new Set(["ローカル"])) }));
+      const daily = days.map((day) => ({ day, models: rows([byDay.get(day) ?? new Map()]) }));
 
       // OpenCode keeps its own day boundaries; ask it for each range.
       if (this.opencodeBin) {

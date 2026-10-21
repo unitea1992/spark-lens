@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { run } from "../exec.ts";
+import { run, sshBashArgs } from "../exec.ts";
+import { pushRecent } from "./recent.ts";
 import type {
   ContainerInfo,
   DiskInfo,
@@ -13,7 +13,6 @@ import type {
 } from "../types.ts";
 
 const PROBE = readFileSync(new URL("../probe.sh", import.meta.url), "utf8");
-const HISTORY_POINTS = 120;
 
 /** Raw, rate-free view of one probe run. */
 export interface ProbeSample {
@@ -221,9 +220,12 @@ function cpuTemp(temps: TempReading[]): number | null {
   return pool.length > 0 ? Math.max(...pool.map((t) => t.tempC)) : null;
 }
 
-function push<T>(arr: T[], value: T): void {
-  arr.push(value);
-  if (arr.length > HISTORY_POINTS) arr.splice(0, arr.length - HISTORY_POINTS);
+/**
+ * Bytes per second between two readings of a traffic counter. No earlier
+ * reading, or a counter that went backwards (a reset interface), gives no rate.
+ */
+export function counterRate(next: number, prev: number | undefined, dt: number): number | null {
+  return prev === undefined || dt <= 0 || next < prev ? null : (next - prev) / dt;
 }
 
 interface HostState {
@@ -237,6 +239,9 @@ interface HostState {
 
 /** Consecutive failed probes before a machine that was answering is shown as down. */
 const OFFLINE_AFTER = 2;
+
+/** A probe must not hang on a dead link: give up on connecting after 5 s, and on a silent session after 10. */
+export const PROBE_SSH_OPTIONS = ["-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=2"];
 
 function emptySnapshot(config: HostConfig, stepSec: number): HostSnapshot {
   return {
@@ -333,23 +338,7 @@ export class HostCollector {
       const input = this.script(config);
       const result = config.local
         ? await run("bash", ["-s"], { input, timeoutMs: this.timeoutMs })
-        : await run(
-            "ssh",
-            [
-              "-T",
-              "-o", "BatchMode=yes",
-              "-o", "ConnectTimeout=5",
-              "-o", "ServerAliveInterval=5",
-              "-o", "ServerAliveCountMax=2",
-              "-o", "ControlMaster=auto",
-              "-o", `ControlPath=${join(this.controlDir, "ssh-%C")}`,
-              "-o", "ControlPersist=120",
-              "--",
-              config.ssh!,
-              "bash -s",
-            ],
-            { input, timeoutMs: this.timeoutMs },
-          );
+        : await run("ssh", sshBashArgs(this.controlDir, config.ssh!, PROBE_SSH_OPTIONS), { input, timeoutMs: this.timeoutMs });
       // Judge the run by its output, not the exit status: Tailscale SSH now and
       // then ends a session that ran to completion with status 255.
       const sample = result.timedOut ? null : parseProbe(result.stdout);
@@ -395,14 +384,12 @@ export class HostCollector {
 
     const net: NetInfo[] = sample.net.map((n) => {
       const before = prev?.sample.net.find((p) => p.iface === n.iface);
-      const rate = (a: number, b: number | undefined) =>
-        b === undefined || dt <= 0 || a < b ? null : (a - b) / dt;
       return {
         iface: n.iface,
         up: n.up,
         speedMbps: n.speedMbps,
-        rxBps: rate(n.rx, before?.rx),
-        txBps: rate(n.tx, before?.tx),
+        rxBps: counterRate(n.rx, before?.rx, dt),
+        txBps: counterRate(n.tx, before?.tx, dt),
       };
     });
 
@@ -441,8 +428,7 @@ export class HostCollector {
       net,
       fabric: sample.ib.map((p) => {
         const before = prev?.sample.ib.find((q) => q.device === p.device);
-        const r = (a: number, b: number | undefined) => (b === undefined || dt <= 0 || a < b ? null : (a - b) / dt);
-        return { device: p.device, rateGbps: p.rateGbps, rxBps: r(p.rx, before?.rx), txBps: r(p.tx, before?.tx) };
+        return { device: p.device, rateGbps: p.rateGbps, rxBps: counterRate(p.rx, before?.rx, dt), txBps: counterRate(p.tx, before?.tx, dt) };
       }),
       containers: sample.containers,
       containersKnown: sample.containersKnown,
@@ -457,10 +443,10 @@ export class HostCollector {
     const hist = snap.history;
     const memPct =
       snap.memTotalBytes && snap.memUsedBytes !== null ? (snap.memUsedBytes / snap.memTotalBytes) * 100 : null;
-    push(hist.cpu, gap ? null : snap.cpuPct);
-    push(hist.gpu, gap ? null : (snap.gpu?.utilPct ?? null));
-    push(hist.mem, gap ? null : memPct);
-    push(hist.temp, gap ? null : (snap.maxTemp?.tempC ?? null));
-    push(hist.power, gap ? null : (snap.gpu?.powerW ?? null));
+    pushRecent(hist.cpu, gap ? null : snap.cpuPct);
+    pushRecent(hist.gpu, gap ? null : (snap.gpu?.utilPct ?? null));
+    pushRecent(hist.mem, gap ? null : memPct);
+    pushRecent(hist.temp, gap ? null : (snap.maxTemp?.tempC ?? null));
+    pushRecent(hist.power, gap ? null : (snap.gpu?.powerW ?? null));
   }
 }
