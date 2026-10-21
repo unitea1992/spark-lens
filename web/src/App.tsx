@@ -1,13 +1,9 @@
 import { useEffect, useState } from "react";
 import type { Snapshot } from "../../server/types.ts";
-import { AgentList } from "./components/AgentList.tsx";
-import { LlmPanel } from "./components/LlmPanel.tsx";
-import { MachineCard } from "./components/MachineCard.tsx";
-import { ModelUsage } from "./components/ModelUsage.tsx";
-import { RecipeList } from "./components/RecipeList.tsx";
-import { SubscriptionCard } from "./components/SubscriptionCard.tsx";
-import { LabMap } from "./components/LabMap.tsx";
 import { clock } from "./format.ts";
+import { AgentsPage } from "./pages/AgentsPage.tsx";
+import { LabPage } from "./pages/LabPage.tsx";
+import { UsagePage } from "./pages/UsagePage.tsx";
 import { PAGES, useRoute, type Page } from "./route.ts";
 import { alerts, badges, type Badge } from "./status.ts";
 import { useSnapshot, type Link } from "./useSnapshot.ts";
@@ -161,18 +157,8 @@ function TabIcon({ page }: { page: Page }) {
 }
 
 function Dashboard({ snapshot, now, stale, page }: { snapshot: Snapshot; now: number; stale: boolean; page: Page }) {
-  // Only models that are up, coming up, or mid-operation get a full card;
-  // every other recipe is one line in the list below them.
-  const inFlight = (r: { status: string }) => r.status === "starting" || r.status === "stopping" || r.status === "updating";
-  const active = snapshot.llms.filter(
-    (l) => l.state !== "down" || snapshot.recipes.some((r) => r.llm === l.id && inFlight(r)),
-  );
-  const activeIds = new Set(active.map((l) => l.id));
-  const idle = snapshot.recipes.filter((r) => !r.llm || !activeIds.has(r.llm));
   // Problems on other pages are shown everywhere, but only while they exist.
   const elsewhere = alerts(snapshot, now).filter((a) => a.page !== page);
-  const working = snapshot.agents.filter((a) => a.status === "working").length;
-  const waiting = snapshot.agents.filter((a) => a.status === "waiting").length;
 
   return (
     <main className={stale ? "stale" : ""}>
@@ -193,91 +179,9 @@ function Dashboard({ snapshot, now, stale, page }: { snapshot: Snapshot; now: nu
         </ul>
       )}
 
-      {page === "lab" && (
-        <>
-          <LabMap snapshot={snapshot} now={now} />
-          {(snapshot.llms.length > 0 || snapshot.recipes.length > 0) && (
-            <section aria-labelledby="h-llm">
-              <h2 id="h-llm">モデル</h2>
-              {active.length > 0 && (
-                <div className="grid grid--llm">
-                  {active.map((l) => (
-                    <LlmPanel
-                      key={l.id}
-                      llm={l}
-                      hosts={snapshot.hosts}
-                      recipes={snapshot.recipes.filter((r) => r.llm === l.id)}
-                      bench={snapshot.bench?.[l.id]}
-                      now={now}
-                    />
-                  ))}
-                </div>
-              )}
-              {idle.length > 0 && (
-                <>
-                  <h3 className="subhead">{active.length > 0 ? "ほかのレシピ" : "レシピ"}</h3>
-                  <RecipeList recipes={idle} now={now} />
-                </>
-              )}
-            </section>
-          )}
-          <section aria-labelledby="h-machines">
-            <h2 id="h-machines">マシン</h2>
-            <div className="grid grid--machines">
-              {snapshot.hosts.map((h) => (
-                <MachineCard key={h.id} host={h} now={now} />
-              ))}
-            </div>
-          </section>
-        </>
-      )}
-
-      {page === "usage" && (
-        <>
-          <section aria-labelledby="h-subs">
-            <h2 id="h-subs">クラウド利用枠</h2>
-            {snapshot.subscriptions.some((x) => x.windows.length > 0) && (
-              <p className="section__hint">
-                <span className="tick" aria-hidden="true" />
-                縦線は期間の経過位置、薄い帯はこのペースで使い続けた場合の期間終了時の見込みです。
-              </p>
-            )}
-            {snapshot.subscriptions.length === 0 ? (
-              <div className="card empty">
-                <p>表示するサービスが設定されていません。</p>
-                <p className="muted">設定ファイルの subscriptions に追加すると、ここに利用枠が並びます。</p>
-              </div>
-            ) : (
-              <div className="grid grid--subs">
-                {snapshot.subscriptions.map((s) => (
-                  <SubscriptionCard key={s.id} sub={s} now={now} />
-                ))}
-              </div>
-            )}
-          </section>
-          <section aria-labelledby="h-models">
-            <h2 id="h-models">モデル別の利用量</h2>
-            <ModelUsage usage={snapshot.usage} />
-          </section>
-        </>
-      )}
-
-      {page === "agents" && (
-        <section aria-labelledby="h-agents">
-          <div className="page-head">
-            <h2 id="h-agents">エージェント</h2>
-            <p className="page-head__count">
-              作業中 <strong>{working}</strong>
-              {waiting > 0 && (
-                <>
-                  {" / "}入力待ち <strong className="warn-text">{waiting}</strong>
-                </>
-              )}
-            </p>
-          </div>
-          <AgentList agents={snapshot.agents} now={now} multiHost={snapshot.hosts.length > 1} />
-        </section>
-      )}
+      {page === "lab" && <LabPage snapshot={snapshot} now={now} />}
+      {page === "usage" && <UsagePage snapshot={snapshot} now={now} />}
+      {page === "agents" && <AgentsPage snapshot={snapshot} now={now} />}
 
       <footer className="foot">
         Spark Lens {snapshot.version} / {snapshot.pollSeconds} 秒ごとに更新
