@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { count, dockerStatus } from "./format.ts";
+import { count, dockerStatus, resetAt, when } from "./format.ts";
+
+test("reset times show just the time today, and the date on other days", () => {
+  const now = new Date(2026, 9, 21, 9, 0).getTime();
+  assert.equal(resetAt(null, now), "リセット時刻不明");
+  assert.equal(resetAt(new Date(2026, 9, 21, 17, 5).getTime(), now), "17:05 にリセット");
+  assert.equal(resetAt(new Date(2026, 9, 23, 8, 46).getTime(), now), "10/23(金) 08:46 にリセット");
+  assert.equal(when(new Date(2026, 9, 21, 17, 5).getTime(), now), "17:05");
+  assert.equal(when(new Date(2026, 9, 23, 8, 46).getTime(), now), "10/23(金) 08:46");
+});
 
 test("count keeps three significant digits and drops trailing zeros", () => {
   assert.equal(count(850000), "850K");

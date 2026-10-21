@@ -7,7 +7,6 @@ import { ModelUsage } from "./components/ModelUsage.tsx";
 import { RecipeList } from "./components/RecipeList.tsx";
 import { SubscriptionCard } from "./components/SubscriptionCard.tsx";
 import { LabMap } from "./components/LabMap.tsx";
-import { StatusPill } from "./components/StatusPill.tsx";
 import { clock } from "./format.ts";
 import { PAGES, useRoute, type Page } from "./route.ts";
 import { alerts, badges, type Badge } from "./status.ts";
