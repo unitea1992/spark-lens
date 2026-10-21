@@ -428,8 +428,10 @@ export interface RecipeSnapshot {
   canUpdate: boolean;
   /** What the running model reserved at start (from its log), when known. */
   memory: { weightsGiB: number | null; kvGiB: number | null } | null;
-  /** While starting: how far it has got, and how long the last good start took. */
-  /** pct is null when the start was made elsewhere and its log cannot be read. */
+  /**
+   * While starting: how far it has got, and how long the last good start took.
+   * pct is null when the start was made elsewhere and its log cannot be read.
+   */
   progress: { pct: number | null; stage: string; startedAt: number; expectedSec: number | null } | null;
   lastAction: { kind: "start" | "stop" | "update"; startedAt: number; finishedAt: number | null; ok: boolean | null; message: string | null } | null;
 }

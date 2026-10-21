@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
-import { cleanLog, launcherCheckScript, RecipeManager, shDir, shq, withoutLocale } from "../recipes.ts";
+import { cleanLog, launcherCheckScript } from "../recipe-scripts.ts";
+import { RecipeManager, shDir, shq, withoutLocale } from "../recipes.ts";
 import type { LlmSnapshot } from "../types.ts";
 
 test("shell quoting survives quotes and expands only a leading ~", async () => {
@@ -311,4 +312,24 @@ test("a launcher whose log ends in a progress bar still reads as alive", () => {
   assert.ok(alive.includes("@@checked"));
   // A pid that is gone is still reported as gone.
   assert.doesNotMatch(run(2 ** 22 + 12345), /^ALIVE/m);
+});
+
+test("the host-side scripts read the recipe's own log and pid files", async () => {
+  const { externalStartScript, memoryScript, recoverScript } = await import("../recipe-scripts.ts");
+  const log = "$HOME/.local/state/spark-lens/recipe-r1.log";
+  const pid = "$HOME/.local/state/spark-lens/recipe-r1.pid";
+  assert.equal(
+    recoverScript("r1"),
+    `p=$(cat "${pid}" 2>/dev/null) && kill -0 "$p" 2>/dev/null && ps -o args= -p "$p" | grep -q "spark-lens: exit" && echo "$p"; head -n 1 "${log}" 2>/dev/null; echo "@@checked"`,
+  );
+  assert.equal(
+    externalStartScript("r1", ["vllm", "it's"]),
+    `tail -n 400 "${log}" 2>/dev/null; echo; head -n 1 "${log}" 2>/dev/null; ` +
+      `echo "@@mtime $(stat -c %Y "${log}" 2>/dev/null)"; echo "@@cstart $(docker inspect -f '{{.State.StartedAt}}' 'vllm' 'it'\\''s' 2>/dev/null | sort | tail -n 1)"`,
+  );
+  assert.match(externalStartScript("r1", []), /echo "@@cstart \$\(true\)"$/);
+  assert.equal(
+    memoryScript("r1"),
+    `grep -aoE "Model loading took [0-9.]+ ?GiB|Available KV cache memory: [0-9.]+ ?GiB|kv-cache-memory-bytes[ =][0-9]+|Load weight end\\.[^\\r]*mem usage=[0-9.]+ ?GB|KV Cache is allocated\\.[^\\r]*V size: [0-9.]+ ?GB" "${log}" 2>/dev/null | tail -n 5`,
+  );
 });
