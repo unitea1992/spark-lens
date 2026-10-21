@@ -1,0 +1,793 @@
+/* Local AI page: model cards and the recipe list. */
+
+/* ---------------------------------------------------------- model card */
+
+/* Title, status and the one valid action share the header. */
+.model__head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 18px;
+}
+
+.model__title .card__title {
+  font-size: 20px;
+}
+
+.model__head .recipe {
+  display: contents;
+}
+
+.model__head .recipe__bar {
+  padding: 0;
+  border: 0;
+  flex-wrap: nowrap;
+}
+
+.model__head .recipe > :not(.recipe__bar) {
+  grid-column: 1 / -1;
+}
+
+.model__down {
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+
+.model--down .model__head .card__title {
+  color: var(--ink-2);
+}
+
+/* Start and stop for one recipe. */
+.recipe {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-radius: 12px;
+  background: none;
+}
+
+.recipe__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.recipe__name {
+  font-weight: 600;
+}
+
+.recipe__confirm {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.recipe__reason {
+  margin-top: -4px;
+}
+
+.recipe .btn--quiet {
+  margin-left: 0;
+}
+
+.logs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.logs .toggle {
+  align-self: flex-start;
+}
+
+.logs__text {
+  margin: 0;
+  max-height: 360px;
+  overflow: auto;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--inset);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Stats in one row, divided by hairlines instead of boxed. */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 0;
+  padding: 6px 0;
+  border-block: 1px solid var(--line);
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 24px;
+  background: none;
+  border-left: 1px solid var(--line);
+  min-width: 0;
+}
+
+.tile:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.tile .meter {
+  margin-top: auto;
+}
+
+.tile__label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+
+.tile__value {
+  font-family: var(--font-figure);
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tile__value small {
+  margin: 0 6px 0 4px;
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ink-2);
+}
+
+.tile__sep {
+  margin: 0 4px 0 -2px;
+  color: var(--ink-3);
+  font-weight: 400;
+}
+
+.tile__value--word {
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font);
+  font-size: 28px;
+  color: var(--ink-2);
+  white-space: normal;
+}
+
+.tile__value--word small {
+  margin: 2px 0 0;
+}
+
+.tile__note {
+  font-size: 12px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.factline {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr));
+  gap: 18px 24px;
+}
+
+.fact dt {
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+  color: var(--ink-3);
+}
+
+.fact dd {
+  font-size: 15px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 720px) {
+  .model__head {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .model__head .recipe__bar {
+    grid-column: 1 / -1;
+  }
+
+  .recipe__bar .btn--primary,
+  .recipe__bar .btn--outline-danger {
+    width: 100%;
+    min-height: 44px;
+    order: 3;
+  }
+
+  .model__head .recipe__bar .btn--primary,
+  .model__head .recipe__bar .btn--outline-danger {
+    flex: 1;
+  }
+
+  .tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 6px;
+  }
+
+  .tile {
+    padding: 10px 12px;
+  }
+
+  .tile:nth-child(odd) {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .factline {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 14px;
+  }
+
+  .fact dd {
+    white-space: normal;
+    overflow: visible;
+    overflow-wrap: anywhere;
+  }
+}
+
+/* Model facts: one row on wide screens. */
+@media (min-width: 900px) {
+  .factline {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+  }
+}
+
+/* ------------------------------------------------------ start progress */
+
+.startbar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.startbar__line {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.startbar__stage {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.startbar__pct {
+  font-family: var(--font-figure);
+  font-size: 26px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.startbar__track {
+  position: relative;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--track);
+  overflow: hidden;
+}
+
+.startbar__fill {
+  height: 100%;
+  border-radius: 4px;
+  background:
+    linear-gradient(90deg, transparent 0, color-mix(in srgb, white 45%, transparent) 50%, transparent 100%) 0 0 / 120px 100% no-repeat,
+    var(--series-1);
+  transition: width 0.4s linear;
+}
+
+.startbar__track--unknown .startbar__fill {
+  width: 30%;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .startbar__fill {
+    animation: startbar-sheen 1.6s linear infinite;
+  }
+
+  .startbar__track--unknown .startbar__fill {
+    animation: startbar-sweep 1.4s ease-in-out infinite;
+  }
+}
+
+@keyframes startbar-sheen {
+  from {
+    background-position: -120px 0, 0 0;
+  }
+  to {
+    background-position: calc(100% + 120px) 0, 0 0;
+  }
+}
+
+@keyframes startbar-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(340%);
+  }
+}
+
+.startbar__time {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------------- memory band */
+
+.memstack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.memband {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.memband__title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+
+.memband__title span {
+  margin-left: 10px;
+  font-weight: 400;
+}
+
+.memband__title .memband__more {
+  margin-left: 0;
+}
+
+.memband__bar {
+  position: relative;
+  display: flex;
+  height: 14px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--track);
+}
+
+/* A hairline notch every GiB keeps the "count the blocks" reading. */
+.memband__bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(90deg, transparent 0 calc(var(--notch) - 1px), color-mix(in srgb, var(--surface) 70%, transparent) calc(var(--notch) - 1px) var(--notch));
+  pointer-events: none;
+}
+
+.memband__seg {
+  height: 100%;
+  transition: width 0.6s ease;
+}
+
+.memband__seg--weights {
+  background: var(--series-1);
+}
+
+.memband__seg--kv-used {
+  background: var(--series-2);
+}
+
+.memband__seg--kv-free {
+  background: color-mix(in srgb, var(--series-2) 32%, var(--surface));
+}
+
+.memband__seg--other {
+  background: color-mix(in srgb, var(--ink-3) 50%, transparent);
+}
+
+.memband__seg--free {
+  background: transparent;
+}
+
+.memband__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.memband__legend li {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.memband__legend strong {
+  font-family: var(--font-figure);
+  font-size: 14px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.memband__legend span {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.memband__key {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  align-self: center;
+}
+
+.memband__key.memband__seg--free {
+  background: var(--track);
+}
+
+/* ----------------------------------------------------------- benchmark */
+
+.bench {
+  margin-top: 4px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bench__head {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+
+.bench__head h4 {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.bench__running {
+  font-size: 12.5px;
+  color: var(--series-1);
+}
+
+.bench__notice,
+.bench__meta {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.bench__figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
+  gap: 10px 24px;
+}
+
+.bench__figures dt {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.bench__figures dd {
+  font-family: var(--font-figure);
+  font-size: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.bench__figures small {
+  margin-left: 4px;
+  font-family: var(--font);
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--ink-3);
+}
+
+.bench__figures em {
+  margin-left: 8px;
+  font-style: normal;
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.bench__up {
+  color: var(--good);
+}
+
+.bench__down {
+  color: var(--critical);
+}
+
+.bench__history {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.bench__history th {
+  text-align: left;
+  font-weight: 500;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  padding: 4px 8px 4px 0;
+}
+
+.bench__history td {
+  padding: 4px 8px 4px 0;
+  border-top: 1px solid var(--line);
+  color: var(--ink-2);
+}
+
+@media (max-width: 720px) {
+  .bench__history {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+}
+
+/* ------------------------------------------------------------ upstream */
+
+.upstream {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.upstream__line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+}
+
+.upstream__label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+}
+
+.upstream__repo {
+  font-size: 12px;
+  color: var(--series-1);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.upstream__repo:hover {
+  text-decoration: underline;
+}
+
+.upstream__state {
+  color: var(--ink-2);
+}
+
+.upstream--behind .upstream__state {
+  color: var(--series-1);
+  font-weight: 600;
+}
+
+.upstream--modified .upstream__state,
+.upstream--error .upstream__state {
+  color: var(--warn);
+}
+
+.upstream__checked {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.upstream__confirm {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.upstream__commits {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 12px;
+  border-left: 2px solid color-mix(in srgb, var(--series-1) 40%, transparent);
+}
+
+.upstream__commits li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.upstream__commits li > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+.upstream__commits li > span:last-child {
+  flex: none;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.upstream__releases li > span:only-child {
+  flex: 1 1 auto;
+  color: var(--ink);
+}
+
+.upstream__changes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.upstream__changes-title {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.upstream__env {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+/* --------------------------------------------------------- recipe list */
+
+.rlist {
+  padding: 4px 24px;
+  gap: 0;
+}
+
+.rrow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+}
+
+.rrow:first-child {
+  border-top: 0;
+}
+
+.rrow__main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.rrow__title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+}
+
+/* Where it runs, its upstream and when that was checked, on a line of their own under the name. */
+.rrow__details {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 14px;
+}
+
+/* The check time and its button wrap together. */
+.rrow__check {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.rrow__checked {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.rrow__name {
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.rrow__meta {
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+
+.rrow__up {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.rrow__up--accent {
+  color: var(--series-1);
+  font-weight: 600;
+}
+
+.rrow__up--warn {
+  color: var(--warn);
+}
+
+.rrow__commits {
+  grid-column: 1 / -1;
+  font-size: 12.5px;
+}
+
+.rrow__actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.rrow__confirm {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.rrow__notice {
+  grid-column: 1 / -1;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.rrow > .logs {
+  grid-column: 1 / -1;
+}
+
+.rrow__notice--bad {
+  color: var(--critical);
+}
+
+@media (max-width: 720px) {
+  .rlist {
+    padding: 2px 16px;
+  }
+
+  .rrow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rrow__actions {
+    justify-content: flex-end;
+  }
+}

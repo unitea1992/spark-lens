@@ -1,0 +1,295 @@
+/* Local AI page: machine cards. */
+
+/* ------------------------------------------------------------ machines */
+
+/* Machine cards share one height per row; the footer sinks to the bottom. */
+.grid--machines {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr));
+  align-items: stretch;
+}
+
+.gauges {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.gauge {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.gauge__label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+
+.gauge__value {
+  font-family: var(--font-figure);
+  font-size: 34px;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.gauge__value small {
+  margin-left: 2px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+
+.gauge__track {
+  display: block;
+  height: 4px;
+  margin-top: 6px;
+  border-radius: 2px;
+  background: var(--track);
+}
+
+.gauge__fill {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  border-radius: 2px;
+  transition: width 0.6s ease;
+}
+
+.gauge--1 .gauge__fill {
+  background: var(--series-1);
+}
+.gauge--2 .gauge__fill {
+  background: var(--series-2);
+}
+.gauge--3 .gauge__fill {
+  background: var(--series-3);
+}
+
+.gauge--1 .gauge__label {
+  color: var(--series-1);
+}
+.gauge--2 .gauge__label {
+  color: var(--series-2);
+}
+.gauge--3 .gauge__label {
+  color: var(--series-3);
+}
+
+.gauge__side {
+  font-size: 12px;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+
+
+/* Storage and other single bars. */
+.bar-row {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: baseline;
+  gap: 2px 10px;
+}
+
+.bar-row__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  min-width: 52px;
+}
+
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.bar-row__value {
+  font-family: var(--font-figure);
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.bar-row__side {
+  justify-self: end;
+  font-size: 12px;
+  color: var(--ink-2);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.bar-row__track {
+  grid-column: 1 / -1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--track);
+}
+
+.bar-row__fill {
+  height: 100%;
+  min-width: 2px;
+  border-radius: 3px;
+  transition: width 0.6s ease;
+}
+
+.series-track-0 .bar-row__fill {
+  background: var(--ink-2);
+}
+.series-track-1 .bar-row__fill {
+  background: var(--series-1);
+}
+.series-track-2 .bar-row__fill {
+  background: var(--series-2);
+}
+.series-track-3 .bar-row__fill {
+  background: var(--series-3);
+}
+
+/* Spec sheet: label and value per row. */
+.spec {
+  display: flex;
+  flex-direction: column;
+}
+
+.spec li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 5px 0;
+  font-size: 13px;
+  border-bottom: 1px dotted var(--line);
+  min-width: 0;
+}
+
+.spec li:last-child {
+  border-bottom: 0;
+}
+
+.spec li > span:first-child {
+  color: var(--ink-2);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spec li > span:last-child {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.spec em {
+  margin-left: 6px;
+  font-style: normal;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.spec--flow li > span:first-child {
+  color: var(--ink);
+}
+
+.spec--quiet > span {
+  color: var(--ink-3) !important;
+}
+
+/* The machine's own figures: two columns, no rules between rows. */
+.spec:not(.spec--flow) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 20px;
+}
+
+.spec:not(.spec--flow) li {
+  flex-direction: column;
+  gap: 0;
+  border: 0;
+  padding: 4px 0;
+}
+
+.spec:not(.spec--flow) li > span:first-child {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.spec:not(.spec--flow) li > span:last-child {
+  text-align: left;
+  font-size: 13.5px;
+}
+
+/* Lists under a heading (network, processes, containers): one row each. */
+.minilist h4 {
+  margin-bottom: 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.minilist .spec:not(.spec--flow) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.minilist .spec li {
+  flex-direction: row;
+  justify-content: space-between;
+}
+
+.minilist .spec li > span:first-child {
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.minilist .spec li > span:last-child {
+  text-align: right;
+  font-size: 13px;
+}
+
+.minilist__more {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.machine__foot {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  /* Machines become a swipeable row: nothing hidden, the page three times shorter. */
+  .grid--machines {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 86%;
+    grid-template-columns: none;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    gap: 12px;
+    margin-inline: calc(-1 * max(16px, env(safe-area-inset-left)));
+    padding-inline: max(16px, env(safe-area-inset-left));
+    scroll-padding-inline: max(16px, env(safe-area-inset-left));
+    scrollbar-width: none;
+  }
+
+  .grid--machines > * {
+    scroll-snap-align: start;
+  }
+
+  .gauge__value {
+    font-size: 28px;
+  }
+}

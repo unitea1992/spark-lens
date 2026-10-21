@@ -1,0 +1,106 @@
+/* Element defaults and small utilities. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+  scroll-padding-top: 12px;
+}
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.55;
+  font-feature-settings: "palt";
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4,
+p,
+dl,
+dd,
+ul {
+  margin: 0;
+  padding: 0;
+}
+
+ul {
+  list-style: none;
+}
+
+strong {
+  font-weight: 600;
+}
+
+section {
+  margin-top: 56px;
+}
+
+h2 {
+  margin-bottom: 12px;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+@media (max-width: 720px) {
+  section {
+    margin-top: 40px;
+  }
+
+  h2 {
+    font-size: 19px;
+  }
+}
+
+:focus-visible {
+  outline: 2px solid var(--series-1);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Series colours for SVG strokes and swatches. */
+.series-1 {
+  stroke: var(--series-1);
+  stop-color: var(--series-1);
+}
+.series-2 {
+  stroke: var(--series-2);
+  stop-color: var(--series-2);
+}
+.series-3 {
+  stroke: var(--series-3);
+  stop-color: var(--series-3);
+}
+.series-fill-3 {
+  fill: var(--series-3);
+}
+.series-bg-1 {
+  background: var(--series-1);
+}
+.series-bg-2 {
+  background: var(--series-2);
+}
+.series-bg-3 {
+  background: var(--series-3);
+}

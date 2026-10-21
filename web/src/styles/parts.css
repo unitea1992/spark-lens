@@ -1,0 +1,407 @@
+/* Parts used on more than one page or in more than one card. */
+
+/* ---------------------------------------------------------------- card */
+
+/* Cards are set off by tone, not outlined. */
+.card {
+  background: var(--surface);
+  border: 0;
+  border-radius: 20px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  box-shadow: 0 1px 2px rgba(15, 27, 45, 0.04);
+}
+
+:root[data-theme="dark"] .card {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) .card {
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  }
+}
+
+@media (max-width: 720px) {
+  .card {
+    padding: 18px;
+  }
+}
+
+.card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.card__title {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.card__sub {
+  font-size: 13px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.card__foot {
+  margin-top: auto;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.empty {
+  gap: 4px;
+}
+
+.muted {
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+.subhead {
+  margin: 26px 0 10px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.grid {
+  display: grid;
+  gap: var(--gap);
+}
+
+/* -------------------------------------------------------------- notice */
+
+.notice {
+  font-size: 13px;
+  color: var(--ink-2);
+  background: var(--inset);
+  border-radius: 10px;
+  padding: 9px 12px;
+}
+
+.notice--warn {
+  color: var(--ink);
+  background: var(--warn-bg);
+}
+
+.notice--critical {
+  color: var(--ink);
+  background: var(--critical-bg);
+}
+
+.notice__detail {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+/* ---------------------------------------------------------------- pill */
+
+/* Status reads as a coloured dot and a word. Healthy is the normal case, so
+   it stays quiet; colour is kept for exceptions. */
+.pill {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border-radius: 999px;
+  background: none;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.pill__glyph {
+  font-size: 10px;
+  line-height: 1;
+}
+
+.pill--good {
+  color: var(--ink-2);
+}
+.pill--good .pill__glyph {
+  color: var(--good);
+}
+.pill--warn {
+  color: var(--warn);
+}
+.pill--critical {
+  color: var(--critical);
+}
+.pill--busy {
+  color: var(--series-1);
+}
+.pill--quiet {
+  color: var(--ink-3);
+}
+
+/* The one piece of ambient motion on the page: work in progress breathes. */
+@media (prefers-reduced-motion: no-preference) {
+  .pill--busy .pill__glyph {
+    animation: breathe 1.6s ease-in-out infinite;
+  }
+}
+
+@keyframes breathe {
+  50% {
+    opacity: 0.25;
+    transform: scale(0.7);
+  }
+}
+
+/* ------------------------------------------------------------- buttons */
+
+.btn {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 7px 16px;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--ink-3);
+}
+
+.btn:disabled {
+  color: var(--ink-3);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.btn--primary {
+  color: #fff;
+  background: var(--series-1);
+  border-color: var(--series-1);
+}
+
+.btn--primary:disabled {
+  color: var(--ink-3);
+  background: var(--track);
+  border-color: var(--track);
+  opacity: 1;
+}
+
+.btn--danger {
+  color: #fff;
+  background: var(--critical);
+  border-color: var(--critical);
+}
+
+.btn--quiet {
+  border-color: transparent;
+  color: var(--ink-2);
+  margin-left: auto;
+}
+
+.btn--outline-danger {
+  color: var(--critical);
+  border-color: color-mix(in srgb, var(--critical) 45%, var(--line));
+  background: var(--surface);
+}
+
+.btn--small {
+  padding: 4px 12px;
+  font-size: 12.5px;
+}
+
+.link-button {
+  font: inherit;
+  font-size: 12px;
+  color: var(--series-1);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.link-button:hover {
+  text-decoration: underline;
+}
+
+.link-button:disabled {
+  color: var(--ink-3);
+  cursor: not-allowed;
+}
+
+/* Range switches follow the tabs: an underline, not a capsule. */
+.toggle {
+  display: inline-flex;
+  gap: 4px;
+  border-radius: 999px;
+}
+
+.toggle button {
+  position: relative;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.toggle button[aria-pressed="true"] {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.toggle button[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--series-1) 55%, transparent);
+}
+
+/* --------------------------------------------------------------- meter */
+
+.meter {
+  position: relative;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 4px;
+  background: var(--track);
+}
+
+.meter__fill {
+  height: 100%;
+  min-width: 2px;
+  border-radius: 4px;
+  background: var(--ink-2);
+  transition: width 0.6s ease;
+}
+
+.meter--warn .meter__fill {
+  background: var(--warn);
+}
+
+.meter--critical .meter__fill {
+  background: var(--critical);
+}
+
+.meter__marker {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--ink);
+  box-shadow: 0 0 0 1.5px var(--surface);
+}
+
+/* The forecast to the end of the window. */
+.meter__ghost {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 0 4px 4px 0;
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--ink-2) 40%, transparent) 0 3px, transparent 3px 6px);
+}
+
+.meter--over .meter__ghost {
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--warn) 75%, transparent) 0 3px, transparent 3px 6px);
+}
+
+/* ----------------------------------------------------------- sparkline */
+
+.spark svg {
+  display: block;
+  width: 100%;
+  height: 48px;
+  touch-action: pan-y;
+  cursor: crosshair;
+}
+
+.spark__line {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.spark__cursor {
+  stroke: var(--ink-3);
+  stroke-width: 1;
+}
+
+.spark__legend {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.spark__readout {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.spark__range {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: 10px;
+}
+
+.spark__range button {
+  position: relative;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  background: none;
+  border: 0;
+  padding: 2px 5px;
+  cursor: pointer;
+}
+
+.spark__range button[aria-pressed="true"] {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.spark__range button[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  right: 5px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--series-1) 55%, transparent);
+}
+
+.spark--empty {
+  height: 66px;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  color: var(--ink-3);
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+}
+
+.spark > .spark--empty {
+  margin-top: 4px;
+}

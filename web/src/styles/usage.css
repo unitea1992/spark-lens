@@ -1,0 +1,285 @@
+/* Usage page: subscription cards and model usage. */
+
+.section__hint {
+  margin: -8px 0 12px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.tick {
+  display: inline-block;
+  width: 2px;
+  height: 11px;
+  margin: 0 5px -1px 0;
+  background: var(--ink);
+  border-radius: 1px;
+}
+
+.grid--subs {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+}
+
+/* ------------------------------------------------- subscription window */
+
+.stat__line {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.stat__line strong {
+  font-family: var(--font-figure);
+  font-size: 17px;
+  color: var(--ink);
+  margin-right: 4px;
+}
+
+.stat__foot {
+  margin-top: 5px;
+  font-size: 12px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* How the window moved, from the readings kept on the server. */
+.stat__trend {
+  margin-top: 2px;
+  color: var(--ink-3);
+}
+
+.stat__foot--split {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 2px 12px;
+}
+
+/* The pace note sits where the projection goes, in the same quiet size. */
+.pace {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.stat__foot--split .pace {
+  margin: 0;
+  display: inline;
+}
+
+.pace--good,
+.pace--ok {
+  color: var(--ink-3);
+}
+
+.pace--warn {
+  color: var(--warn);
+  font-weight: 400;
+}
+
+.pace--critical {
+  color: var(--critical);
+  font-weight: 600;
+}
+
+.tickets {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.tickets__title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.tickets li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  padding: 2px 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.tickets li.tickets--soon span:last-child {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.notes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.notes li {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  background: var(--inset);
+  border-radius: 999px;
+  padding: 2px 10px;
+}
+
+/* --------------------------------------------------------- model usage */
+
+.usage__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.usage__summary {
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+.usage__summary strong {
+  font-family: var(--font-figure);
+  font-size: 20px;
+  color: var(--ink);
+}
+
+.usage__usd {
+  font-variant-numeric: tabular-nums;
+}
+
+.usage__rows {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
+  gap: 12px 32px;
+}
+
+.usage__line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13.5px;
+}
+
+.usage__model {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.chip {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--ink-2);
+  background: var(--inset);
+  border-radius: 999px;
+  padding: 0 8px;
+}
+
+.chip--local {
+  color: var(--series-2);
+  background: color-mix(in srgb, var(--series-2) 14%, transparent);
+}
+
+.usage__total {
+  margin-left: auto;
+  font-family: var(--font-figure);
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.usage__price {
+  flex: none;
+  min-width: 5.5em;
+  text-align: right;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.usage__price--unknown {
+  color: var(--ink-3);
+}
+
+.usage__bar {
+  height: 6px;
+  margin-top: 4px;
+  border-radius: 3px;
+  background: var(--track);
+}
+
+.usage__fill {
+  height: 100%;
+  min-width: 2px;
+  border-radius: 3px;
+  background: var(--ink-2);
+}
+
+.usage__fill--local {
+  background: var(--series-2);
+}
+
+.usage__detail {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Usage notes: two short lists instead of one long paragraph. */
+.usage__notes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 40px;
+  margin-top: 4px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.usage__notes h4 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+  margin-bottom: 6px;
+}
+
+.usage__notes h4 span {
+  margin-left: 10px;
+  font-weight: 400;
+  color: var(--ink-3);
+}
+
+.usage__notes ul {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink-3);
+}
+
+.usage__notes li {
+  position: relative;
+  padding-left: 12px;
+}
+
+.usage__notes li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 0.75em;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+@media (max-width: 720px) {
+  .usage__notes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
