@@ -147,8 +147,10 @@ if command -v docker >/dev/null 2>&1; then
                 sub(/^[ "]?--(served-model-)?name[ =]+/, "", served)
             }
             limit = ""
-            if (match(cmd, /--(parallel|max-num-seqs|max-running-requests)[ =]+[^0-9 ]*[0-9]+/)) {
+            # The whole value must be a positive integer (quotes allowed): never the next option or a negative number.
+            if (match(cmd, /--(parallel|max-num-seqs|max-running-requests)[ =]+[\\"]*[1-9][0-9]*([^0-9A-Za-z.=-]|$)/)) {
                 limit = substr(cmd, RSTART, RLENGTH)
+                sub(/[^0-9]+$/, "", limit)
                 sub(/^.*[^0-9]/, "", limit)
             }
             print $1, $2, $3, $4, served, limit

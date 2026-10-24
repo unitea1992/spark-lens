@@ -21,6 +21,10 @@ test("probe.sh reads the request limit from a container's command", () => {
         'py|img|running|Up|"python -m engine --port 1"',
         "sh|img|running|Up|\"sh -c 'run --parallel \\\"8\\\"'\"",
         'gap|img|running|Up|"x --parallel --foo 5"',
+        'next|img|running|Up|"x --parallel --port=8000"',
+        'neg|img|running|Up|"x --parallel -1"',
+        'zero|img|running|Up|"x --max-num-seqs 0"',
+        'tail|img|running|Up|"x --max-running-requests 12"',
         "EOT",
         "",
       ].join("\n"),
@@ -33,7 +37,7 @@ test("probe.sh reads the request limit from a container's command", () => {
     });
     const s = parseProbe(out);
     const limits = Object.fromEntries((s?.containers ?? []).map((c) => [c.name, c.maxConcurrent]));
-    assert.deepEqual(limits, { tf: 4, vl: 16, py: null, sh: 8, gap: null });
+    assert.deepEqual(limits, { tf: 4, vl: 16, py: null, sh: 8, gap: null, next: null, neg: null, zero: null, tail: 12 });
     assert.equal(s?.containers[0]?.servedName, "Model-A");
   } finally {
     rmSync(dir, { recursive: true, force: true });
