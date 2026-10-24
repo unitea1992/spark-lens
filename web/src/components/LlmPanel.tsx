@@ -89,7 +89,7 @@ export function LlmPanel({
               <span className="tile__label">リクエスト</span>
               <span className="tile__value">
                 {llm.requestsRunning ?? "–"}
-                <small>実行</small>
+                <small>{llm.maxConcurrent != null ? `実行（上限 ${llm.maxConcurrent}）` : "実行"}</small>
                 <span className="tile__sep">/</span>
                 {llm.requestsWaiting ?? "–"}
                 <small>待ち</small>

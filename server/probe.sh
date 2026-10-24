@@ -129,10 +129,12 @@ for d in /sys/class/infiniband/*; do
 done
 
 echo "@@docker"
-# <name>|<image>|<state>|<status>|<served model name>
+# <name>|<image>|<state>|<status>|<served model name>|<max concurrent requests>
 # The served name is the value of --name / --served-model-name in the
 # container's command, empty when there is none; two recipes that share a
 # container are told apart by it while neither answers yet.
+# The last field is the number after --parallel / --max-num-seqs / --max-running-requests
+# in the same command, empty when none is there.
 # Ends with "@ok" only when the list was read, so an empty list means no containers.
 if command -v docker >/dev/null 2>&1; then
     if sl_ps=$(timeout 4 docker ps -a --no-trunc --format '{{.Names}}|{{.Image}}|{{.State}}|{{.Status}}|{{.Command}}' 2>/dev/null); then
@@ -144,7 +146,14 @@ if command -v docker >/dev/null 2>&1; then
                 served = substr(cmd, RSTART, RLENGTH)
                 sub(/^[ "]?--(served-model-)?name[ =]+/, "", served)
             }
-            print $1, $2, $3, $4, served
+            limit = ""
+            # The whole value must be a positive integer (quotes allowed): never the next option or a negative number.
+            if (match(cmd, /--(parallel|max-num-seqs|max-running-requests)[ =]+[\\"]*[1-9][0-9]*([^0-9A-Za-z.=-]|$)/)) {
+                limit = substr(cmd, RSTART, RLENGTH)
+                sub(/[^0-9]+$/, "", limit)
+                sub(/^.*[^0-9]/, "", limit)
+            }
+            print $1, $2, $3, $4, served, limit
         }'
         echo "@ok"
     fi

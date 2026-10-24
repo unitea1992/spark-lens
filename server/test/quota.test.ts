@@ -54,17 +54,39 @@ test("no readable numbers is unknown, not usable", () => {
   assert.equal(report(sub([], { status: "unconfigured" })).recommendation, "unknown");
 });
 
+test("a local LLM at its concurrency limit, or with a queue, is not given more work", () => {
+  const at = (running: number, waiting: number, max: number | null) =>
+    quotaReport(
+      { subscriptions: [], llms: [{ id: "g", label: "GLM", state: "up", models: ["m"], requestsRunning: running, requestsWaiting: waiting, maxConcurrent: max } as LlmSnapshot] },
+      NOW,
+    ).models[0]!;
+  const room = at(3, 0, 4);
+  assert.equal(room.max_concurrent, 4);
+  assert.equal(room.recommendation, "use");
+  const full = at(4, 0, 4);
+  assert.equal(full.recommendation, "avoid");
+  assert.equal(full.state, "usable");
+  assert.match(full.reason, /同時 4 本の上限に達している。追加で振らない/);
+  assert.equal(at(4, 2, 4).recommendation, "avoid");
+  // A queue below the limit, or with an unknown limit, lowers heavy work only; no default is guessed.
+  assert.equal(at(2, 1, 4).recommendation, "avoid_heavy");
+  const unknown = at(9, 0, null);
+  assert.equal(unknown.max_concurrent, null);
+  assert.equal(unknown.recommendation, "use");
+  assert.equal(at(1, 3, null).recommendation, "avoid_heavy");
+});
+
 test("local LLMs report loading separately from up", () => {
   const llm = (state: LlmSnapshot["state"]) =>
-    ({ id: "g", label: "GLM", state, models: ["GLM-5.3-Flash"], requestsRunning: 3, requestsWaiting: 0, poolTokens: 1918976, poolFreeTokens: 129024 }) as LlmSnapshot;
+    ({ id: "g", label: "GLM", state, models: ["GLM-5.3-Flash"], requestsRunning: 3, requestsWaiting: 0, poolTokens: 1918976, poolFreeTokens: 129024, maxConcurrent: null }) as LlmSnapshot;
   const states = (["up", "starting", "down"] as const).map((s) => quotaReport({ subscriptions: [], llms: [llm(s)] }, NOW).models[0]!);
   assert.deepEqual(states.map((m) => m.state), ["usable", "loading", "down"]);
   assert.deepEqual(states.map((m) => m.recommendation), ["use", "avoid", "avoid"]);
   // Only the running server says which model it answers to and how busy it is.
-  assert.deepEqual(states.map((m) => [m.served_model, m.requests_running, m.requests_waiting, m.pool_tokens, m.pool_free_tokens]), [
-    ["GLM-5.3-Flash", 3, 0, 1918976, 129024],
-    [null, null, null, null, null],
-    [null, null, null, null, null],
+  assert.deepEqual(states.map((m) => [m.served_model, m.requests_running, m.requests_waiting, m.pool_tokens, m.pool_free_tokens, m.max_concurrent]), [
+    ["GLM-5.3-Flash", 3, 0, 1918976, 129024, null],
+    [null, null, null, null, null, null],
+    [null, null, null, null, null, null],
   ]);
 });
 

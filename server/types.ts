@@ -124,6 +124,8 @@ export interface ContainerInfo {
   status: string;
   /** The model name its command serves (--name / --served-model-name), when it has one. */
   servedName?: string | null;
+  /** The request limit its command sets (--parallel, --max-num-seqs, --max-running-requests), when it sets one. */
+  maxConcurrent?: number | null;
 }
 
 export interface TempReading {
@@ -221,6 +223,8 @@ export interface LlmSnapshot {
   latencyMs: number | null;
   requestsRunning: number | null;
   requestsWaiting: number | null;
+  /** The most requests the server handles at once, read from the running containers' command; null when they do not say. */
+  maxConcurrent: number | null;
   /** 0..1 */
   kvCacheUsage: number | null;
   /** TensorFold only: the shared cache pool's token rows, and rows no stream or kept prompt holds. */
@@ -238,7 +242,7 @@ export interface LlmSnapshot {
   tokensToday: { prompt: number; generation: number };
   tokensTotal: { prompt: number; generation: number } | null;
   requestsTotal: number | null;
-  containers: { host: string; name: string; state: string; status: string; servedName?: string | null }[];
+  containers: { host: string; name: string; state: string; status: string; servedName?: string | null; maxConcurrent?: number | null }[];
   history: { stepSec: number; genTps: (number | null)[]; running: (number | null)[] };
 }
 

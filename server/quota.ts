@@ -124,6 +124,8 @@ export interface QuotaModel {
   served_model?: string | null;
   requests_running?: number | null;
   requests_waiting?: number | null;
+  /** Local LLMs only: how many requests the server handles at once; null when its start-up command does not say. */
+  max_concurrent?: number | null;
   /** Local LLMs on TensorFold only: the shared cache pool all conversations draw from, and how much of it is free. */
   pool_tokens?: number | null;
   pool_free_tokens?: number | null;
@@ -264,19 +266,31 @@ function subscriptionModel(sub: SubscriptionSnapshot, now: number, trend?: Quota
 
 function llmModel(llm: LlmSnapshot): QuotaModel {
   const state: QuotaState = llm.state === "up" ? "usable" : llm.state === "starting" ? "loading" : "down";
-  const reason =
-    llm.state === "up"
-      ? `稼働中${llm.requestsWaiting ? `（待ち ${llm.requestsWaiting} 件）` : ""}`
-      : llm.state === "starting"
-        ? "モデル読み込み中。完了まで指示を送らない"
-        : "停止中";
+  const up = llm.state === "up";
+  const max = up ? llm.maxConcurrent : null;
+  // At the limit, one more request waits in line or pushes another conversation's cache out; a queue without a known limit is the same signal.
+  const full = max !== null && (llm.requestsRunning ?? 0) >= max;
+  const queued = up && (llm.requestsWaiting ?? 0) > 0;
+  let reason = up
+    ? `稼働中${llm.requestsWaiting ? `（待ち ${llm.requestsWaiting} 件）` : ""}`
+    : llm.state === "starting"
+      ? "モデル読み込み中。完了まで指示を送らない"
+      : "停止中";
+  let recommendation: Recommendation = up ? "use" : "avoid";
+  if (full) {
+    recommendation = "avoid";
+    reason = `同時 ${max} 本の上限に達している。追加で振らない${queued ? `（待ち ${llm.requestsWaiting} 件）` : ""}`;
+  } else if (queued) {
+    recommendation = "avoid_heavy";
+    reason += "。待ちがあるので追加で振らない";
+  }
   return {
     id: llm.id,
     label: llm.label,
     kind: "local_llm",
     plan: null,
     state,
-    recommendation: llm.state === "up" ? "use" : "avoid",
+    recommendation,
     reason,
     used_pct: null,
     binding_window: null,
@@ -294,6 +308,7 @@ function llmModel(llm: LlmSnapshot): QuotaModel {
     served_model: llm.state === "up" ? (llm.models[0] ?? null) : null,
     requests_running: llm.state === "up" ? llm.requestsRunning : null,
     requests_waiting: llm.state === "up" ? llm.requestsWaiting : null,
+    max_concurrent: max,
     pool_tokens: llm.state === "up" ? llm.poolTokens : null,
     pool_free_tokens: llm.state === "up" ? llm.poolFreeTokens : null,
   };

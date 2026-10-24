@@ -68,6 +68,11 @@ export function specStats(prev: MetricsSample | null, next: MetricsSample, dt: n
   };
 }
 
+/** The request limit of the first running container that sets one; null when none does. */
+export function containersMaxConcurrent(containers: { state: string; maxConcurrent?: number | null }[]): number | null {
+  return containers.find((c) => c.state === "running" && c.maxConcurrent != null)?.maxConcurrent ?? null;
+}
+
 export class LlmCollector {
   private readonly states: LlmState[];
   private readonly store: Store;
@@ -95,6 +100,7 @@ export class LlmCollector {
         latencyMs: null,
         requestsRunning: null,
         requestsWaiting: null,
+        maxConcurrent: null,
         kvCacheUsage: null,
         poolTokens: null,
         poolFreeTokens: null,
@@ -144,7 +150,7 @@ export class LlmCollector {
         .flatMap((h) =>
           h.containers
             .filter((c) => wanted.has(c.name))
-            .map((c) => ({ host: h.id, name: c.name, state: c.state, status: c.status, servedName: c.servedName ?? null })),
+            .map((c) => ({ host: h.id, name: c.name, state: c.state, status: c.status, servedName: c.servedName ?? null, maxConcurrent: c.maxConcurrent ?? null })),
         );
 
       // vLLM and TensorFold have a cheap /health. SGLang's /health runs a
@@ -183,6 +189,7 @@ export class LlmCollector {
           latencyMs: null,
           requestsRunning: null,
           requestsWaiting: null,
+          maxConcurrent: null,
           kvCacheUsage: null,
           poolTokens: null,
           poolFreeTokens: null,
@@ -299,6 +306,7 @@ export class LlmCollector {
         latencyMs,
         requestsRunning: metrics?.running ?? null,
         requestsWaiting: metrics?.waiting ?? null,
+        maxConcurrent: containersMaxConcurrent(containers),
         kvCacheUsage: metrics?.kvUsage ?? null,
         poolTokens: metrics?.poolTokens ?? null,
         poolFreeTokens: metrics?.poolFreeTokens ?? null,
