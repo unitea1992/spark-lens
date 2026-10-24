@@ -172,8 +172,20 @@ export function parseProbe(text: string): ProbeSample | null {
   const containersKnown = dockerLines.includes("@ok");
   const containers = dockerLines.flatMap((line) => {
     if (line === "@ok") return [];
-    const [name, image, state, status, served] = line.split("|");
-    return name ? [{ name, image: image ?? "", state: state ?? "", status: status ?? "", servedName: served || null }] : [];
+    const [name, image, state, status, served, limit] = line.split("|");
+    const maxConcurrent = Number(limit);
+    return name
+      ? [
+          {
+            name,
+            image: image ?? "",
+            state: state ?? "",
+            status: status ?? "",
+            servedName: served || null,
+            maxConcurrent: limit && Number.isInteger(maxConcurrent) && maxConcurrent > 0 ? maxConcurrent : null,
+          },
+        ]
+      : [];
   });
 
   const procs = (s.get("procs") ?? []).flatMap((line) => {
