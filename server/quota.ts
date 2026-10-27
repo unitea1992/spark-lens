@@ -345,9 +345,10 @@ export function quotaBrief(snapshot: Pick<Snapshot, "subscriptions" | "llms">, n
       }),
       ...snapshot.llms.map((llm) => {
         const m = llmModel(llm);
-        return { id: m.id, label: m.label, kind: m.kind, state: m.state, windows: [], served_model: m.served_model,
-          requests_running: m.requests_running, requests_waiting: m.requests_waiting, max_concurrent: m.max_concurrent,
-          pool_tokens: m.pool_tokens, pool_free_tokens: m.pool_free_tokens };
+        return { id: m.id, label: m.label, kind: m.kind, state: m.state,
+          ...(m.served_model != null && { served_model: m.served_model }), ...(m.requests_running != null && { requests_running: m.requests_running }),
+          ...(m.requests_waiting != null && { requests_waiting: m.requests_waiting }), ...(m.max_concurrent != null && { max_concurrent: m.max_concurrent }),
+          ...(m.pool_tokens != null && { pool_tokens: m.pool_tokens }), ...(m.pool_free_tokens != null && { pool_free_tokens: m.pool_free_tokens }) };
       }),
     ],
   };
