@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { QuotaSeries } from "../quota-history.ts";
-import { quotaReport, type QuotaTrendSource } from "../quota.ts";
+import { quotaBrief, quotaReport, type QuotaTrendSource } from "../quota.ts";
 import type { LlmSnapshot, SubscriptionSnapshot, UsageWindow } from "../types.ts";
 
 const NOW = Date.parse("2026-10-03T00:00:00Z");
@@ -14,6 +14,43 @@ const win = (id: string, usedPct: number | null, resetsAt: number | null, window
   id, label: id, usedPct, resetsAt, windowSec, ...over,
 });
 const report = (s: SubscriptionSnapshot) => quotaReport({ subscriptions: [s], llms: [] }, NOW).models[0]!;
+
+test("brief contains every window in order and only routing fields", () => {
+  const subscription = sub([win("5h", 0, NOW + H, 5 * 3600), win("week", 20, NOW + H, 7 * 86400), win("month", null, null, 30 * 86400)], {
+    tickets: [{ label: "券", expiresAt: NOW + 10 * 86400_000 }],
+  });
+  const llm = { id: "g", label: "GLM", state: "up", models: ["model"], requestsRunning: 1, requestsWaiting: 0, maxConcurrent: 2, poolTokens: null, poolFreeTokens: null } as LlmSnapshot;
+  const brief = quotaBrief({ subscriptions: [subscription], llms: [llm] }, NOW);
+  assert.deepEqual(Object.keys(brief), ["generated_at_jst", "models"]);
+  const model = brief.models[0]!;
+  assert.deepEqual(Object.keys(model), ["id", "label", "kind", "state", "windows", "tickets"]);
+  assert.deepEqual(model.windows.map((w) => w.id), ["5h", "week", "month"]);
+  assert.equal(model.windows[0]!.used_pct, 0);
+  assert.equal(model.windows[2]!.used_pct, null);
+  assert.deepEqual(Object.keys(model.windows[0]!), ["id", "label", "used_pct", "resets_at_jst"]);
+  assert.ok("tickets" in model && model.tickets);
+  assert.deepEqual(Object.keys(model.tickets), ["remaining", "next_at_jst"]);
+  assert.equal(model.tickets!.remaining, 1);
+  assert.deepEqual(Object.keys(brief.models[1]!), ["id", "label", "kind", "state", "windows", "served_model", "requests_running", "requests_waiting", "max_concurrent", "pool_tokens", "pool_free_tokens"]);
+  assert.equal("tickets" in quotaBrief({ subscriptions: [sub([])], llms: [] }, NOW).models[0]!, false);
+  assert.equal("stale" in model, false);
+  const stale = quotaBrief({ subscriptions: [sub([win("week", 20, NOW + H, 7 * 86400)], { fetchedAt: NOW - 16 * 60_000 })], llms: [] }, NOW).models[0]!;
+  assert.ok("stale" in stale && stale.stale === true);
+  assert.equal(stale.state, "usable");
+});
+
+test("brief ticket time uses the same history as the full report", () => {
+  const reset = NOW + 2 * 86400_000;
+  const subscription = sub([win("week", 50, reset, 7 * 86400)], { tickets: [{ label: "券", expiresAt: NOW + 3 * 86400_000 }] });
+  const trend = { series: () => ({ since: NOW - 2 * 86400_000, points: [[NOW - 10 * H, 30, reset], [NOW, 50, reset]] as QuotaSeries["points"] }) };
+  const snapshot = { subscriptions: [subscription], llms: [] };
+  const model = quotaBrief(snapshot, NOW, trend).models[0]!;
+  assert.ok("tickets" in model && model.tickets);
+  assert.equal(model.tickets.next_at_jst, quotaReport(snapshot, NOW, trend).models[0]!.tickets[0]!.use_at_jst);
+  const without = quotaBrief(snapshot, NOW).models[0]!;
+  assert.ok("tickets" in without && without.tickets);
+  assert.notEqual(model.tickets.next_at_jst, without.tickets.next_at_jst);
+});
 
 test("a window at 100% is limited, and recovery is when the last full window resets", () => {
   const m = report(sub([win("5h", 100, NOW + 2 * H, 5 * 3600), win("week", 100, NOW + 30 * H, 7 * 86400), win("m", 10, NOW + 99 * H, 30 * 86400)]));

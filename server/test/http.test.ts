@@ -66,7 +66,7 @@ const JSON_TYPE = "application/json; charset=utf-8";
 
 test("the read-only API answers JSON that is never cached, and HEAD without a body", async () => {
   await withServer({ history: () => [{ t: 1, v: 2 }], historyKeys: () => ["host:a:cpu"] }, async (port) => {
-    for (const path of ["/api/state", "/api/quota", "/api/usage", "/api/history", "/api/history?key=host:a:cpu"]) {
+    for (const path of ["/api/state", "/api/quota", "/api/quota?view=brief", "/api/usage", "/api/history", "/api/history?key=host:a:cpu"]) {
       const get = await send(port, "GET", path);
       assert.equal(get.status, 200, path);
       assert.equal(get.type, JSON_TYPE, path);
@@ -78,6 +78,11 @@ test("the read-only API answers JSON that is never cached, and HEAD without a bo
       assert.equal(head.body, "", path);
     }
     assert.deepEqual(JSON.parse((await send(port, "GET", "/api/state")).body), snapshot);
+    const normal = JSON.parse((await send(port, "GET", "/api/quota")).body);
+    const brief = JSON.parse((await send(port, "GET", "/api/quota?view=brief&days=7")).body);
+    assert.deepEqual(Object.keys(normal), ["generated_at", "generated_at_jst", "thresholds", "models"]);
+    assert.deepEqual(Object.keys(brief), ["generated_at_jst", "models"]);
+    assert.deepEqual(Object.keys(JSON.parse((await send(port, "GET", "/api/quota?view=other")).body)), Object.keys(normal));
     assert.deepEqual(JSON.parse((await send(port, "GET", "/api/history")).body), { keys: ["host:a:cpu"] });
     assert.deepEqual(JSON.parse((await send(port, "GET", "/api/history?key=host:a:cpu")).body), [{ t: 1, v: 2 }]);
     assert.deepEqual(JSON.parse((await send(port, "GET", "/api/history?key=bad%20key")).body), []);

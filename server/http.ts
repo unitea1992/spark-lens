@@ -5,7 +5,7 @@ import { hostname } from "node:os";
 import { extname, join, normalize, sep } from "node:path";
 import { gzipSync } from "node:zlib";
 import type { Snapshot } from "./types.ts";
-import { quotaReport } from "./quota.ts";
+import { quotaBrief, quotaReport } from "./quota.ts";
 import { QUOTA_KEEP_DAYS } from "./quota-history.ts";
 import { MAX_USAGE_DAYS, usageReport } from "./usage-report.ts";
 
@@ -180,7 +180,7 @@ export class HttpServer {
     const days = daysParam(req.url, path === "/api/usage" ? MAX_USAGE_DAYS : QUOTA_KEEP_DAYS);
     if (path === "/api/quota") {
       const trend = this.opts.quotaSeries ? { series: this.opts.quotaSeries, ...(days ? { days } : {}) } : undefined;
-      return reply(() => quotaReport(this.opts.snapshot(), Date.now(), trend));
+      return reply(() => query.get("view") === "brief" ? quotaBrief(this.opts.snapshot(), Date.now(), trend) : quotaReport(this.opts.snapshot(), Date.now(), trend));
     }
     if (path === "/api/usage") return reply(() => usageReport(this.opts.snapshot().usage, Date.now(), query.get("model"), days));
     if (path === "/api/history") {
