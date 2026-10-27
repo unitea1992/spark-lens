@@ -343,7 +343,7 @@ export function quotaBrief(snapshot: Pick<Snapshot, "subscriptions" | "llms">, n
           ...(model.reset_tickets > 0 ? { tickets: { remaining: model.reset_tickets, next_at_jst: jst(next.length ? Math.min(...next) : null) } } : {}),
         };
       }),
-      ...snapshot.llms.map((llm) => {
+      ...snapshot.llms.filter((llm) => llm.state !== "down").map((llm) => {
         const m = llmModel(llm);
         return { id: m.id, label: m.label, kind: m.kind, state: m.state,
           ...(m.served_model != null && { served_model: m.served_model }), ...(m.requests_running != null && { requests_running: m.requests_running }),

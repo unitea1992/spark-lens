@@ -39,14 +39,15 @@ test("brief contains every window in order and only routing fields", () => {
   assert.equal(stale.state, "usable");
 });
 
-test("brief omits null fields and windows for a down local LLM", () => {
+test("brief omits down local LLMs", () => {
   const llm = { id: "g", label: "GLM", state: "down", models: [], requestsRunning: null, requestsWaiting: null, maxConcurrent: null, poolTokens: null, poolFreeTokens: null } as unknown as LlmSnapshot;
-  assert.deepEqual(quotaBrief({ subscriptions: [], llms: [llm] }, NOW).models[0], { id: "g", label: "GLM", kind: "local_llm", state: "down" });
+  assert.deepEqual(quotaBrief({ subscriptions: [], llms: [llm] }, NOW).models, []);
 });
 
 test("brief includes available local LLM fields including zero", () => {
   const llm = { id: "g", label: "GLM", state: "up", models: ["model"], requestsRunning: 1, requestsWaiting: 0, maxConcurrent: 2, poolTokens: 100, poolFreeTokens: 0 } as LlmSnapshot;
   assert.deepEqual(quotaBrief({ subscriptions: [], llms: [llm] }, NOW).models[0], { id: "g", label: "GLM", kind: "local_llm", state: "usable", served_model: "model", requests_running: 1, requests_waiting: 0, max_concurrent: 2, pool_tokens: 100, pool_free_tokens: 0 });
+  assert.deepEqual(quotaBrief({ subscriptions: [], llms: [{ ...llm, state: "starting" }] }, NOW).models[0], { id: "g", label: "GLM", kind: "local_llm", state: "loading" });
 });
 
 test("brief ticket time uses the same history as the full report", () => {
