@@ -23,6 +23,7 @@ test("brief contains every window in order and only routing fields", () => {
   const brief = quotaBrief({ subscriptions: [subscription], llms: [llm] }, NOW);
   assert.deepEqual(Object.keys(brief), ["generated_at_jst", "models"]);
   const model = brief.models[0]!;
+  assert.ok("windows" in model);
   assert.deepEqual(Object.keys(model), ["id", "label", "kind", "state", "windows", "tickets"]);
   assert.deepEqual(model.windows.map((w) => w.id), ["5h", "week", "month"]);
   assert.equal(model.windows[0]!.used_pct, 0);
@@ -31,12 +32,21 @@ test("brief contains every window in order and only routing fields", () => {
   assert.ok("tickets" in model && model.tickets);
   assert.deepEqual(Object.keys(model.tickets), ["remaining", "next_at_jst"]);
   assert.equal(model.tickets!.remaining, 1);
-  assert.deepEqual(Object.keys(brief.models[1]!), ["id", "label", "kind", "state", "windows", "served_model", "requests_running", "requests_waiting", "max_concurrent", "pool_tokens", "pool_free_tokens"]);
   assert.equal("tickets" in quotaBrief({ subscriptions: [sub([])], llms: [] }, NOW).models[0]!, false);
   assert.equal("stale" in model, false);
   const stale = quotaBrief({ subscriptions: [sub([win("week", 20, NOW + H, 7 * 86400)], { fetchedAt: NOW - 16 * 60_000 })], llms: [] }, NOW).models[0]!;
   assert.ok("stale" in stale && stale.stale === true);
   assert.equal(stale.state, "usable");
+});
+
+test("brief omits null fields and windows for a down local LLM", () => {
+  const llm = { id: "g", label: "GLM", state: "down", models: [], requestsRunning: null, requestsWaiting: null, maxConcurrent: null, poolTokens: null, poolFreeTokens: null } as unknown as LlmSnapshot;
+  assert.deepEqual(quotaBrief({ subscriptions: [], llms: [llm] }, NOW).models[0], { id: "g", label: "GLM", kind: "local_llm", state: "down" });
+});
+
+test("brief includes available local LLM fields including zero", () => {
+  const llm = { id: "g", label: "GLM", state: "up", models: ["model"], requestsRunning: 1, requestsWaiting: 0, maxConcurrent: 2, poolTokens: 100, poolFreeTokens: 0 } as LlmSnapshot;
+  assert.deepEqual(quotaBrief({ subscriptions: [], llms: [llm] }, NOW).models[0], { id: "g", label: "GLM", kind: "local_llm", state: "usable", served_model: "model", requests_running: 1, requests_waiting: 0, max_concurrent: 2, pool_tokens: 100, pool_free_tokens: 0 });
 });
 
 test("brief ticket time uses the same history as the full report", () => {
