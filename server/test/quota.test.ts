@@ -35,6 +35,19 @@ test("brief contains every window in order and only routing fields", () => {
   assert.equal("tickets" in quotaBrief({ subscriptions: [sub([])], llms: [] }, NOW).models[0]!, false);
 });
 
+test("brief ticket time uses the same history as the full report", () => {
+  const reset = NOW + 2 * 86400_000;
+  const subscription = sub([win("week", 50, reset, 7 * 86400)], { tickets: [{ label: "券", expiresAt: NOW + 3 * 86400_000 }] });
+  const trend = { series: () => ({ since: NOW - 2 * 86400_000, points: [[NOW - 10 * H, 30, reset], [NOW, 50, reset]] as QuotaSeries["points"] }) };
+  const snapshot = { subscriptions: [subscription], llms: [] };
+  const model = quotaBrief(snapshot, NOW, trend).models[0]!;
+  assert.ok("tickets" in model && model.tickets);
+  assert.equal(model.tickets.next_at_jst, quotaReport(snapshot, NOW, trend).models[0]!.tickets[0]!.use_at_jst);
+  const without = quotaBrief(snapshot, NOW).models[0]!;
+  assert.ok("tickets" in without && without.tickets);
+  assert.notEqual(model.tickets.next_at_jst, without.tickets.next_at_jst);
+});
+
 test("a window at 100% is limited, and recovery is when the last full window resets", () => {
   const m = report(sub([win("5h", 100, NOW + 2 * H, 5 * 3600), win("week", 100, NOW + 30 * H, 7 * 86400), win("m", 10, NOW + 99 * H, 30 * 86400)]));
   assert.equal(m.state, "limited");

@@ -329,12 +329,12 @@ export function quotaReport(snapshot: Pick<Snapshot, "subscriptions" | "llms">, 
 }
 
 /** Compact routing view, retaining every reported window even when its reading is unknown. */
-export function quotaBrief(snapshot: Pick<Snapshot, "subscriptions" | "llms">, now: number) {
+export function quotaBrief(snapshot: Pick<Snapshot, "subscriptions" | "llms">, now: number, trend?: QuotaTrendSource) {
   return {
     generated_at_jst: jst(now)!,
     models: [
       ...snapshot.subscriptions.map((sub) => {
-        const model = subscriptionModel(sub, now);
+        const model = subscriptionModel(sub, now, trend);
         const next = model.tickets.map((ticket) => ticket.use_at).filter((time): time is number => time !== null);
         return {
           id: model.id, label: model.label, kind: model.kind, state: model.state,

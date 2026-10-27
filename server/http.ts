@@ -180,7 +180,7 @@ export class HttpServer {
     const days = daysParam(req.url, path === "/api/usage" ? MAX_USAGE_DAYS : QUOTA_KEEP_DAYS);
     if (path === "/api/quota") {
       const trend = this.opts.quotaSeries ? { series: this.opts.quotaSeries, ...(days ? { days } : {}) } : undefined;
-      return reply(() => query.get("view") === "brief" ? quotaBrief(this.opts.snapshot(), Date.now()) : quotaReport(this.opts.snapshot(), Date.now(), trend));
+      return reply(() => query.get("view") === "brief" ? quotaBrief(this.opts.snapshot(), Date.now(), trend) : quotaReport(this.opts.snapshot(), Date.now(), trend));
     }
     if (path === "/api/usage") return reply(() => usageReport(this.opts.snapshot().usage, Date.now(), query.get("model"), days));
     if (path === "/api/history") {
