@@ -33,6 +33,10 @@ test("brief contains every window in order and only routing fields", () => {
   assert.equal(model.tickets!.remaining, 1);
   assert.deepEqual(Object.keys(brief.models[1]!), ["id", "label", "kind", "state", "windows", "served_model", "requests_running", "requests_waiting", "max_concurrent", "pool_tokens", "pool_free_tokens"]);
   assert.equal("tickets" in quotaBrief({ subscriptions: [sub([])], llms: [] }, NOW).models[0]!, false);
+  assert.equal("stale" in model, false);
+  const stale = quotaBrief({ subscriptions: [sub([win("week", 20, NOW + H, 7 * 86400)], { fetchedAt: NOW - 16 * 60_000 })], llms: [] }, NOW).models[0]!;
+  assert.ok("stale" in stale && stale.stale === true);
+  assert.equal(stale.state, "usable");
 });
 
 test("brief ticket time uses the same history as the full report", () => {

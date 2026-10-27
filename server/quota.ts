@@ -338,6 +338,7 @@ export function quotaBrief(snapshot: Pick<Snapshot, "subscriptions" | "llms">, n
         const next = model.tickets.map((ticket) => ticket.use_at).filter((time): time is number => time !== null);
         return {
           id: model.id, label: model.label, kind: model.kind, state: model.state,
+          ...(model.stale ? { stale: true as const } : {}),
           windows: sub.windows.map((w) => ({ id: w.id, label: w.label, used_pct: w.usedPct, resets_at_jst: jst(w.resetsAt) })),
           ...(model.reset_tickets > 0 ? { tickets: { remaining: model.reset_tickets, next_at_jst: jst(next.length ? Math.min(...next) : null) } } : {}),
         };

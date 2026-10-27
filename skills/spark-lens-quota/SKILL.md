@@ -12,6 +12,7 @@ curl -s "http://127.0.0.1:8686/api/quota?view=brief"
 `127.0.0.1:8686` は既定の待ち受けの一例。環境のホストとポート（`config/config.json` の `server`）に読み替える。候補は `models[]` にあるものだけ。
 
 - `state` と、すべての窓の `used_pct`・`resets_at_jst` を見る。`limited`・`loading`・`down`・`unknown` には振らない。
+- `stale: true` が付いたモデルは値が古い。view なしの `fetched_at` で確かめてから振る。
 - 今の使用率が長い窓（1日以上）で85%、短い窓で80%に達したら、そのモデルへの追加を控える。使用率が不明な窓も判断できないものとして扱う。
 - `tickets` は残り枚数と次に使う時刻。券を使うのはオーナーの操作。
 - ローカル LLM は `served_model`、`requests_running`・`requests_waiting`、`max_concurrent` と、あれば `pool_tokens`・`pool_free_tokens` も見る。待ちがあるか同時処理数の上限に達しているときは追加で振らない。共有領域の空きが少ない場合も長い作業を控える。
