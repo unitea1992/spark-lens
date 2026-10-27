@@ -195,6 +195,8 @@ CPU は `scaling_max_freq`、GPU は systemd のユニットに書かれた `nvi
 
 Claude Code や Codex のようなエージェントが、作業を振る前に「どのモデルにあと何を任せられるか」を確かめるための API です。`/api/state` と同じ情報から、判断に必要な分だけを返します。
 
+`/api/quota?view=brief` は、状態と窓ごとの使用率・リセット時刻などをコンパクトに返します。
+
 ```sh
 curl -s http://127.0.0.1:8686/api/quota
 ```

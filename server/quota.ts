@@ -327,3 +327,27 @@ export function quotaReport(snapshot: Pick<Snapshot, "subscriptions" | "llms">, 
     models: [...snapshot.subscriptions.map((s) => subscriptionModel(s, now, trend)), ...snapshot.llms.map(llmModel)],
   };
 }
+
+/** Compact routing view, retaining every reported window even when its reading is unknown. */
+export function quotaBrief(snapshot: Pick<Snapshot, "subscriptions" | "llms">, now: number) {
+  return {
+    generated_at_jst: jst(now)!,
+    models: [
+      ...snapshot.subscriptions.map((sub) => {
+        const model = subscriptionModel(sub, now);
+        const next = model.tickets.map((ticket) => ticket.use_at).filter((time): time is number => time !== null);
+        return {
+          id: model.id, label: model.label, kind: model.kind, state: model.state,
+          windows: sub.windows.map((w) => ({ id: w.id, label: w.label, used_pct: w.usedPct, resets_at_jst: jst(w.resetsAt) })),
+          ...(model.reset_tickets > 0 ? { tickets: { remaining: model.reset_tickets, next_at_jst: jst(next.length ? Math.min(...next) : null) } } : {}),
+        };
+      }),
+      ...snapshot.llms.map((llm) => {
+        const m = llmModel(llm);
+        return { id: m.id, label: m.label, kind: m.kind, state: m.state, windows: [], served_model: m.served_model,
+          requests_running: m.requests_running, requests_waiting: m.requests_waiting, max_concurrent: m.max_concurrent,
+          pool_tokens: m.pool_tokens, pool_free_tokens: m.pool_free_tokens };
+      }),
+    ],
+  };
+}

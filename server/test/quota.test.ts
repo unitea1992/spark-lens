@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { QuotaSeries } from "../quota-history.ts";
-import { quotaReport, type QuotaTrendSource } from "../quota.ts";
+import { quotaBrief, quotaReport, type QuotaTrendSource } from "../quota.ts";
 import type { LlmSnapshot, SubscriptionSnapshot, UsageWindow } from "../types.ts";
 
 const NOW = Date.parse("2026-10-03T00:00:00Z");
@@ -14,6 +14,26 @@ const win = (id: string, usedPct: number | null, resetsAt: number | null, window
   id, label: id, usedPct, resetsAt, windowSec, ...over,
 });
 const report = (s: SubscriptionSnapshot) => quotaReport({ subscriptions: [s], llms: [] }, NOW).models[0]!;
+
+test("brief contains every window in order and only routing fields", () => {
+  const subscription = sub([win("5h", 0, NOW + H, 5 * 3600), win("week", 20, NOW + H, 7 * 86400), win("month", null, null, 30 * 86400)], {
+    tickets: [{ label: "券", expiresAt: NOW + 10 * 86400_000 }],
+  });
+  const llm = { id: "g", label: "GLM", state: "up", models: ["model"], requestsRunning: 1, requestsWaiting: 0, maxConcurrent: 2, poolTokens: null, poolFreeTokens: null } as LlmSnapshot;
+  const brief = quotaBrief({ subscriptions: [subscription], llms: [llm] }, NOW);
+  assert.deepEqual(Object.keys(brief), ["generated_at_jst", "models"]);
+  const model = brief.models[0]!;
+  assert.deepEqual(Object.keys(model), ["id", "label", "kind", "state", "windows", "tickets"]);
+  assert.deepEqual(model.windows.map((w) => w.id), ["5h", "week", "month"]);
+  assert.equal(model.windows[0]!.used_pct, 0);
+  assert.equal(model.windows[2]!.used_pct, null);
+  assert.deepEqual(Object.keys(model.windows[0]!), ["id", "label", "used_pct", "resets_at_jst"]);
+  assert.ok("tickets" in model && model.tickets);
+  assert.deepEqual(Object.keys(model.tickets), ["remaining", "next_at_jst"]);
+  assert.equal(model.tickets!.remaining, 1);
+  assert.deepEqual(Object.keys(brief.models[1]!), ["id", "label", "kind", "state", "windows", "served_model", "requests_running", "requests_waiting", "max_concurrent", "pool_tokens", "pool_free_tokens"]);
+  assert.equal("tickets" in quotaBrief({ subscriptions: [sub([])], llms: [] }, NOW).models[0]!, false);
+});
 
 test("a window at 100% is limited, and recovery is when the last full window resets", () => {
   const m = report(sub([win("5h", 100, NOW + 2 * H, 5 * 3600), win("week", 100, NOW + 30 * H, 7 * 86400), win("m", 10, NOW + 99 * H, 30 * 86400)]));
