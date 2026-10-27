@@ -10,6 +10,7 @@ curl -s "http://127.0.0.1:8686/api/quota?view=brief"
 ```
 
 `127.0.0.1:8686` は既定の待ち受けの一例。環境のホストとポート（`config/config.json` の `server`）に読み替える。候補は `models[]` にあるものだけ。
+止まっているローカル LLM は brief に出ない。
 
 - `state` と、すべての窓の `used_pct`・`resets_at_jst` を見る。`limited`・`loading`・`down`・`unknown` には振らない。
 - `stale: true` が付いたモデルは値が古い。view なしの `fetched_at` で確かめてから振る。
