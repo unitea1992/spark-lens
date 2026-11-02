@@ -1,9 +1,13 @@
-import json,sys,time,urllib.request
+import json,random,sys,time,urllib.request
 BASE,MODEL,EFF=sys.argv[1],sys.argv[2],sys.argv[3]
 def post(p,b):
     r=urllib.request.Request(BASE+p,json.dumps(b).encode(),{"Content-Type":"application/json"})
     t=time.time(); d=json.loads(urllib.request.urlopen(r,timeout=900).read()); return d,time.time()-t
-SYS="You are a coding agent. "+("Follow the project conventions carefully. "*500)
+# Random words, not one repeated sentence: Qwen dual does not keep a prompt made of a repeated sentence for reuse
+# (cached 0 every time), which looks like a cache fault but is only the test text.
+_W="amber basket candle dune ember fjord glacier harbor island jungle kettle lantern meadow nectar orchard pebble quarry river summit timber valley willow".split()
+_r=random.Random(7)
+SYS="You are a coding agent. "+" ".join(" ".join(_r.choice(_W) for _ in range(8))+"." for _ in range(400))
 TOOLS_R=[{"type":"function","name":"get_weather","description":"weather","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}]
 TOOLS_C=[{"type":"function","function":{k:v for k,v in TOOLS_R[0].items() if k!="type"}}]
 # responses: 3 rounds, each appends output items

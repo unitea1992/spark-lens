@@ -35,6 +35,8 @@ description: Spark のローカル LLM（GLM・Qwen・DeepSeek）を同じ手順
 ```sh
 python3 -I .agents/skills/local-llm-bench/scripts/resp_check.py http://pgx-head:8888/v1 <提供名> low
 python3 -I .agents/skills/local-llm-bench/scripts/loop_cache.py http://pgx-head:8888/v1 <提供名> low
+
+キャッシュの確認に使う文は、ランダムな語で作る。同じ文の繰り返しだと Qwen 二機は保存せず、`cached_tokens` が常に 0 になる（2026-11-02 に確認。実際の会話では当たる）。
 ```
 
 基本・ストリーム・ツール往復・画像・`previous_response_id`・長い前置きのキャッシュを、Responses と Chat で並べて出す。`cached_tokens` が両方0なら API ではなくエンジンの問題（2026-11-02 時点で Qwen 二機がそう）。Pi と DSH-TUI は Responses で `include: ["reasoning.encrypted_content"]` を固定で送り、DeepSeek がこれを拒否するため Completions 運用（上流 issue #99）。
