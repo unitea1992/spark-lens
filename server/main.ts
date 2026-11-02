@@ -108,9 +108,15 @@ async function main(): Promise<void> {
     benchStop: (llmId) => bench.stop(llmId),
     bench: async (llmId) => {
       const cfg = config.llms.find((l) => l.id === llmId);
-      const live = llms.snapshots().find((l) => l.id === llmId);
+      let live = llms.snapshots().find((l) => l.id === llmId);
       if (!cfg || !live) return { ok: false, message: "モデルが見つかりません" };
-      if (live.state !== "up") return { ok: false, message: "モデルが稼働していません" };
+      if (live.state !== "up") {
+        // The snapshot can lag a few seconds behind a model that has just finished starting; look once more
+        // before telling the user it is not running.
+        await llms.poll(hosts.snapshots());
+        live = llms.snapshots().find((l) => l.id === llmId) ?? live;
+        if (live.state !== "up") return { ok: false, message: "モデルが稼働していません" };
+      }
       let recipe = recipes.snapshots().find((r) => r.llm === llmId);
       // Record which upstream version is being measured: read it now, since the checkout may have been pulled
       // outside the dashboard since the last scheduled check.
