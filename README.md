@@ -2,10 +2,10 @@
 
 自宅・小規模のローカル AI 環境を、ブラウザ 1 画面で見渡すためのダッシュボードです。
 
-- **マシン** — 開発機と DGX Spark の GPU・メモリ・CPU・温度・ストレージ・ネットワーク・コンテナ
-- **ローカル LLM** — vLLM・SGLang・TensorFold の稼働状態、生成速度、処理中の件数、先読み（投機的デコード）の効き具合、今日のトークン数
-- **クラウド利用枠** — Claude Code・Codex・OpenCode Go・Grok の使用率とリセット時刻
-- **エージェント** — いま動いている coding agent と、その作業内容、モデル別のトークン利用量
+- 開発機と DGX Spark の GPU・メモリ・CPU・温度・ストレージ・ネットワーク・コンテナ
+- ローカル LLM（vLLM・SGLang・TensorFold）の稼働状態、生成速度、処理中の件数、先読み（投機的デコード）の効き具合、今日のトークン数
+- クラウド利用枠（Claude Code・Codex・OpenCode Go・Grok）の使用率とリセット時刻
+- いま動いている coding agent と、その作業内容、モデル別のトークン利用量
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/lab-dark.png">
@@ -14,9 +14,9 @@
 
 画面は 3 ページです。
 
-- **ローカル AI** — ラボの構成図（開発機 → Spark 2 台と、その間の高速回線、2 台にまたがるモデル）を先頭に、モデルの状態と起動・停止、各マシンの詳細を並べます。回線は実際の通信量（RDMA を含む）に応じて流れ、モデルは推論中だけ光ります
-- **利用状況** — クラウド利用枠と、ローカル・クラウドを合わせたモデル別のトークン利用量
-- **エージェント** — いま動いている coding agent
+- ローカル AI：ラボの構成図（開発機 → Spark 2 台と、その間の高速回線、2 台にまたがるモデル）を先頭に、モデルの状態と起動・停止、各マシンの詳細を並べます。回線は実際の通信量（RDMA を含む）に応じて流れ、モデルは推論中だけ光ります
+- 利用状況：クラウド利用枠と、ローカル・クラウドを合わせたモデル別のトークン利用量
+- エージェント：いま動いている coding agent
 
 各タブには、そのページで注意が必要なこと（黄・赤の点）や作業中の件数が出ます。ほかのページで問題があるときだけ、画面上部に「要確認」の帯が出ます。スマートフォンでは下部のタブで切り替えます。
 
@@ -26,7 +26,7 @@
 
 画像はサンプルデータで表示したものです（実際の画面からマシン名や作業内容を置き換えています）。
 
-ローカル AI のページからは、登録した「レシピ」（モデルの起動スクリプト）の起動・停止とログの確認もできます。
+ローカル AI のページからは登録した「レシピ」（モデルの起動スクリプト）の起動・停止とログの確認もできます。
 
 監視される側のマシンには何もインストールしません。Spark Lens は開発機で動き、Spark へは数秒おきに SSH で短いスクリプトを流すだけなので、Spark の GPU とメモリは推論のために空いたままです。
 
@@ -88,9 +88,9 @@ tailscale serve --bg --https=8686 http://127.0.0.1:8686
 { "id": "spark-1", "label": "DGX Spark 1", "kind": "spark", "ssh": "spark-1" }
 ```
 
-- `ssh` — SSH の接続先。`~/.ssh/config` の別名か `user@host`。このマシン自身を見るときは代わりに `"local": true`
-- `kind` — `spark`（GPU を主役に表示）、`workstation`、`server`
-- `mounts` — 容量を表示するマウントポイント。既定は `["/"]`
+- `ssh`: SSH の接続先。`~/.ssh/config` の別名か `user@host`。このマシン自身を見るときは代わりに `"local": true`
+- `kind`: `spark`（GPU を主役に表示）、`workstation`、`server`
+- `mounts`: 容量を表示するマウントポイント。既定は `["/"]`
 
 ### ローカル LLM（`llms`）
 
@@ -104,12 +104,12 @@ tailscale serve --bg --https=8686 http://127.0.0.1:8686
 }
 ```
 
-- `baseUrl` — OpenAI 互換サーバーのアドレス（`/v1` は付けない）。`/health`・`/v1/models`・`/metrics` を読みます
-- `model` — サーバーが `/v1/models` で返すモデル名。複数のレシピが同じポートを使う場合に指定すると、実際に動いているモデルだけが「稼働中」になります
-- `engine` — `vllm`・`sglang`・`tensorfold`。省略（`auto`）すると応答から自動で判別します。SGLang は起動時に `--enable-metrics` を付けないと速度などの数値が出ません
-- `nodes` — そのモデルが載っているマシンの `id`
-- `containers` — モデルを動かすコンテナ名。API がまだ応答しなくてもコンテナが起動していれば「起動中」と表示します。同じモデル名を返す別のレシピと見分けるのにも使います（API が応答していても、このコンテナが動いていなければ「停止中」）
-- `apiKeyEnv` — API キーが必要なサーバーの場合、キーを入れた環境変数の名前（キー自体は設定ファイルに書きません）
+- `baseUrl`: OpenAI 互換サーバーのアドレス（`/v1` は付けない）。`/health`・`/v1/models`・`/metrics` を読みます
+- `model`: サーバーが `/v1/models` で返すモデル名。複数のレシピが同じポートを使う場合に指定すると、実際に動いているモデルだけが「稼働中」になります
+- `engine`: `vllm`・`sglang`・`tensorfold`。省略（`auto`）すると応答から自動で判別します。SGLang は起動時に `--enable-metrics` を付けないと速度などの数値が出ません
+- `nodes`: そのモデルが載っているマシンの `id`
+- `containers`: モデルを動かすコンテナ名。API がまだ応答しなくてもコンテナが起動していれば「起動中」と表示します。同じモデル名を返す別のレシピと見分けるのにも使います（API が応答していても、このコンテナが動いていなければ「停止中」）
+- `apiKeyEnv`: API キーが必要なサーバーの場合、キーを入れた環境変数の名前（キー自体は設定ファイルに書きません）
 
 上の例は [GLM-5.3 Flash EXL3 on DGX Spark](https://github.com/MiaAI-Lab/GLM-5.3-Flash-EXL3-2x-DGX-Sparks) を 2 台構成で動かした場合の値です。
 
@@ -131,15 +131,21 @@ tailscale serve --bg --https=8686 http://127.0.0.1:8686
 }
 ```
 
-- `host` と `dir` — どのマシンのどのディレクトリでコマンドを実行するか
-- `start` / `stop` — 起動・停止のコマンド。起動はそのマシン上で切り離して実行され、出力はそのマシンの `~/.local/state/spark-lens/recipe-<id>.log` に残ります。ダッシュボードを再起動しても起動処理は止まりません
-- `logs` — 「サーバーログ」に表示する内容を出力するコマンド（省略可）
-- `llm` — このレシピが動かすモデル（`llms` の `id`）。稼働中かどうかの判定に使います
-- `group` — 同じマシンを使うレシピの組。同じ組で同時に動かせるのは 1 つだけで、ほかが動いている間は起動ボタンが押せません。省略すると `host` が組になります
+- `host` と `dir`: どのマシンのどのディレクトリでコマンドを実行するか
+- `start` / `stop`: 起動・停止のコマンド。起動はそのマシン上で切り離して実行され、出力はそのマシンの `~/.local/state/spark-lens/recipe-<id>.log` に残ります。ダッシュボードを再起動しても起動処理は止まりません
+- `logs`: 「サーバーログ」に表示する内容を出力するコマンド（省略可）
+- `llm`: このレシピが動かすモデル（`llms` の `id`）。稼働中かどうかの判定に使います
+- `group`: 同じマシンを使うレシピの組。同じ組で同時に動かせるのは 1 つだけで、ほかが動いている間は起動ボタンが押せません。省略すると `host` が組になります
 
 各レシピのディレクトリが git の clone なら、3 時間ごと（と「今すぐ確認」ボタン）に upstream を `git fetch` して、取り込んでいない更新の件数と内容、手元で追跡ファイルを変更していないか、upstream の設定例に増えた項目が `.env` にないか、を表示します。「更新する」で停止 → `git pull --ff-only` → 起動し直し、を一度に行います（停止中なら取り込みだけ）。追跡ファイルに手元の変更がある場合は、独自の変更を上書きしないよう更新しません。
 
 ボタン操作に認証はありません。tailnet の中から開ける人は誰でも起動・停止できる前提です。別のサイトから閲覧者のブラウザを使って操作させることはできないようにしてあります（操作には画面からだけ付く専用のヘッダーが必要です）。
+
+### ベンチマーク
+
+ローカル AI のページの「計測」ボタン、またはコマンド `pnpm bench <llm-id>` で、稼働中のモデルを同じ手順で測ります。測るのは、最初のトークンまでの時間（TTFT）、文章とコードの生成速度、プレフィルの速さです。結果は画面に直近 100 件まで残ります。すべての記録は `bench-data/spark-lens-bench/runs.jsonl` に 1 行ずつ追記されます（Git の追跡対象外。場所は `SPARK_LENS_BENCH_DIR` で変えられます）。
+
+モデルを起動した直後は、表示が稼働中になるまで `pollSeconds` ほどかかります。その間に計測を始めると「モデルが稼働していません」と返るので、表示が稼働中になってから実行してください。
 
 ### マシンのクロック上限
 
@@ -171,7 +177,7 @@ CPU は `scaling_max_freq`、GPU は systemd のユニットに書かれた `nvi
 
 バーの上の縦線は「期間がどこまで進んだか」を示します。バーが縦線より右にあれば、均等に使うペースより速く消費しています。その下には、ここまでの使い方が続いた場合に期間終了時に何 % になるか（上限に届きそうなら、あと何時間で届くか）を表示します。
 
-プラン名は、Claude Code はアカウント情報の API（`api.anthropic.com/api/oauth/profile`）から取得するので、プランを変えると次の取得で表示も変わります。この API から取れないときは、ログイン情報（`subscriptionType` と `rateLimitTier`）に保存されたログイン時のプランを表示します。Codex は使用状況 API の `plan_type` から取得します。OpenCode Go は Go プラン専用の API なので常に「Go」です。Grok はプラン表示（`subscription_tier_display`）を読みます。Grok の利用枠は、チャット・画像・音声・Build で共有される週間の枠です。Codex のリセット券は枚数と期限を表示します。Claude のリセット券は Claude Code のログインで読める API に含まれないため表示できません。
+プラン名は、Claude Code はアカウント情報の API（`api.anthropic.com/api/oauth/profile`）から取得するので、プランを変えると次の取得で表示も変わります。この API から取れないときは、ログイン情報（`subscriptionType` と `rateLimitTier`）に保存されたログイン時のプランを表示します。Codex は使用状況 API の `plan_type` から取得します。OpenCode Go は Go プラン専用の API なので常に「Go」です。Grok はプラン表示（`subscription_tier_display`）を読みます。Grok の利用枠はチャット・画像・音声・Build で共有される週間の枠です。Codex のリセット券は枚数と期限を表示します。Claude のリセット券は Claude Code のログインで読める API に含まれないため表示できません。
 
 #### ほかのサービスを足す
 
@@ -203,7 +209,7 @@ curl -s http://127.0.0.1:8686/api/quota
 
 モデルごとに、次の項目が並びます。
 
-- `recommendation`: `use`、`avoid_heavy`（軽い作業なら可）、`avoid`、`unknown` のどれか。1 日以上の窓は、固定の使用率ではなく見込み（`projected_end_pct`）で決めます。最近のペースでリセット前に上限を超えるときだけ `avoid_heavy`（そのうえ 90% を超えていれば `avoid`）。95% 以上でも `avoid`。残りの予算で収まる間は、使用率が高くても `use` です。5 時間などの短い窓、見込みが `null` の窓は、使用率の基準値（`thresholds`）で決めます。
+- `recommendation`: `use`、`avoid_heavy`（軽い作業なら可）、`avoid`、`unknown` のどれか。1 日以上の窓は固定の使用率ではなく見込み（`projected_end_pct`）で決めます。最近のペースでリセット前に上限を超えるときだけ `avoid_heavy`（そのうえ 90% を超えていれば `avoid`）。95% 以上でも `avoid`。残りの予算で収まる間は、使用率が高くても `use` です。5 時間などの短い窓、見込みが `null` の窓は、使用率の基準値（`thresholds`）で決めます。
 - `state`: `usable`、`limited`（上限に到達）、`loading`（ローカル LLM が読み込み中）、`down`、`unknown` のどれか。
 - `recovers_at_jst`: 上限に届いているとき、使えるようになる時刻。
 - `reset_tickets`、`tickets[]`: リセット券の枚数と、券ごとの `expires_at`・`expires_at_jst`（期限の近い順。期限なしは `null`）。期限が 72 時間以内の券があり、取得が古くなければ、`recommendation` を 1 段階上げ（`avoid_heavy`→`use`、`avoid`→`avoid_heavy`）、`reason` に期限を出します。すでに上限に届いている間は推奨を変えず、期限だけ `reason` に添えます。
@@ -214,7 +220,7 @@ curl -s http://127.0.0.1:8686/api/quota
 - `renews_at`、`renews_at_jst`、`next_plan`: 次のプラン変更。設定の `subscriptions[]` に `renewsAt`（ISO 時刻）と `nextPlan`（変更後のプラン名）があり、その時刻がまだ先のときだけ入ります。無いか、時刻を過ぎていれば `null` です。変更がこの窓のリセットより前なら、`daily_allowance_pct` と `elapsed_pct` はその時刻までで切り、`projected_end_pct` は `null` です（変更後の分母は今は分からないため）。
 - `windows[].plan_changed_at`、`plan_changed_at_jst`: 記録の中でプラン名が変わった時刻。それより前の使用率は見込みに使いません。検知がなければ `null` です。プラン名は取得のたびに記録します。
 - 経過が 50% を超え、使った割合が経過より 15 ポイント以上少ないか、`projected_end_pct` が 90% 以下の窓があると、`reason` に「余りそう。割り振りを増やしてよい」と出します。`recommendation` の種類は増やしません。取得が古いとき、上限に届いているときは出しません。
-- `windows[].allowance_reset_at`、`allowance_reset_at_jst`: いま開いている窓の中で、予告のない枠の戻りを検知した時刻。リセット予定の 1 時間より前に使用率が 10 ポイント以上下がったときです。`elapsed_pct` と `daily_allowance_pct` は、この時刻から数えます。このとき記録が足りなければ、`projected_end_pct` は `null` です。検知がなければ `null` です。
+- `windows[].allowance_reset_at`、`allowance_reset_at_jst`: いま開いている窓の中で、予告のない枠の戻りを検知した時刻。リセット予定の 1 時間より前に使用率が 10 ポイント以上下がったときです。`elapsed_pct` と `daily_allowance_pct` はこの時刻から数えます。このとき記録が足りなければ、`projected_end_pct` は `null` です。検知がなければ `null` です。
 - `fetched_at`、`age_sec`、`stale`: 値を取得した時刻と、古くなっていないか。古いときは `reason` にも出ます。
 
 Codex の「Set up security」の案内のように、画面上の入力待ちで動けない状態は検知できません。
@@ -227,7 +233,7 @@ curl -s 'http://127.0.0.1:8686/api/quota?days=7'
 
 - `trend.points[]`: 取得した値（`at`、`used_pct`、`resets_at`）の古い順。値が変わったときと、変わらなくても 30 分ごとに記録します。
 - `trend.rate_pct_per_hour_24h`、`trend.rate_span_hours`: いまのウィンドウで、直近 24 時間に 1 時間あたり何ポイント増えたかと、それを測った時間。記録が 24 時間に満たないうちは短い時間で測り、2 時間分たまるまでは `null` です。
-- `trend.previous_window_peak_pct`、`trend.previous_window_reset_at`: 1 つ前のウィンドウが、リセットまでにどこまで使われたか。
+- `trend.previous_window_peak_pct`、`trend.previous_window_reset_at`: 1 つ前のウィンドウがリセットまでにどこまで使われたか。
 - `trend.since`: 記録の始まり。それより前のことは分かりません。
 
 記録は Spark Lens が動いている間に取り、35 日分を残します。まだ記録のないウィンドウは `trend` が `null` です。
@@ -254,7 +260,7 @@ curl -s 'http://127.0.0.1:8686/api/usage?model=haiku'   # モデル名に含ま�
 curl -s 'http://127.0.0.1:8686/api/usage?days=7'
 ```
 
-使い方の注意:
+#### 使い方の注意
 
 - 数字は 1 分ごとに集計し直します。作業の直後に測るときは、`usage_at`（集計した時刻）が作業の終了より後になるまで待ってください。`age_sec` はその経過秒数です。
 - 「今日」は Spark Lens を動かしているマシンの日付で区切ります。日をまたぐ作業の前後を比べるときは、`week` の差を使ってください。
@@ -282,7 +288,7 @@ curl -s 'http://127.0.0.1:8686/api/history?key=host:spark-1:gpu'    # [{"t": ...
 
 「モデル別の利用量」は、Claude Code（`~/.claude/projects/`）、Codex（`~/.codex/` のスレッド記録）、OpenCode（`opencode stats`）の記録と、ローカル LLM のトークン数を合わせて、今日と直近 7 日間で集計します。Codex は合計トークンしか記録していないため内訳は出ません。
 
-SSH 先のマシンでは、`claude`・`codex`・`opencode` のプロセスを検出します。ほかのプロセスも拾いたいときは規則を足します。`match` は各マシンの awk で評価されるため、POSIX 拡張正規表現の範囲で書いてください（`\d` や `(?:…)` は使えません）。
+SSH 先のマシンでは、`claude`・`codex`・`opencode` のプロセスを検出します。ほかのプロセスも検出したいときは、規則を追加します。`match` は各マシンの awk で評価されるため、POSIX 拡張正規表現の範囲で書いてください（`\d` や `(?:…)` は使えません）。
 
 ```json
 { "agents": { "processes": [{ "tool": "hermes", "label": "Hermes", "match": "(^|/)hermes( |$)" }] } }
@@ -310,9 +316,12 @@ pnpm dev        # サーバーを変更監視つきで起動（:8686）
 pnpm dev:web    # 画面をホットリロードで起動（API は :8686 に中継）
 pnpm check      # 型チェック・テスト・ビルド
 pnpm scan:secrets   # Betterleaks（Docker）で履歴と作業ツリーの秘密情報を走査
+pnpm bench <llm-id> # 稼働中のローカル LLM を測る
 ```
 
 GitHub Actions でも push と pull request のたびに同じ走査を行います。
+
+[`.agents/skills/`](.agents/skills) には、ローカル LLM を計測する手順、上流の更新を確かめる手順、この README の画像を撮り直す手順を、スキルとしてまとめてあります。Claude Code は `.agents/skills` を直接読まないため、`.claude/skills/` にリンクを置いています。
 
 ## アンインストール
 
