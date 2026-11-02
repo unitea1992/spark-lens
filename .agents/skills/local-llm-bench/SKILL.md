@@ -5,6 +5,11 @@ description: Spark のローカル LLM（GLM・Qwen・DeepSeek）を同じ手順
 
 ローカル LLM の定期計測。pgx-head:8888 は同時に1モデルしか動かせないので、1本ずつ止めて起動し、測り、最後に元のモデルへ戻す。
 
+## 何のために測るか
+
+起動後に動くかどうかの確認（疎通）は、各レシピの `start.sh` が最後に1回のチャット要求で行う（`[5/5] Smoke test`）。DeepSeek の上流には、応答の検査（`tools/validate.py`、`smoke.py`）と速度の測定（`tools/bench.py`）もあり、Qwen 単機の上流にも `tools/bench.py` がある。
+ここで流す Spark Lens のベンチは疎通確認ではなく、上流の更新や設定の変更のあとに、速度が前と同じ水準かを同じ手順で比べるためのもの。起動しただけで動作を確かめたいときは、ベンチは要らない。
+
 ## 事前確認
 
 - 他の作業が使っていないこと：`curl -s http://127.0.0.1:8686/api/quota?view=brief`（ホストとポートは `~/.config/spark-lens/config.json` の `server`）で稼働状態を見る。使用中なら、止める前に持ち主へ相談する。
