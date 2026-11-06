@@ -19,3 +19,7 @@ description: Spark のローカル LLM レシピの上流更新が、個別調�
 - 上流のイメージ識別子が変わると、DeepSeek の spill のフォルダ（`dsv41-tensorfold-spill/native-spill-<id>`）が古い版のまま残る。spill を使っている間は更新のたびに掃除する。今は spill 無効。
 - `HF_TOKEN` は出力に出さない（`sed` で伏せる）。
 - 外部リポジトリへの Issue は、先に既存 Issue とテンプレートを確かめ、英語の下書きを依頼者に見せて了承を得てから送る。
+- GLM の現行は `~/tools/local-llm/glm-5.3-flash-1104/`（新リポジトリ。旧 `glm-5.3-flash-tensorfold/` は停止した予備で、上流の更新も追わなくてよい）。上流で `patches/engine/` が増えるとイメージのハッシュが変わり、次の起動でビルドと worker への転送（約 6 分）が走る。
+- head の空きメモリが 100 GiB 未満だと GLM 新の `start.sh` は起動を断る（`MIN_AVAIL_GIB`）。`hf download` は既定の XET だと RAM を約 27 GB 使うので、head では `HF_HUB_DISABLE_XET=1` を付ける。
+- 新しいモデルや構成を入れるときは、`local-llm-bench` の `battery.sh`（モデルどうしを比べる節）で、速さと品質を既存のモデルと並べてから既定にするか決める。
+
