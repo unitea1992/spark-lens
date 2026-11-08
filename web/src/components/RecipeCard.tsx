@@ -117,7 +117,7 @@ function Upstream({
           {up.state === "current" && `最新です（${head}）`}
           {up.state === "behind" && `${up.behind} 件の更新があります`}
           {up.state === "modified" && `追跡ファイルに手元の変更が ${up.dirtyFiles} 件あります。独自の変更になるため自動では更新しません`}
-          {up.state === "untracked" && "追跡するブランチがありません"}
+          {up.state === "untracked" && (up.message ?? "追跡するブランチがありません")}
           {up.state === "error" && (up.message ?? "確認できませんでした")}
           {up.state === "unknown" && "未確認"}
         </span>

@@ -12,7 +12,7 @@ import { shDir } from "./recipes-shell.ts";
  */
 export function checkScript(dir: string): string {
   return `cd ${shDir(dir)} 2>/dev/null || { echo "@@error ディレクトリが見つかりません"; exit 0; }
-git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "@@error git の作業ツリーではありません"; exit 0; }
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "@@no-checkout"; echo "@@end"; exit 0; }
 if ! err="$(timeout 60 git fetch --quiet 2>&1)"; then echo "@@fetch-error $(printf '%s' "$err" | tail -n 1)"; fi
 echo "@@remote $(git remote get-url origin 2>/dev/null)"
 echo "@@head $(git rev-parse --short HEAD) $(git log -1 --format=%cI HEAD)"
@@ -93,6 +93,7 @@ export function parseCheck(text: string, now = Date.now()): UpstreamStatus {
     repoUrl: null,
   };
   if (!text.includes("@@end") && !text.includes("@@error")) return { ...base, state: "error", message: "確認できませんでした" };
+  if (text.startsWith("@@no-checkout")) return { ...base, state: "untracked", message: "git のチェックアウトではないため、upstream は追跡しません" };
   let section = "";
   const commits: UpstreamCommit[] = [];
   const keys: string[] = [];
