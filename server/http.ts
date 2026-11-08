@@ -5,7 +5,10 @@ import { hostname } from "node:os";
 import { extname, join, normalize, sep } from "node:path";
 import { gzipSync } from "node:zlib";
 import type { Snapshot } from "./types.ts";
+import type { ManageKind, ManageAction } from "./config-management.ts";
 import { quotaBrief, quotaReport } from "./quota.ts";
+import { aiAgents, aiCatalog, aiMonitor, aiQuota } from "./ai-api.ts";
+import { observedQuota } from "./quota-observed.ts";
 import { QUOTA_KEEP_DAYS } from "./quota-history.ts";
 import { MAX_USAGE_DAYS, usageReport } from "./usage-report.ts";
 
@@ -66,6 +69,7 @@ export interface HttpOptions {
   staticDir: string;
   allowedHosts: string[];
   snapshot: () => Snapshot;
+  manage?: (kind: ManageKind, action: ManageAction, input: Record<string, unknown>) => Promise<{ ok: boolean; message: string }> | { ok: boolean; message: string };
   recipes?: RecipeActions;
   /** Start a benchmark of one local model. */
   bench?: (llmId: string) => Promise<{ ok: boolean; message: string }>;
@@ -142,6 +146,11 @@ export class HttpServer {
       res.writeHead(400).end();
       return;
     }
+    const managed = /^\/api\/manage\/(hosts|subscriptions)$/.exec(path);
+    if (managed) {
+      void this.manage(req, res, managed[1] as ManageKind);
+      return;
+    }
     const recipe = RECIPE_ROUTE.exec(path);
     if (recipe) {
       void this.recipe(req, res, recipe[1]!, recipe[2] as RecipeOp);
@@ -176,11 +185,15 @@ export class HttpServer {
     const head = req.method === "HEAD";
     const reply = (build: () => unknown) => sendJson(res, 200, head ? undefined : build());
     if (path === "/api/state") return reply(() => this.opts.snapshot());
+    if (path === "/api/ai") return reply(aiCatalog);
+    if (path === "/api/ai/monitor") return reply(() => aiMonitor(this.opts.snapshot(), Date.now()));
+    if (path === "/api/ai/quota") return reply(() => aiQuota(this.opts.snapshot(), Date.now()));
+    if (path === "/api/ai/agents") return reply(() => aiAgents(this.opts.snapshot(), Date.now()));
     const query = new URL(req.url ?? "/", "http://x").searchParams;
     const days = daysParam(req.url, path === "/api/usage" ? MAX_USAGE_DAYS : QUOTA_KEEP_DAYS);
     if (path === "/api/quota") {
       const trend = this.opts.quotaSeries ? { series: this.opts.quotaSeries, ...(days ? { days } : {}) } : undefined;
-      return reply(() => query.get("view") === "brief" ? quotaBrief(this.opts.snapshot(), Date.now(), trend) : quotaReport(this.opts.snapshot(), Date.now(), trend));
+      return reply(() => query.get("view") === "observed" ? observedQuota(this.opts.snapshot(), Date.now()) : query.get("view") === "brief" ? quotaBrief(this.opts.snapshot(), Date.now(), trend) : quotaReport(this.opts.snapshot(), Date.now(), trend));
     }
     if (path === "/api/usage") return reply(() => usageReport(this.opts.snapshot().usage, Date.now(), query.get("model"), days));
     if (path === "/api/history") {
@@ -199,6 +212,28 @@ export class HttpServer {
       return;
     }
     this.serveStatic(path, req, res);
+  }
+
+  private async manage(req: IncomingMessage, res: ServerResponse, kind: ManageKind): Promise<void> {
+    if (req.method !== "POST") return void res.writeHead(405, { Allow: "POST" }).end();
+    if (req.headers[ACTION_HEADER] !== "1") return void sendJson(res, 403, { ok: false, message: "画面から操作してください" });
+    if (!this.opts.manage) return void sendJson(res, 404, { ok: false, message: "監視対象の編集は無効です" });
+    if (!String(req.headers["content-type"] ?? "").startsWith("application/json")) return void sendJson(res, 415, { ok: false, message: "JSONが必要です" });
+    let raw = "";
+    try {
+      for await (const chunk of req) {
+        raw += String(chunk);
+        if (raw.length > 4096) return void sendJson(res, 413, { ok: false, message: "入力が大きすぎます" });
+      }
+      const body: unknown = JSON.parse(raw);
+      if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("JSONオブジェクトが必要です");
+      const input = body as Record<string, unknown>;
+      if (input.action !== "add" && input.action !== "remove" && input.action !== "update") throw new Error("操作が不正です");
+      const result = await this.opts.manage(kind, input.action, input);
+      sendJson(res, result.ok ? 200 : 400, result);
+    } catch {
+      sendJson(res, 400, { ok: false, message: "入力を処理できません" });
+    }
   }
 
   private async recipe(req: IncomingMessage, res: ServerResponse, id: string, op: RecipeOp): Promise<void> {

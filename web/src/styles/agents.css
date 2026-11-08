@@ -142,3 +142,24 @@
     align-items: flex-start;
   }
 }
+
+/* Process discovery is useful for coverage, but it cannot report session
+   activity. Keep it accessible without letting it dominate the live list. */
+.agent-processes {
+  margin-top: 18px;
+}
+.agent-processes summary {
+  cursor: pointer;
+  color: var(--ink-2);
+  font-size: 14px;
+  padding: 8px 0;
+}
+.agent-processes summary strong {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.agent-processes > p {
+  margin: 0 0 12px;
+  color: var(--ink-3);
+  font-size: 12.5px;
+}

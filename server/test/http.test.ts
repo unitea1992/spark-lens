@@ -24,7 +24,7 @@ interface Reply {
   body: string;
 }
 
-function send(port: number, method: string, path: string, headers: Record<string, string> = {}): Promise<Reply> {
+function send(port: number, method: string, path: string, headers: Record<string, string> = {}, body?: string): Promise<Reply> {
   return new Promise((resolve, reject) => {
     const req = request({ host: "127.0.0.1", port, method, path, headers }, (res) => {
       let body = "";
@@ -40,12 +40,15 @@ function send(port: number, method: string, path: string, headers: Record<string
       );
     });
     req.on("error", reject);
-    req.end();
+    req.end(body);
   });
 }
 
 const snapshot = {
   generatedAt: 1,
+  hosts: [],
+  agents: [],
+  agentSources: [],
   subscriptions: [],
   llms: [],
   usage: { generatedAt: 0, pricesFetchedAt: null, pricesSource: null, today: [], week: [], month: [] },
@@ -66,7 +69,7 @@ const JSON_TYPE = "application/json; charset=utf-8";
 
 test("the read-only API answers JSON that is never cached, and HEAD without a body", async () => {
   await withServer({ history: () => [{ t: 1, v: 2 }], historyKeys: () => ["host:a:cpu"] }, async (port) => {
-    for (const path of ["/api/state", "/api/quota", "/api/quota?view=brief", "/api/usage", "/api/history", "/api/history?key=host:a:cpu"]) {
+    for (const path of ["/api/state", "/api/quota", "/api/quota?view=brief", "/api/ai", "/api/ai/monitor", "/api/ai/quota", "/api/ai/agents", "/api/usage", "/api/history", "/api/history?key=host:a:cpu"]) {
       const get = await send(port, "GET", path);
       assert.equal(get.status, 200, path);
       assert.equal(get.type, JSON_TYPE, path);
@@ -78,6 +81,13 @@ test("the read-only API answers JSON that is never cached, and HEAD without a bo
       assert.equal(head.body, "", path);
     }
     assert.deepEqual(JSON.parse((await send(port, "GET", "/api/state")).body), snapshot);
+    const catalog = JSON.parse((await send(port, "GET", "/api/ai")).body);
+    assert.ok(catalog.routes.some((r: { path: string }) => r.path === "/api/ai/quota"));
+    const aiQuota = JSON.parse((await send(port, "GET", "/api/ai/quota")).body);
+    assert.equal(aiQuota.semantics.prediction_included, false);
+    assert.equal(aiQuota.schema_version, 2);
+    assert.deepEqual(JSON.parse((await send(port, "GET", "/api/ai/monitor")).body).hosts, []);
+    assert.deepEqual(JSON.parse((await send(port, "GET", "/api/ai/agents")).body).agents, []);
     const normal = JSON.parse((await send(port, "GET", "/api/quota")).body);
     const brief = JSON.parse((await send(port, "GET", "/api/quota?view=brief&days=7")).body);
     assert.deepEqual(Object.keys(normal), ["generated_at", "generated_at_jst", "thresholds", "models"]);
@@ -149,5 +159,26 @@ test("without recipes or benchmarks configured, their routes say so", async () =
     assert.deepEqual([recipe.status, recipe.type, recipe.cache, JSON.parse(recipe.body).ok], [404, JSON_TYPE, "no-store", false]);
     const bench = await send(port, "POST", "/api/llms/m1/bench", act);
     assert.deepEqual([bench.status, JSON.parse(bench.body).ok], [404, false]);
+  });
+});
+
+
+test("management API requires same-origin action header, validates payload and reports failures", async () => {
+  const calls: { kind: string; action: string; id: unknown }[] = [];
+  await withServer({ manage: (kind, action, input) => {
+    calls.push({ kind, action, id: input.id });
+    return { ok: input.id !== "bad", message: input.id === "bad" ? "invalid" : "ok" };
+  } }, async (port) => {
+    const payload = JSON.stringify({ action: "add", id: "worker-5" });
+    assert.equal((await send(port, "GET", "/api/manage/hosts")).status, 405);
+    assert.equal((await send(port, "POST", "/api/manage/hosts", { "content-type": "application/json" }, payload)).status, 403);
+    assert.equal((await send(port, "POST", "/api/manage/hosts", { [ACTION_HEADER]: "1", "content-type": "text/plain" }, payload)).status, 415);
+    assert.equal((await send(port, "POST", "/api/manage/hosts", { [ACTION_HEADER]: "1", "content-type": "application/json" }, "invalid")).status, 400);
+    assert.equal((await send(port, "POST", "/api/manage/hosts", { [ACTION_HEADER]: "1", "content-type": "application/json" }, payload)).status, 200);
+    assert.equal((await send(port, "POST", "/api/manage/subscriptions", { [ACTION_HEADER]: "1", "content-type": "application/json" }, JSON.stringify({ action: "remove", id: "bad" }))).status, 400);
+    assert.deepEqual(calls, [
+      { kind: "hosts", action: "add", id: "worker-5" },
+      { kind: "subscriptions", action: "remove", id: "bad" },
+    ]);
   });
 });

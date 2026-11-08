@@ -19,12 +19,20 @@ function clock(cur: number | null | undefined, max: number | null | undefined): 
   return max ? `${Math.round(cur)} / ${Math.round(max)} MHz` : `${Math.round(cur)} MHz`;
 }
 
+function diskRate(n: number | null | undefined): string {
+  if (n === null || n === undefined) return "–";
+  if (n < 1024) return `${n.toFixed(0)} B/s`;
+  if (n < 1024 ** 2) return `${(n / 1024).toFixed(1)} KiB/s`;
+  if (n < 1024 ** 3) return `${(n / 1024 ** 2).toFixed(1)} MiB/s`;
+  return `${(n / 1024 ** 3).toFixed(2)} GiB/s`;
+}
+
 /** Slowest link first, so the management port leads and fast fabric ports group together. */
 function byLinkSpeed(a: NetInfo, b: NetInfo): number {
   return (a.speedMbps ?? Infinity) - (b.speedMbps ?? Infinity) || a.iface.localeCompare(b.iface);
 }
 
-function Bar({ label, value, side, series }: { label: string; value: number | null; side: string; series: 1 | 2 | 3 | 0 }) {
+function Bar({ label, value, side, io, series }: { label: string; value: number | null; side: string; io?: string; series: 1 | 2 | 3 | 0 }) {
   return (
     <div className="bar-row">
       <span className="bar-row__label">
@@ -32,7 +40,7 @@ function Bar({ label, value, side, series }: { label: string; value: number | nu
         {label}
       </span>
       <strong className="bar-row__value">{pct(value)}</strong>
-      <span className="bar-row__side">{side}</span>
+      <span className="bar-row__side"><span>{side}</span>{io && <small title={io}>{io}</small>}</span>
       <div className={`bar-row__track series-track-${series}`}>
         <div className="bar-row__fill" style={{ width: `${Math.min(100, Math.max(0, value ?? 0))}%` }} />
       </div>
@@ -69,6 +77,7 @@ export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) 
           <h3 className="card__title">{host.label}</h3>
           <p className="card__sub">
             {KIND_LABEL[host.kind]}
+            {host.kind === "spark" ? ` / ${host.role === "head" ? "Head" : host.role === "worker" ? `Worker → ${host.headId ?? "?"}` : "Standalone"}` : ""}
             {host.hostname && host.hostname !== host.label ? ` / ${host.hostname}` : ""}
           </p>
         </div>
@@ -124,6 +133,7 @@ export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) 
           label={host.disks.length > 1 ? `ストレージ ${d.mount}` : "ストレージ"}
           value={ratioPct(d.usedBytes, d.totalBytes)}
           side={usedOfTotal(d.usedBytes, d.totalBytes)}
+          io={d.readBps != null || d.writeBps != null ? `R ${diskRate(d.readBps)} / W ${diskRate(d.writeBps)}` : undefined}
           series={0}
         />
       ))}
@@ -136,6 +146,10 @@ export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) 
         <Spec label="スワップ" value={host.swapTotalBytes ? `${bytes(host.swapUsedBytes)} / ${bytes(host.swapTotalBytes)}` : "なし"} />
       </ul>
 
+      {(links.length > 0 || rdma.length > 0 || host.gpuProcesses.length > 0 || containers.length > 0) && (
+      <details className="machine__secondary">
+        <summary>通信・稼働プロセス <span>{links.length + rdma.length} ポート / {host.gpuProcesses.length} GPU / {containers.length} コンテナ</span></summary>
+        <div className="machine__secondary-grid">
       {(links.length > 0 || rdma.length > 0) && (
         <div className="minilist">
           <h4>ネットワーク</h4>
@@ -193,6 +207,10 @@ export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) 
             ))}
           </ul>
         </div>
+      )}
+
+        </div>
+      </details>
       )}
 
       <p className="machine__foot">

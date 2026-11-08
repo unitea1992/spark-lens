@@ -21,6 +21,10 @@ MemTotal:       127532364 kB
 MemAvailable:   123000000 kB
 SwapTotal:       16777212 kB
 SwapFree:        16777212 kB
+@@pressure
+some avg10=0.04 avg60=0.20 avg300=0.13 total=932040
+full avg10=0.00 avg60=0.00 avg300=0.00 total=100
+oom_kill 8
 @@disk
 /dev/nvme0n1p2 3936818806784 1288490188800 2448240345088      35% /
 @@temp
@@ -57,6 +61,7 @@ test("parses a DGX Spark probe", () => {
   // A persisted clock lock lowers the GPU's reported maximum.
   assert.equal(s.gpu?.clockMaxMhz, 2200);
   assert.equal(s.mem.MemTotal, 127532364 * 1024);
+  assert.deepEqual(s.pressure, { someAvg10: 0.04, fullAvg10: 0, oomKills: 8 });
   assert.equal(s.disks[0]?.mount, "/");
   // The disconnected Wi-Fi sensor reporting 0 is dropped.
   assert.deepEqual(s.temps.map((t) => t.chip), ["acpitz", "nvme", "mlx5"]);
@@ -79,7 +84,7 @@ test("parses a DGX Spark probe", () => {
   // Without it (docker ps failed or timed out) the empty list is not trusted.
   assert.equal(parseProbe(SPARK.replace("@ok\n", ""))?.containersKnown, false);
   // RDMA counters count 4-byte words.
-  assert.deepEqual(s.ib, [{ device: "rocep1s0f0", rx: 4000, tx: 8000, rateGbps: 200 }]);
+  assert.deepEqual(s.ib, [{ device: "rocep1s0f0", rx: 4000, tx: 8000, rateGbps: 200, up: true, errors: null }]);
   assert.deepEqual(s.procs[0], {
     pid: 812,
     elapsedSec: 120,
@@ -167,4 +172,28 @@ test("recipe commands use the same shared connection, with only a connect timeou
     "spark-1",
     "bash -s",
   ]);
+});
+
+test("disk I/O readings preserve physical device identity for multiple mounts", () => {
+  const sample = parseProbe(`@@disk
+/dev/nvme0n1p2 10000 4000 6000 40% /
+/dev/nvme0n1p3 5000 1000 4000 20% /data
+@@diskio
+/|nvme0n1|1000|500
+/data|nvme0n1|1000|500
+@@end
+`);
+  assert.deepEqual(sample?.diskIo, [
+    { mount: "/", device: "nvme0n1", readSectors: 1000, writeSectors: 500 },
+    { mount: "/data", device: "nvme0n1", readSectors: 1000, writeSectors: 500 },
+  ]);
+  assert.equal(counterRate(1500 * 512, 1000 * 512, 5), 51200);
+  assert.equal(counterRate(200 * 512, 1000 * 512, 5), null);
+});
+
+
+test("pressure telemetry is optional on older kernels and rejects unusable samples", () => {
+  const s = parseProbe("@@host\nhostname=dev\n@@pressure\nsome avg10=150.00 avg60=0.0 total=0\nfull avg10=4.75 avg60=0 total=0\n@@end\n");
+  assert.deepEqual(s?.pressure, { someAvg10: null, fullAvg10: 4.75, oomKills: null });
+  assert.deepEqual(parseProbe("@@host\nhostname=dev\n@@end\n")?.pressure, { someAvg10: null, fullAvg10: null, oomKills: null });
 });

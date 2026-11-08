@@ -3,8 +3,13 @@ import { join } from "node:path";
 import type { SubscriptionSnapshot } from "./types.ts";
 
 interface DayTotals {
+  /** All input, including reused prefix tokens. */
   prompt: number;
   generation: number;
+  /** Observed reused input tokens; older persisted records omit this. */
+  cached?: number;
+  /** Input tokens with reliable cache counters, excluding legacy intervals. */
+  cacheMeasuredPrompt?: number;
 }
 
 interface StateFile {
@@ -47,12 +52,17 @@ export class Store {
     }
   }
 
-  addTokens(llm: string, prompt: number, generation: number, at = new Date()): void {
+  addTokens(llm: string, prompt: number, generation: number, at = new Date(), cached: number | null = null): void {
     if (prompt <= 0 && generation <= 0) return;
     const days = (this.state.tokens[llm] ??= {});
     const day = (days[localDate(at)] ??= { prompt: 0, generation: 0 });
-    day.prompt += Math.max(0, prompt);
+    const newPrompt = Math.max(0, prompt);
+    day.prompt += newPrompt;
     day.generation += Math.max(0, generation);
+    if (cached !== null && Number.isFinite(cached) && cached >= 0 && newPrompt > 0) {
+      day.cached = (day.cached ?? 0) + Math.min(newPrompt, cached);
+      day.cacheMeasuredPrompt = (day.cacheMeasuredPrompt ?? 0) + newPrompt;
+    }
     this.dirty = true;
   }
 

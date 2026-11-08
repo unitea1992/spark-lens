@@ -88,6 +88,7 @@ export class LlmCollector {
       snapshot: {
         id: config.id,
         label: config.label,
+        purpose: config.purpose ?? "generation",
         engine: config.engine && config.engine !== "auto" ? ENGINE_LABELS[config.engine] : null,
         state: "down",
         detail: null,
@@ -157,7 +158,7 @@ export class LlmCollector {
       // one-token generation, so an unknown or SGLang server is asked for its
       // model list instead.
       const started = performance.now();
-      const cheapHealth = state.engine === "vllm" || state.engine === "tensorfold";
+      const cheapHealth = state.engine === "vllm" || state.engine === "tensorfold" || state.engine === "llamacpp";
       const health = await this.get(state, cheapHealth ? "/health" : "/v1/models", !cheapHealth);
       const latencyMs = Math.round(performance.now() - started);
 
@@ -213,7 +214,9 @@ export class LlmCollector {
 
       const [modelsRes, metricsRes, healthJson] = await Promise.all([
         cheapHealth ? this.get(state, "/v1/models", true) : Promise.resolve(health),
-        this.get(state, "/metrics", false),
+        state.engine === "llamacpp" || state.engine === "lmstudio" || state.engine === "ollama"
+          ? Promise.resolve(null)
+          : this.get(state, "/metrics", false),
         // TensorFold reports its context window only in its /health body.
         state.engine === "tensorfold" && cheapHealth ? Promise.resolve(health) : Promise.resolve(null),
       ]);
@@ -255,10 +258,40 @@ export class LlmCollector {
       }
       const metricsText = metricsRes?.status === 200 ? await metricsRes.text() : null;
       if (!state.engine) state.engine = engineFromOwner(owner) ?? (metricsText ? engineFromMetrics(metricsText) : null);
-      const engine: Engine = state.engine ?? "vllm";
+      // Some OpenAI-compatible servers report no identifying owner. Probe only
+      // when their engine is unknown, not on every monitoring cycle.
+      if (!state.engine) {
+        const lm = await this.get(state, "/api/v0/models", false);
+        if (lm?.ok && lm.headers.get("content-type")?.includes("json")) {
+          try {
+            const data = await lm.json() as Record<string, unknown>;
+            const entries = Array.isArray(data.models) ? data.models : data.data;
+            if (Array.isArray(entries) && entries.some((x) => x && typeof x === "object" && ("type" in x || "publisher" in x))) state.engine = "lmstudio";
+          } catch { /* No valid engine signature. */ }
+        }
+        if (!state.engine) {
+          const ollama = await this.get(state, "/api/tags", false);
+          if (ollama?.ok) {
+            try {
+              const data = await ollama.json() as Record<string, unknown>;
+              if (Array.isArray(data.models) && (data.models.length === 0 || data.models.some((x) => x && typeof x === "object" && typeof x.name === "string"))) state.engine = "ollama";
+            } catch { /* No valid engine signature. */ }
+          }
+        }
+      }
+      const engine: Engine | null = state.engine;
+      const slotsRes = engine === "llamacpp" ? await this.get(state, "/slots", false) : null;
+      const slots = slotsRes?.ok ? await slotsRes.json().catch(() => null) as unknown : null;
+      const slotsCount = Array.isArray(slots) ? slots.filter((x): x is { is_processing: boolean; n_ctx?: number } => x !== null && typeof x === "object" && typeof x.is_processing === "boolean") : [];
+      const llamaRunning = slotsCount.length ? slotsCount.filter((x) => x.is_processing).length : null;
+      const llamaMax = slotsCount.length || null;
+      if (engine === "llamacpp" && contextLength === null) {
+        const maxCtx = Math.max(0, ...slotsCount.map((s) => typeof s.n_ctx === "number" ? s.n_ctx : 0));
+        if (maxCtx > 0) contextLength = maxCtx;
+      }
 
       const now = Date.now();
-      const metrics = metricsSample(engine, metricsText, healthBody);
+      const metrics = engine ? metricsSample(engine, metricsText, healthBody) : null;
       const prev = state.prev;
       let genTps: number | null = null;
       let promptTps: number | null = null;
@@ -271,7 +304,12 @@ export class LlmCollector {
           genTps = metrics.generationTokens === null ? null : dGen / dt;
           promptTps = metrics.promptTokens === null ? null : dPrompt / dt;
         }
-        this.store.addTokens(config.id, dPrompt, dGen);
+        // Record cache reuse only when both readings expose a counter. Never
+        // turn missing cache metrics into a fabricated zero hit rate.
+        const dCached = prev.metrics.prefixHits !== null && metrics.prefixHits !== null && dPrompt > 0
+          ? Math.min(dPrompt, counterDelta(prev.metrics.prefixHits, metrics.prefixHits))
+          : null;
+        this.store.addTokens(config.id, dPrompt, dGen, new Date(now), dCached);
         const dCount = counterDelta(prev.metrics.ttftCount, metrics.ttftCount);
         if (dCount > 0) ttft = counterDelta(prev.metrics.ttftSum, metrics.ttftSum) / dCount;
       }
@@ -293,7 +331,7 @@ export class LlmCollector {
       state.snapshot = {
         ...state.snapshot,
         state: "up",
-        detail: metrics
+        detail: metrics || engine === "llamacpp" || engine === "lmstudio" || engine === "ollama"
           ? null
           : engine === "sglang"
             ? "メトリクスを取得できません（SGLang は --enable-metrics が必要です）"
@@ -304,9 +342,9 @@ export class LlmCollector {
         upSince: state.snapshot.upSince ?? now,
         lastActiveAt: (metrics?.running ?? 0) > 0 || (genTps ?? 0) > 0.5 ? now : state.snapshot.lastActiveAt,
         latencyMs,
-        requestsRunning: metrics?.running ?? null,
+        requestsRunning: metrics?.running ?? llamaRunning,
         requestsWaiting: metrics?.waiting ?? null,
-        maxConcurrent: containersMaxConcurrent(containers),
+        maxConcurrent: containersMaxConcurrent(containers) ?? llamaMax,
         kvCacheUsage: metrics?.kvUsage ?? null,
         poolTokens: metrics?.poolTokens ?? null,
         poolFreeTokens: metrics?.poolFreeTokens ?? null,

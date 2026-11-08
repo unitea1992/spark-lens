@@ -8,8 +8,8 @@
  */
 .stage {
   position: relative;
-  margin-top: 22px;
-  padding: 34px clamp(18px, 4vw, 56px) 22px;
+  margin-top: 14px;
+  padding: 18px clamp(12px, 2.5vw, 34px) 14px;
   border-radius: 28px;
   background:
     radial-gradient(60% 90% at 66% 30%, color-mix(in srgb, var(--series-1) 9%, transparent), transparent 70%),
@@ -55,8 +55,20 @@
 .stage__clusters {
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: 12px;
   min-width: 0;
+}
+
+/* The workstation decision model must not push the Spark cluster down. */
+@media (min-width: 760px) {
+  .stage__clusters--split {
+    display: grid;
+    grid-template-columns: minmax(0, 1.85fr) minmax(0, 0.9fr);
+    align-items: start;
+    column-gap: clamp(10px, 2vw, 30px);
+  }
+  .stage__clusters--split .cluster { min-width: 0; }
+  .stage__clusters--split .cluster__nodes { flex-wrap: nowrap; }
 }
 
 .cluster__nodes {
@@ -72,10 +84,10 @@
 }
 
 .cluster__bands {
-  margin-top: 14px;
+  margin-top: 7px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
 .cluster__more {
@@ -85,7 +97,7 @@
 }
 
 .stage__legend {
-  margin-top: 22px;
+  margin-top: 12px;
   display: flex;
   flex-wrap: wrap;
   gap: 4px 16px;
@@ -203,7 +215,7 @@
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  padding: 6px 14px 10px;
+  padding: 3px 5px 5px;
   border: 0;
   border-radius: 20px;
   background: none;
@@ -218,7 +230,7 @@
 }
 
 .node .dial {
-  width: 172px;
+  width: clamp(112px, 11.5vw, 150px);
 }
 
 .node .dial svg {
@@ -239,7 +251,7 @@
 }
 
 .node__name {
-  margin-top: 10px;
+  margin-top: 4px;
   font-weight: 600;
   font-size: 16px;
   letter-spacing: 0.01em;
@@ -247,7 +259,7 @@
 
 .node__figures {
   display: flex;
-  gap: 14px;
+  gap: 9px;
   font-family: var(--font-figure);
   font-size: 15px;
   font-weight: 600;
@@ -274,7 +286,7 @@
 }
 
 .node__flag {
-  margin-top: 4px;
+  margin-top: 1px;
   font-size: 12px;
   font-weight: 600;
   color: var(--warn);
@@ -302,8 +314,8 @@
 /* The cable. Light travels along it while data does; --flow sets the pace. */
 .fabric {
   position: relative;
-  width: clamp(80px, 11vw, 180px);
-  height: 190px;
+  width: clamp(55px, 7vw, 105px);
+  height: 145px;
   display: flex;
   align-items: center;
 }
@@ -406,7 +418,7 @@
   flex-wrap: wrap;
   align-items: baseline;
   gap: 4px 16px;
-  padding: 10px 6px 0;
+  padding: 6px 6px 0;
 }
 
 .band__name {
@@ -534,7 +546,7 @@
 
 @media (max-width: 720px) {
   .stage {
-    padding: 22px 10px 16px;
+    padding: 14px 10px 12px;
     border-radius: 22px;
   }
 
@@ -567,7 +579,7 @@
   }
 
   .node .dial {
-    width: 124px;
+    width: 118px;
   }
 
   .node .dial__value {
@@ -575,7 +587,7 @@
   }
 
   .node__name {
-    margin-top: 6px;
+    margin-top: 3px;
     font-size: 14.5px;
   }
 
@@ -586,7 +598,7 @@
 
   .fabric {
     width: 44px;
-    height: 136px;
+    height: 125px;
   }
 
   .fabric__label {

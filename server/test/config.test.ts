@@ -71,3 +71,24 @@ test("recipes must point at known hosts and llms", () => {
   assert.throws(() => parseConfig({ ...base, recipes: [{ id: "r", host: "a", llm: "q", dir: "x", start: "s", stop: "s" }] }), /unknown llm/);
   assert.throws(() => parseConfig({ ...base, recipes: [{ id: "r", host: "a", dir: "x", start: "s" }] }), /stop/);
 });
+
+
+test("decision-only LLMs have explicit purpose and bad purposes are rejected", () => {
+  const hosts = [{ id: "dev", label: "Dev", kind: "workstation", local: true }];
+  const item = { id: "d1", label: "Decision model", baseUrl: "http://127.0.0.1:18991", nodes: ["dev"], engine: "llamacpp", purpose: "decision" };
+  assert.equal(parseConfig({ hosts, llms: [item] }).llms[0]?.purpose, "decision");
+  assert.throws(() => parseConfig({ hosts, llms: [{ ...item, purpose: "chat" }] }), /purpose/);
+});
+
+test("local API price reference is configurable and validated without cloud credentials", () => {
+  const hosts = [{ id: "dev", kind: "workstation", local: true }];
+  const item = { id: "m", baseUrl: "http://127.0.0.1:8888", apiPriceAs: "deepinfra/deepseek-ai/deepseek-v4.1-flash-1017", apiPriceComparison: "same_model" };
+  const config = parseConfig({ hosts, llms: [item] });
+  assert.equal(config.llms[0]?.apiPriceAs, item.apiPriceAs);
+  assert.equal(config.llms[0]?.apiPriceComparison, "same_model");
+  for (const key of ["http://example.org", "-bad/model", "x;'bad", "x", ""]) {
+    assert.throws(() => parseConfig({ hosts, llms: [{ ...item, apiPriceAs: key }] }), /apiPriceAs/);
+  }
+  assert.throws(() => parseConfig({ hosts, llms: [{ ...item, apiPriceComparison: "unknown" }] }), /apiPriceComparison/);
+  assert.throws(() => parseConfig({ hosts, llms: [{ id: "m", baseUrl: "http://127.0.0.1:8888", apiPriceComparison: "same_model" }] }), /requires apiPriceAs/);
+});

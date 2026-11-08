@@ -18,7 +18,7 @@ function projectName(cwd: string | null): string {
 const RECENT_MS = 60 * 60 * 1000;
 
 function Row({ a, now, multiHost }: { a: AgentSnapshot; now: number; multiHost: boolean }) {
-  const st = STATUS[a.status];
+  const st = a.source === "process" ? { tone: "quiet" as const, text: "起動のみ" } : STATUS[a.status];
   const activity = a.lastActivity ?? a.startedAt;
   return (
     <li className={`agent agent--${a.status}`}>
@@ -30,13 +30,15 @@ function Row({ a, now, multiHost }: { a: AgentSnapshot; now: number; multiHost: 
           <span className="agent__tool">{a.toolLabel}</span>
           <span className="agent__project">{projectName(a.cwd)}</span>
         </p>
-        <p className="agent__task">{a.title ?? "（タイトルなし）"}</p>
+        <p className="agent__task">{a.title ?? (a.source === "process" ? "プロセスのみ検出（作業状態は取得できません）" : "（タイトルなし）")}</p>
       </div>
       <div className="agent__meta">
         <span title={a.cwd ?? undefined}>{a.cwd ?? ""}</span>
         <span>
           {multiHost ? `${a.hostLabel} / ` : ""}
           {a.detail ? `${a.detail} / ` : ""}
+          {a.source ? `${({ "claude-session": "Claude記録", "codex-log": "Codexログ", "opencode-api": "OpenCode API", orca: "Orca", process: "プロセス" } as Record<string, string>)[a.source]} / ` : ""}
+          {a.confidence === "inferred" ? "状態は推定 / " : a.confidence === "detected" ? "起動のみ検出 / " : ""}
           {activity ? ago(activity, now) : ""}
         </span>
       </div>
@@ -47,16 +49,18 @@ function Row({ a, now, multiHost }: { a: AgentSnapshot; now: number; multiHost: 
 export function AgentList({ agents, now, multiHost }: { agents: AgentSnapshot[]; now: number; multiHost: boolean }) {
   // Sessions that are running, or only just went quiet, stay in view; older
   // finished ones fold away so they cannot bury live work.
-  const current = agents.filter(
+  const sessions = agents.filter((a) => a.source !== "process");
+  const processOnly = agents.filter((a) => a.source === "process");
+  const current = sessions.filter(
     (a) => a.status === "working" || a.status === "waiting" || a.pid !== null || (a.lastActivity ?? 0) > now - RECENT_MS,
   );
-  const earlier = agents.filter((a) => !current.includes(a));
+  const earlier = sessions.filter((a) => !current.includes(a));
   return (
     <>
       {current.length === 0 ? (
         <div className="card empty">
           <p>いま動いているエージェントはありません。</p>
-          <p className="muted">Claude Code、Codex、OpenCode を起動すると、ここに作業状況が並びます。</p>
+          <p className="muted">Claude Code・Codex・OpenCode・Orca の記録、その他ツールのプロセス検出から表示します。</p>
         </div>
       ) : (
         <ul className="card agents">
@@ -74,6 +78,15 @@ export function AgentList({ agents, now, multiHost }: { agents: AgentSnapshot[];
             ))}
           </ul>
         </>
+      )}
+      {processOnly.length > 0 && (
+        <details className="agent-processes">
+          <summary>起動のみ確認できたプロセス <strong>{processOnly.length}</strong> 件</summary>
+          <p>DSH・Piなどのプロセスを検出しています。作業中・入力待ち・アイドルの区別はできません。同じ作業環境の管理ペインと重複する場合があります。</p>
+          <ul className="card agents agents--quiet">
+            {processOnly.map((a) => <Row key={a.id} a={a} now={now} multiHost={multiHost} />)}
+          </ul>
+        </details>
       )}
     </>
   );

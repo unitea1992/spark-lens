@@ -8,6 +8,9 @@ import { LlmCollector } from "./collectors/llm.ts";
 import { SubscriptionCollector } from "./collectors/subscriptions/index.ts";
 import { UsageCollector } from "./collectors/usage.ts";
 import { loadConfig, stateDir } from "./config.ts";
+import { manageConfig } from "./config-management.ts";
+import { run, sshBashArgs } from "./exec.ts";
+import { PROBE_SSH_OPTIONS } from "./collectors/hosts.ts";
 import { HttpServer } from "./http.ts";
 import { RecipeManager } from "./recipes.ts";
 import { appendBenchRun, BenchRunner } from "./bench.ts";
@@ -24,7 +27,7 @@ function log(message: string): void {
 }
 
 async function main(): Promise<void> {
-  const { config, path, found } = loadConfig();
+  let { config, path, found } = loadConfig();
   log(found ? `config: ${path}` : `no config at ${path}; monitoring this machine only`);
 
   const runtimeDir = join(process.env.XDG_RUNTIME_DIR || tmpdir(), "spark-lens");
@@ -40,13 +43,13 @@ async function main(): Promise<void> {
       log(`benchmark archive: ${err instanceof Error ? err.message : String(err)}`);
     }
   });
-  const hosts = new HostCollector(config.hosts, {
+  let hosts = new HostCollector(config.hosts, {
     procRegex: procRegex(config.agents.processes),
     pollSeconds: config.pollSeconds,
     runtimeDir,
   });
   const llms = new LlmCollector(config.llms, store, config.pollSeconds);
-  const subscriptions = new SubscriptionCollector(config.subscriptions, {
+  let subscriptions = new SubscriptionCollector(config.subscriptions, {
     intervalSec: config.subscriptionPollSeconds,
     cache: { load: () => store.subscriptions(), save: (s) => store.setSubscriptions(s) },
   });
@@ -76,6 +79,7 @@ async function main(): Promise<void> {
       return Object.keys(trends).length > 0 ? { ...s, trends } : s;
     }),
     agents: agents.snapshots(),
+    agentSources: agents.sources(),
     usage: usage.snapshot(),
     recipes: recipes.snapshots(),
     bench: bench.snapshot(config.llms.map((l) => l.id)),
@@ -87,6 +91,33 @@ async function main(): Promise<void> {
     staticDir: join(ROOT, "dist"),
     allowedHosts: config.server.allowedHosts,
     snapshot,
+    manage: async (kind, action, input) => {
+      try {
+        // A new node should respond to one harmless SSH command before
+        // writing any configuration. Timeout prevents dashboard lock-ups.
+        if (kind === "hosts" && action === "add" && typeof input.ssh === "string") {
+          const ssh = input.ssh;
+          if (!/^[A-Za-z0-9_][A-Za-z0-9_.@:-]*$/.test(ssh)) throw new Error("SSH接続先が不正です");
+          const probe = await run("ssh", sshBashArgs(runtimeDir, ssh, PROBE_SSH_OPTIONS), { input: "echo SPARK_LENS_SSH_READY\n", timeoutMs: 8000 });
+          if (probe.code !== 0 || !probe.stdout.includes("SPARK_LENS_SSH_READY")) throw new Error(`SSH接続に失敗しました: ${probe.timedOut ? "タイムアウト" : probe.stderr.trim().slice(0, 160) || "認証または接続先を確認してください"}`);
+        }
+        const next = manageConfig(path, config, kind, action, input);
+        if (kind === "hosts") {
+          hosts.reconfigure(next.hosts);
+        } else {
+          subscriptions = new SubscriptionCollector(next.subscriptions, {
+            intervalSec: next.subscriptionPollSeconds,
+            cache: { load: () => store.subscriptions(), save: (s) => store.setSubscriptions(s) },
+          });
+        }
+        config = next;
+        found = true;
+        queueMicrotask(() => http.broadcast());
+        return { ok: true, message: "監視対象を更新しました" };
+      } catch (err) {
+        return { ok: false, message: err instanceof Error ? err.message : "変更できませんでした" };
+      }
+    },
     recipes:
       config.recipes.length > 0
         ? {

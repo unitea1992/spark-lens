@@ -1,6 +1,7 @@
 import type { Snapshot } from "../../../server/types.ts";
 import { ModelUsage } from "../components/ModelUsage.tsx";
 import { SubscriptionCard } from "../components/SubscriptionCard.tsx";
+import { SubscriptionEditor } from "../components/MonitorEditor.tsx";
 
 export function UsagePage({ snapshot, now }: { snapshot: Snapshot; now: number }) {
   return (
@@ -25,6 +26,7 @@ export function UsagePage({ snapshot, now }: { snapshot: Snapshot; now: number }
             ))}
           </div>
         )}
+        <SubscriptionEditor subscriptions={snapshot.subscriptions} />
       </section>
       <section aria-labelledby="h-models">
         <h2 id="h-models">モデル別の利用量</h2>

@@ -791,3 +791,17 @@
     justify-content: flex-end;
   }
 }
+
+/* Decision-only models do not generate tokens: a single compact status line. */
+.model--decision { gap: 10px; }
+.model__decision {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px 18px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.model__decision .fact dd { font-size: 13px; }
+@media (max-width: 640px) {
+  .model__decision { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

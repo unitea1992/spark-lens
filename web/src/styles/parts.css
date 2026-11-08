@@ -405,3 +405,18 @@
 .spark > .spark--empty {
   margin-top: 4px;
 }
+
+/* Optional, in-place monitoring settings. Kept quiet beneath the primary telemetry. */
+.monitor-editor { margin-top: 20px; padding: 14px 18px; border: 1px solid var(--track); border-radius: 12px; color: var(--ink-2); font-size: 13px; }
+.monitor-editor summary { cursor: pointer; font-weight: 600; color: var(--ink-2); }
+.monitor-editor__body { display: grid; gap: 14px; margin-top: 14px; }
+.monitor-editor__list { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.monitor-editor__list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--track); }
+.monitor-editor__list li span { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; min-width: 0; }
+.monitor-editor__list small { color: var(--ink-3); overflow-wrap: anywhere; }
+.monitor-editor__form { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
+.monitor-editor__form label { display: grid; gap: 4px; min-width: min(180px, 100%); }
+.monitor-editor__list select, .monitor-editor__form input, .monitor-editor__form select { background: var(--surface); color: var(--ink); border: 1px solid var(--track); border-radius: 7px; padding: 8px 10px; max-width: 100%; font: inherit; }
+.monitor-editor button { border: 1px solid var(--track); border-radius: 7px; padding: 8px 12px; background: var(--surface); color: var(--ink); cursor: pointer; font: inherit; }
+.monitor-editor button:disabled { cursor: not-allowed; opacity: 0.5; }
+.monitor-editor button:not(:disabled):hover { border-color: var(--ink-2); }

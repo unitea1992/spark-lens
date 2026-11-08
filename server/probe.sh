@@ -54,9 +54,38 @@ echo "$cur $lim $n $hw"
 echo "@@mem"
 grep -E '^(MemTotal|MemAvailable|SwapTotal|SwapFree):' /proc/meminfo
 
+echo "@@pressure"
+# Kernel memory-stall averages are a better distress signal for unified-memory
+# inference nodes than raw used percentage. OOM count is cumulative.
+if [ -r /proc/pressure/memory ]; then
+    grep -E '^(some|full) ' /proc/pressure/memory || true
+fi
+if [ -r /proc/vmstat ]; then
+    grep '^oom_kill ' /proc/vmstat || true
+fi
+
 echo "@@disk"
 # shellcheck disable=SC2086
 df -P -B1 $SL_MOUNTS 2>/dev/null | tail -n +2
+
+echo "@@diskio"
+# Gather read/write sectors in the same SSH probe, one row per mount.
+# /sys/class/block/.../stat reports device I/O, not filesystem cache hits.
+if command -v findmnt >/dev/null 2>&1 && command -v lsblk >/dev/null 2>&1; then
+    for mount in $SL_MOUNTS; do
+        src="$(findmnt -n -o SOURCE --target "$mount" 2>/dev/null | head -n 1)"
+        case "$src" in /dev/*) ;; *) continue ;; esac
+        dev="${src#/dev/}"
+        dev="${dev%%[*}"
+        dev="${dev##*/}"
+        parent="$(lsblk -n -o PKNAME "/dev/$dev" 2>/dev/null | head -n 1)"
+        [ -n "$parent" ] && dev="$parent"
+        [ -r "/sys/class/block/$dev/stat" ] || continue
+        # shellcheck disable=SC2046
+        set -- $(cat "/sys/class/block/$dev/stat")
+        echo "$mount|$dev|$3|$7"
+    done
+fi
 
 echo "@@temp"
 # <chip>|<label>|<millidegrees C>
@@ -111,21 +140,23 @@ echo "@@net"
 for dev in /sys/class/net/*; do
     [ -e "$dev/device" ] || continue
     i="$(basename "$dev")"
-    echo "$i $(cat "$dev/statistics/rx_bytes") $(cat "$dev/statistics/tx_bytes") $(cat "$dev/operstate" 2>/dev/null) $(cat "$dev/speed" 2>/dev/null || echo -1)"
+    echo "$i $(cat "$dev/statistics/rx_bytes") $(cat "$dev/statistics/tx_bytes") $(cat "$dev/operstate" 2>/dev/null) $(cat "$dev/speed" 2>/dev/null || echo -1) $(cat "$dev/statistics/rx_errors" 2>/dev/null || echo -1) $(cat "$dev/statistics/tx_errors" 2>/dev/null || echo -1)"
 done
 
 echo "@@ib"
-# <device> <rcv words> <xmit words> <link Gb/s>; active RDMA ports only.
+# <device> <rcv words> <xmit words> <link Gb/s> <active 0/1> <rcv errors> <xmit discards>.
 # RDMA (RoCE) traffic such as NCCL between nodes bypasses the kernel's
 # interface counters, so it is only visible here. One word is 4 bytes.
 for d in /sys/class/infiniband/*; do
     p="$d/ports/1"
     [ -r "$p/state" ] || continue
-    case "$(cat "$p/state" 2>/dev/null)" in *ACTIVE*) ;; *) continue ;; esac
+    case "$(cat "$p/state" 2>/dev/null)" in *ACTIVE*) active=1 ;; *) active=0 ;; esac
     r="$(cat "$p/counters/port_rcv_data" 2>/dev/null)" || continue
     x="$(cat "$p/counters/port_xmit_data" 2>/dev/null)" || continue
     rate="$(cut -d' ' -f1 < "$p/rate" 2>/dev/null)"
-    echo "$(basename "$d") $r $x ${rate:-0}"
+    errors="$(cat "$p/counters/port_rcv_errors" 2>/dev/null || echo -1)"
+    discards="$(cat "$p/counters/port_xmit_discards" 2>/dev/null || echo -1)"
+    echo "$(basename "$d") $r $x ${rate:-0} $active $errors $discards"
 done
 
 echo "@@docker"

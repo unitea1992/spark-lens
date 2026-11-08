@@ -42,16 +42,17 @@ export function LlmPanel({
   const running = (llm.requestsRunning ?? 0) > 0;
   const kv = llm.kvCacheUsage === null ? null : llm.kvCacheUsage * 100;
   const spec = llm.spec;
+  const decision = llm.purpose === "decision";
   const where = [...new Set(recipes.flatMap((r) => r.hostLabels ?? [r.hostLabel]))].join("、");
   const sub = [
-    llm.models[0],
+    decision ? llm.models[0]?.split("/").pop() : llm.models[0],
     llm.engine,
     llm.contextLength ? `コンテキスト長 ${count(llm.contextLength)}` : null,
     where ? `実行先 ${where}` : null,
   ].filter(Boolean);
 
   return (
-    <article className={`card model model--${llm.state}`}>
+    <article className={`card model model--${llm.state}${decision ? " model--decision" : ""}`}>
       <header className="model__head">
         <div className="model__title">
           <h3 className="card__title">{llm.label}</h3>
@@ -68,7 +69,14 @@ export function LlmPanel({
       )}
       {llm.detail && llm.state === "up" && <p className="notice notice--warn">{llm.detail}</p>}
 
-      {up && (
+      {up && decision && (
+        <dl className="model__decision">
+          <Fact label="判定API" value="/v1/systemone" />
+          <Fact label="処理中 / 同時実行枠" value={`${llm.requestsRunning ?? "–"} / ${llm.maxConcurrent ?? "–"}`} />
+          <Fact label="コンテキスト" value={llm.contextLength ? `${count(llm.contextLength)} トークン` : "–"} />
+        </dl>
+      )}
+      {up && !decision && (
         <>
           <div className="tiles">
             <div className="tile tile--hero">

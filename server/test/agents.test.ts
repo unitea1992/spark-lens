@@ -120,7 +120,7 @@ test("trimIdle keeps live work and only a few recent finished sessions per tool"
 
 test("process rules: built-in patterns match agent CLIs but not their helpers", () => {
   const re = new RegExp(procRegex([]));
-  for (const hit of ["claude", "/usr/local/bin/claude --resume", "codex exec --json -", "/home/u/.opencode/bin/opencode run hi"]) {
+  for (const hit of ["claude", "/usr/local/bin/claude --resume", "codex exec --json -", "/home/u/.opencode/bin/opencode run hi", "dsh --profile dsh-tui", "omp", "/home/u/bin/pi --model local"]) {
     assert.ok(re.test(hit), hit);
   }
   for (const miss of ["codex app-server --listen unix://", "/home/u/.opencode/bin/opencode serve --service", "vim claude.md", "claude-hook.sh"]) {
@@ -131,6 +131,16 @@ test("process rules: built-in patterns match agent CLIs but not their helpers", 
     { pid: 6, elapsedSec: 60, cpuPct: 0, rssBytes: 1, cwd: "", args: "hermes gateway" },
   ];
   const out = processAgents(procs, [...REMOTE_RULES, { tool: "hermes", label: "Hermes", match: "^hermes " }], 1_000_000);
-  assert.deepEqual(out.map((a) => [a.tool, a.status, a.cwd]), [["codex", "working", "/w/x"], ["hermes", "idle", null]]);
+  assert.deepEqual(out.map((a) => [a.tool, a.status, a.cwd]), [["codex", "unknown", "/w/x"], ["hermes", "unknown", null]]);
   assert.equal(out[0]?.startedAt, 1_000_000 - 60_000);
+});
+
+test("merge never hides simultaneous sessions sharing the same worktree", () => {
+  const base = { pid: null, startedAt: null, lastActivity: null, cpuPct: null, detail: null };
+  const own = [
+    { ...base, id: "claude:1", tool: "claude", cwd: "/w/app", title: "Task A", status: "working" as const },
+    { ...base, id: "claude:2", tool: "claude", cwd: "/w/app", title: "Task B", status: "working" as const },
+  ];
+  const orca = [{ ...base, id: "orca:p1", tool: "claude", cwd: "/w/app", title: "Task C", status: "working" as const }];
+  assert.deepEqual(mergeAgents(own, orca).map((a) => a.id), ["claude:1", "claude:2", "orca:p1"]);
 });
