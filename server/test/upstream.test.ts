@@ -248,7 +248,7 @@ test("a variant sharing the checkout and containers neither blocks the restart n
   });
 });
 
-test("a non-repository is an error and a clone without upstream is untracked", async () => {
+test("a directory that is not a checkout or a clone without upstream is untracked, a missing one an error", async () => {
   const f = fixture();
   const plain = join(f.home, "plain");
   mkdirSync(plain);
@@ -263,8 +263,8 @@ test("a non-repository is an error and a clone without upstream is untracked", a
         join(f.home, "ctl"),
       ).checkUpstream("r");
     const bad = await run(plain);
-    assert.equal(bad?.state, "error");
-    assert.ok(bad?.message);
+    assert.equal(bad?.state, "untracked");
+    assert.match(bad?.message ?? "", /チェックアウト/);
     const missing = await run(join(f.home, "nope"));
     assert.equal(missing?.state, "error");
     const un = await run(lonely);
