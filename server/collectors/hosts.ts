@@ -21,12 +21,14 @@ export interface ProbeSample {
   /** maxKhz is the allowed maximum (a cap when one is set); hwMaxKhz the hardware one. */
   freq: { curKhz: number; maxKhz: number; cores: number; hwMaxKhz: number } | null;
   mem: Record<string, number>;
+  pressure: { someAvg10: number | null; fullAvg10: number | null; oomKills: number | null };
   disks: DiskInfo[];
+  diskIo: { mount: string; device: string; readSectors: number; writeSectors: number }[];
   temps: TempReading[];
   gpu: GpuInfo | null;
   gpuProcesses: { pid: number; name: string; memBytes: number | null }[];
-  net: { iface: string; rx: number; tx: number; up: boolean; speedMbps: number | null }[];
-  ib: { device: string; rx: number; tx: number; rateGbps: number | null }[];
+  net: { iface: string; rx: number; tx: number; up: boolean; speedMbps: number | null; errors: number | null }[];
+  ib: { device: string; rx: number; tx: number; rateGbps: number | null; up: boolean; errors: number | null }[];
   containers: ContainerInfo[];
   /** The container list was read: Docker answered. An empty list then means none. */
   containersKnown: boolean;
@@ -124,6 +126,20 @@ export function parseProbe(text: string): ProbeSample | null {
     if (m) mem[m[1]!] = Number(m[2]) * 1024;
   }
 
+  const pressure = { someAvg10: null as number | null, fullAvg10: null as number | null, oomKills: null as number | null };
+  for (const line of s.get("pressure") ?? []) {
+    const m = /^(some|full) avg10=(\d+(?:\.\d+)?)/.exec(line);
+    if (m) {
+      const avg = Number(m[2]);
+      if (Number.isFinite(avg) && avg >= 0 && avg <= 100) {
+        if (m[1] === "some") pressure.someAvg10 = avg;
+        else pressure.fullAvg10 = avg;
+      }
+    }
+    const oom = /^oom_kill (\d+)$/.exec(line);
+    if (oom) pressure.oomKills = Number(oom[1]);
+  }
+
   const disks: DiskInfo[] = [];
   for (const line of s.get("disk") ?? []) {
     const f = line.split(/\s+/);
@@ -134,6 +150,13 @@ export function parseProbe(text: string): ProbeSample | null {
     }
   }
 
+  const diskIo = (s.get("diskio") ?? []).flatMap((line) => {
+    const [mount, device, r, w] = line.split("|");
+    const readSectors = num(r);
+    const writeSectors = num(w);
+    return mount?.startsWith("/") && device && readSectors !== null && writeSectors !== null && readSectors >= 0 && writeSectors >= 0
+      ? [{ mount, device, readSectors, writeSectors }] : [];
+  });
   const temps: TempReading[] = [];
   for (const line of s.get("temp") ?? []) {
     const [chip, label, raw] = line.split("|");
@@ -156,7 +179,9 @@ export function parseProbe(text: string): ProbeSample | null {
     const tx = Number(f[2]);
     if (!f[0] || !Number.isFinite(rx) || !Number.isFinite(tx)) return [];
     const speed = Number(f[4]);
-    return [{ iface: f[0], rx, tx, up: f[3] === "up", speedMbps: Number.isFinite(speed) && speed > 0 ? speed : null }];
+    const rxError = num(f[5]), txError = num(f[6]);
+    return [{ iface: f[0], rx, tx, up: f[3] === "up", speedMbps: Number.isFinite(speed) && speed > 0 ? speed : null,
+      errors: rxError !== null && txError !== null && rxError >= 0 && txError >= 0 ? rxError + txError : null }];
   });
 
   const ib = (s.get("ib") ?? []).flatMap((line) => {
@@ -165,7 +190,10 @@ export function parseProbe(text: string): ProbeSample | null {
     const tx = Number(f[2]);
     if (!f[0] || !Number.isFinite(rx) || !Number.isFinite(tx)) return [];
     const rate = Number(f[3]);
-    return [{ device: f[0], rx: rx * 4, tx: tx * 4, rateGbps: Number.isFinite(rate) && rate > 0 ? rate : null }];
+    const received = num(f[5]), discarded = num(f[6]);
+    return [{ device: f[0], rx: rx * 4, tx: tx * 4, rateGbps: Number.isFinite(rate) && rate > 0 ? rate : null,
+      up: f[4] === undefined || f[4] === "1",
+      errors: received !== null && discarded !== null && received >= 0 && discarded >= 0 ? received + discarded : null }];
   });
 
   const dockerLines = s.get("docker") ?? [];
@@ -208,7 +236,7 @@ export function parseProbe(text: string): ProbeSample | null {
   const cap = num((s.get("gpucap") ?? [])[0]);
   if (gpu && cap !== null && cap > 0 && (gpu.clockMaxMhz === null || cap < gpu.clockMaxMhz)) gpu.clockMaxMhz = cap;
 
-  return { host, cpu, freq, mem, disks, temps, gpu, gpuProcesses, net, ib, containers, containersKnown, procs };
+  return { host, cpu, freq, mem, pressure, disks, diskIo, temps, gpu, gpuProcesses, net, ib, containers, containersKnown, procs };
 }
 
 /** Busy share of CPU time between two /proc/stat readings, 0..100. */
@@ -247,6 +275,8 @@ interface HostState {
   procs: HostProcess[];
   busy: boolean;
   failures: number;
+  /** Links known to have been active since monitoring began. */
+  rdmaPreviouslyUp: Set<string>;
 }
 
 /** Consecutive failed probes before a machine that was answering is shown as down. */
@@ -260,6 +290,11 @@ function emptySnapshot(config: HostConfig, stepSec: number): HostSnapshot {
     id: config.id,
     label: config.label,
     kind: config.kind,
+    role: config.role ?? "standalone",
+    headId: config.headId,
+    networkIssueUntil: null,
+    gpuReadFailed: false,
+    local: config.local === true,
     online: false,
     error: null,
     lastSeen: null,
@@ -279,6 +314,8 @@ function emptySnapshot(config: HostConfig, stepSec: number): HostSnapshot {
     memUsedBytes: null,
     swapTotalBytes: null,
     swapUsedBytes: null,
+    memoryPressure: { someAvg10: null, fullAvg10: null, oomKillRecent: false },
+    oomIssueUntil: null,
     disks: [],
     gpu: null,
     maxTemp: null,
@@ -304,12 +341,14 @@ function describeFailure(stderr: string, timedOut: boolean, code: number | null)
 }
 
 export class HostCollector {
-  private readonly states: HostState[];
+  private states: HostState[];
+  private readonly pollSeconds: number;
   private readonly controlDir: string;
   private readonly procRegex: string;
   private readonly timeoutMs: number;
 
   constructor(hosts: HostConfig[], opts: { procRegex: string; pollSeconds: number; runtimeDir: string }) {
+    this.pollSeconds = opts.pollSeconds;
     this.states = hosts.map((config) => ({
       config,
       snapshot: emptySnapshot(config, opts.pollSeconds),
@@ -317,11 +356,24 @@ export class HostCollector {
       procs: [],
       busy: false,
       failures: 0,
+      rdmaPreviouslyUp: new Set(),
     }));
     this.procRegex = opts.procRegex;
     this.controlDir = opts.runtimeDir;
     this.timeoutMs = Math.max(4000, opts.pollSeconds * 1000 * 2);
     mkdirSync(this.controlDir, { recursive: true, mode: 0o700 });
+  }
+
+  /** Keep the current readings and short history for unchanged nodes. */
+  reconfigure(hosts: HostConfig[]): void {
+    this.states = hosts.map((config) => {
+      const previous = this.states.find((s) => s.config.id === config.id);
+      if (previous) {
+        const sameProbeTarget = previous.config.local === config.local && previous.config.ssh === config.ssh && JSON.stringify(previous.config.mounts) === JSON.stringify(config.mounts);
+        if (sameProbeTarget) return { ...previous, config, snapshot: { ...previous.snapshot, label: config.label, kind: config.kind, role: config.role ?? "standalone", headId: config.headId } };
+      }
+      return { config, snapshot: emptySnapshot(config, this.pollSeconds), prev: null, procs: [], busy: false, failures: 0, rdmaPreviouslyUp: new Set<string>() };
+    });
   }
 
   snapshots(): HostSnapshot[] {
@@ -393,6 +445,9 @@ export class HostCollector {
     const memAvail = sample.mem.MemAvailable ?? null;
     const swapTotal = sample.mem.SwapTotal ?? null;
     const swapFree = sample.mem.SwapFree ?? null;
+    const oomIncreased = prev?.sample.pressure.oomKills != null && sample.pressure.oomKills != null
+      && sample.pressure.oomKills > prev.sample.pressure.oomKills;
+    const oomIssueUntil = oomIncreased ? now + 120_000 : state.snapshot.oomIssueUntil ?? null;
 
     const net: NetInfo[] = sample.net.map((n) => {
       const before = prev?.sample.net.find((p) => p.iface === n.iface);
@@ -402,6 +457,8 @@ export class HostCollector {
         speedMbps: n.speedMbps,
         rxBps: counterRate(n.rx, before?.rx, dt),
         txBps: counterRate(n.tx, before?.tx, dt),
+        errorDelta: n.errors === null || before?.errors === null || before?.errors === undefined || n.errors < before.errors
+          ? null : n.errors - before.errors,
       };
     });
 
@@ -411,8 +468,15 @@ export class HostCollector {
     const hottest: TempReading | null =
       gpuTemp !== null && (!maxTemp || gpuTemp > maxTemp.tempC) ? { chip: "gpu", label: "GPU", tempC: gpuTemp } : maxTemp;
 
+    const networkFault = net.some((n) => (n.errorDelta ?? 0) > 0) || sample.ib.some((p) => {
+      const before = prev?.sample.ib.find((q) => q.device === p.device);
+      return (before?.errors != null && p.errors != null && p.errors > before.errors);
+    }) || [...state.rdmaPreviouslyUp].some((name) => !sample.ib.some((p) => p.device === name && p.up));
+    for (const p of sample.ib) if (p.up) state.rdmaPreviouslyUp.add(p.device);
     state.snapshot = {
       ...state.snapshot,
+      networkIssueUntil: networkFault ? now + 90_000 : state.snapshot.networkIssueUntil ?? null,
+      gpuReadFailed: prev?.sample.gpu !== null && prev !== null && sample.gpu === null,
       online: true,
       error: null,
       lastSeen: now,
@@ -432,7 +496,17 @@ export class HostCollector {
       memUsedBytes: memTotal !== null && memAvail !== null ? memTotal - memAvail : null,
       swapTotalBytes: swapTotal,
       swapUsedBytes: swapTotal !== null && swapFree !== null ? swapTotal - swapFree : null,
-      disks: sample.disks,
+      oomIssueUntil,
+      memoryPressure: { someAvg10: sample.pressure.someAvg10, fullAvg10: sample.pressure.fullAvg10, oomKillRecent: oomIssueUntil !== null && oomIssueUntil > now },
+      disks: sample.disks.map((disk) => {
+        const io = sample.diskIo.find((x) => x.mount === disk.mount);
+        const previous = prev?.sample.diskIo.find((x) => x.device === io?.device);
+        // Multiple mounts on the same disk report the same device rate.
+        return { ...disk,
+          readBps: io ? counterRate(io.readSectors * 512, previous?.readSectors === undefined ? undefined : previous.readSectors * 512, dt) : null,
+          writeBps: io ? counterRate(io.writeSectors * 512, previous?.writeSectors === undefined ? undefined : previous.writeSectors * 512, dt) : null,
+        };
+      }),
       gpu: sample.gpu,
       maxTemp: hottest,
       cpuTempC: cpuTemp(sample.temps),
@@ -440,7 +514,9 @@ export class HostCollector {
       net,
       fabric: sample.ib.map((p) => {
         const before = prev?.sample.ib.find((q) => q.device === p.device);
-        return { device: p.device, rateGbps: p.rateGbps, rxBps: counterRate(p.rx, before?.rx, dt), txBps: counterRate(p.tx, before?.tx, dt) };
+        return { device: p.device, rateGbps: p.rateGbps, rxBps: counterRate(p.rx, before?.rx, dt), txBps: counterRate(p.tx, before?.tx, dt), up: p.up,
+          errorDelta: p.errors === null || before?.errors === undefined || before.errors === null || p.errors < before.errors
+            ? null : p.errors - before.errors };
       }),
       containers: sample.containers,
       containersKnown: sample.containersKnown,

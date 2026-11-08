@@ -109,10 +109,13 @@ test("TensorFold: reads its own names, and kept-prompt hits when /health's figur
   assert.equal(m.generationTokens, 70);
   assert.equal(m.requests, 3);
   assert.equal(m.prefixHits, null);
-  assert.equal(m.prefixQueries, null);
+  assert.equal(m.prefixQueries, 50);
   assert.equal(specStats(null, m, 0)?.acceptRate, 0.75);
   const withHealth = parseMetrics(`${TENSORFOLD}tensorfold_health:cached_tokens_total 20\n`, "tensorfold");
   assert.equal(withHealth.prefixHits, 20);
+  const native = parseMetrics(`${TENSORFOLD}tensorfold:prompt_cache_cached_tokens 32\n`, "tensorfold");
+  assert.equal(native.prefixHits, 32);
+  assert.equal(native.prefixQueries, 50);
   assert.equal(m.poolFreeTokens, null);
   const withPool = parseMetrics(`${TENSORFOLD}tensorfold_health:pool_tokens 1918976\ntensorfold_health:pool_free_tokens 129024\n`, "tensorfold");
   assert.deepEqual([withPool.poolTokens, withPool.poolFreeTokens], [1918976, 129024]);
@@ -361,4 +364,50 @@ test("metricsSample reads /metrics, and only TensorFold falls back to /health", 
   assert.equal(metricsSample("tensorfold", null, { completion_tokens_total: 5 })?.generationTokens, 5);
   const tf = "tensorfold:generation_tokens_total 10\n";
   assert.equal(metricsSample("tensorfold", tf, { completion_tokens_total: 12 })?.generationTokens, 12);
+});
+
+test("OpenAI model ownership identifies llama.cpp directly without Docker or metrics", () => {
+  assert.equal(engineFromOwner("llamacpp"), "llamacpp");
+  assert.equal(engineFromOwner("llama.cpp"), "llamacpp");
+  assert.equal(engineFromOwner("LM Studio"), "lmstudio");
+  assert.equal(engineFromOwner("unidentified"), null);
+});
+
+test("llama.cpp is observable without a Docker container or Prometheus metrics", async () => {
+  const { createServer } = await import("node:http");
+  const { LlmCollector } = await import("../collectors/llm.ts");
+  const { Store } = await import("../store.ts");
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const requests: string[] = [];
+  const server = createServer((req, res) => {
+    requests.push(req.url ?? "");
+    res.setHeader("Content-Type", "application/json");
+    if (req.url === "/v1/models") return void res.end(JSON.stringify({ data: [{ id: "d1-2b", owned_by: "llamacpp" }] }));
+    if (req.url === "/slots") return void res.end(JSON.stringify([{ id: 0, is_processing: true, n_ctx: 4096 }, { id: 1, is_processing: false, n_ctx: 4096 }]));
+    if (req.url === "/health") return void res.end('{"status":"ok"}');
+    res.writeHead(501).end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const root = mkdtempSync(join(tmpdir(), "sl-llama-"));
+  try {
+    const port = (server.address() as { port: number }).port;
+    const llm = new LlmCollector([{ id: "d1-2b", label: "Decision model", baseUrl: `http://127.0.0.1:${port}`, nodes: ["dev"], engine: "auto", purpose: "decision" }], new Store(root), 5);
+    await llm.poll([]);
+    const s = llm.snapshots()[0]!;
+    assert.equal(s.state, "up");
+    assert.equal(s.engine, "llama.cpp");
+    assert.equal(s.purpose, "decision");
+    assert.equal(s.requestsRunning, 1);
+    assert.equal(s.maxConcurrent, 2);
+    assert.equal(s.contextLength, 4096);
+    assert.equal(s.models[0], "d1-2b");
+    assert.equal(s.containers.length, 0);
+    await llm.poll([]);
+    assert.equal(requests.filter((p) => p === "/metrics").length, 1);
+  } finally {
+    server.close();
+    rmSync(root, { recursive: true, force: true });
+  }
 });

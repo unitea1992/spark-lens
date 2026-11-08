@@ -49,7 +49,7 @@ export class SubscriptionCollector {
       const provider = providers.find((p) => p.type === config.type) ?? null;
       const n = (seen.get(config.type) ?? 0) + 1;
       seen.set(config.type, n);
-      const id = n === 1 ? config.type : `${config.type}-${n}`;
+      const id = config.id ?? (n === 1 ? config.type : `${config.type}-${n}`);
       const label = config.label ?? provider?.defaultLabel ?? config.type;
       const prior = saved[id];
       const snapshot: SubscriptionSnapshot =

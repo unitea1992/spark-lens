@@ -4,12 +4,12 @@ import type { ModelUsage } from "./types.ts";
 
 // API-price equivalent of the tokens each model used. Prices come from
 // models.dev (per provider, USD per million tokens) with LiteLLM as a
-// fallback, are cached on disk and refreshed at most once a day. A model that
-// cannot be matched exactly is left unpriced: no guessing.
+// fallback, are cached on disk. Refresh checks run at most every 6 hours, use
+// ETags when offered, and never block serving the last known good prices.
 
 const MODELS_DEV_URL = "https://models.dev/api.json";
 const LITELLM_URL = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
-const MAX_AGE_MS = 24 * 3600_000;
+export const PRICE_CHECK_MS = 6 * 3600_000;
 /** After a failed fetch, wait this long before trying again. */
 const RETRY_MS = 3600_000;
 const FETCH_TIMEOUT_MS = 20_000;
@@ -24,15 +24,26 @@ export interface Rates {
 
 export interface PriceTable {
   fetchedAt: number;
+  /** Last successful conditional revalidation, including HTTP 304. */
+  checkedAt?: number;
+  /** Opaque response validators; never include in the UI. */
+  etags?: { modelsDev?: string; litellm?: string };
   /** "provider/model-id" -> rates. */
   modelsDev: Record<string, Rates>;
   /** Plain model id -> rates (LiteLLM keys with a region or cloud prefix are dropped). */
   litellm: Record<string, Rates>;
 }
 
-/** Local models are priced as the same open model through its maker's API. Key: label lowercased, spaces as hyphens. */
-export const LOCAL_PRICE_AS: Record<string, string> = {
-  "glm-5.3-flash": "zai/glm-5.3-flash",
+/** Reviewed comparisons only. Never fuzzy-match an unrelated paid model.
+ * A non-standard/abliterated checkpoint is an approximation to its base API. */
+export const LOCAL_PRICE_AS: Record<string, { key: string; comparison: "same_model" | "proxy" }> = {
+  "glm-5.3-flash": { key: "zai/glm-5.3-flash", comparison: "same_model" },
+  "glm-5.3-flash（tensorfold）": { key: "zai/glm-5.3-flash", comparison: "same_model" },
+  "glm-5.3-flash-未検閲版（tensorfold）": { key: "zai/glm-5.3-flash", comparison: "proxy" },
+  "qwen3.8-flash-next（tensorfold）": { key: "vultr/qwen3.8-flash-next", comparison: "same_model" },
+  "qwen3.8-flash-next（tensorfold・2-台）": { key: "vultr/qwen3.8-flash-next", comparison: "same_model" },
+  "deepseek-v4.1-flash-1017（tensorfold・2-台）": { key: "deepinfra/deepseek-ai/deepseek-v4.1-flash-1017", comparison: "same_model" },
+  "deepseek-v4.1-flash-1017-未検閲版（tensorfold・2-台）": { key: "deepinfra/deepseek-ai/deepseek-v4.1-flash-1017", comparison: "proxy" },
 };
 
 /** OpenCode model ids do not name their maker; the few we can tell from the id. */
@@ -102,14 +113,19 @@ function providersFor(row: Pick<ModelUsage, "model" | "source">): string[] {
   }
 }
 
-/** The "provider/id" a local model is priced as, or null when unmapped. */
-export function localPriceKey(label: string): string | null {
+/** Explicit reference and whether the checkpoint has a directly comparable public API. */
+export function localPriceMatch(label: string): { key: string; comparison: "same_model" | "proxy" } | null {
   return LOCAL_PRICE_AS[label.trim().toLowerCase().replace(/\s+/g, "-")] ?? null;
 }
 
-export function findRates(table: PriceTable, row: Pick<ModelUsage, "model" | "source" | "local">): Rates | null {
+/** The "provider/id" a local model is priced as, or null when unmapped. */
+export function localPriceKey(label: string): string | null {
+  return localPriceMatch(label)?.key ?? null;
+}
+
+export function findRates(table: PriceTable, row: Pick<ModelUsage, "model" | "source" | "local" | "priceReference">): Rates | null {
   if (row.local) {
-    const key = localPriceKey(row.model);
+    const key = row.priceReference ?? localPriceKey(row.model);
     return key ? (table.modelsDev[key] ?? null) : null;
   }
   const providers = providersFor(row);
@@ -129,32 +145,55 @@ export function findRates(table: PriceTable, row: Pick<ModelUsage, "model" | "so
 }
 
 /** Dollar value of a row's tokens, or null when its model has no reliable price. */
-export function priceRow(table: PriceTable | null, row: ModelUsage): { usd: number | null; usdEstimate?: boolean } {
+export function priceRow(table: PriceTable | null, row: ModelUsage): {
+  usd: number | null;
+  usdEstimate?: boolean;
+  priceReference?: string;
+  priceComparison?: "same_model" | "proxy";
+} {
   const rates = table ? findRates(table, row) : null;
   if (!rates) return { usd: null };
+  const localMatch = row.local
+    ? row.priceReference
+      ? { key: row.priceReference, comparison: row.priceComparison ?? "proxy" }
+      : localPriceMatch(row.model)
+    : null;
+  const reference = localMatch ? { priceReference: localMatch.key, priceComparison: localMatch.comparison } : {};
   if (row.input === null || row.output === null) {
     // Only a total is known: price all of it at the input rate, an upper bound.
-    return { usd: (row.total * rates.input) / 1e6, usdEstimate: true };
+    return { usd: (row.total * rates.input) / 1e6, usdEstimate: true, ...reference };
   }
   const cached = row.cached ?? 0;
   const usd = (row.input * rates.input + row.output * rates.output + cached * (rates.cacheRead ?? rates.input)) / 1e6;
-  return { usd };
+  // Even a same-model price estimates *avoided API purchases*, not net savings.
+  return { usd, ...(row.local ? { usdEstimate: true } : {}), ...reference };
 }
 
 export function applyPrices(list: ModelUsage[], table: PriceTable | null): void {
   for (const r of list) {
     const p = priceRow(table, r);
-    // A local model with no API counterpart still costs nothing to run here.
-    r.usd = p.usd === null && r.local && table ? 0 : p.usd;
+    // An absent comparison is unknown, never $0. Actual local API billing is
+    // zero, but `usd` means the *hypothetical* API-price equivalent.
+    r.usd = p.usd;
     if (p.usdEstimate) r.usdEstimate = true;
     else delete r.usdEstimate;
+    if (p.priceReference) r.priceReference = p.priceReference;
+    else delete r.priceReference;
+    if (p.priceComparison) r.priceComparison = p.priceComparison;
+    else delete r.priceComparison;
   }
 }
 
-async function fetchJson(url: string): Promise<unknown> {
-  const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), credentials: "omit", headers: { accept: "application/json" } });
+type PriceFetch = { kind: "data"; body: unknown; etag?: string } | { kind: "not_modified"; etag?: string };
+
+async function fetchPrice(url: string, etag?: string): Promise<PriceFetch> {
+  const headers: Record<string, string> = { accept: "application/json" };
+  if (etag) headers["if-none-match"] = etag;
+  const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), credentials: "omit", headers });
+  const tag = res.headers.get("etag") ?? undefined;
+  if (res.status === 304) return { kind: "not_modified", etag: tag ?? etag };
   if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
-  return res.json();
+  return { kind: "data", body: await res.json(), etag: tag };
 }
 
 export class PriceBook {
@@ -163,12 +202,12 @@ export class PriceBook {
   private refreshing = false;
   private lastAttempt = 0;
   private readonly file: string;
-  private readonly fetchJson: (url: string) => Promise<unknown>;
+  private readonly fetchPrice: (url: string, etag?: string) => Promise<PriceFetch>;
   private readonly log: (msg: string) => void;
 
-  constructor(stateDir: string, opts: { fetchJson?: (url: string) => Promise<unknown>; log?: (msg: string) => void } = {}) {
+  constructor(stateDir: string, opts: { fetchPrice?: (url: string, etag?: string) => Promise<PriceFetch>; log?: (msg: string) => void } = {}) {
     this.file = join(stateDir, "prices.json");
-    this.fetchJson = opts.fetchJson ?? fetchJson;
+    this.fetchPrice = opts.fetchPrice ?? fetchPrice;
     this.log = opts.log ?? (() => {});
   }
 
@@ -190,21 +229,43 @@ export class PriceBook {
     }
   }
 
-  /** Load the cache and, when it is over a day old, fetch fresh prices. Never throws. */
+  /** Rate-limit checks, not page reads; a failed request leaves the last prices intact. */
   async refreshIfStale(now = Date.now()): Promise<void> {
     await this.loadCache();
     if (this.refreshing) return;
-    if (this.table && now - this.table.fetchedAt < MAX_AGE_MS) return;
+    if (this.table && now - (this.table.checkedAt ?? this.table.fetchedAt) < PRICE_CHECK_MS) return;
     if (now - this.lastAttempt < RETRY_MS) return;
     this.refreshing = true;
     this.lastAttempt = now;
     try {
-      const [md, ll] = await Promise.allSettled([this.fetchJson(MODELS_DEV_URL), this.fetchJson(LITELLM_URL)]);
+      const previous = this.table;
+      const [md, ll] = await Promise.allSettled([
+        this.fetchPrice(MODELS_DEV_URL, previous?.etags?.modelsDev),
+        this.fetchPrice(LITELLM_URL, previous?.etags?.litellm),
+      ]);
       if (md.status !== "fulfilled") throw md.reason;
-      const modelsDev = parseModelsDev(md.value);
+      if (md.value.kind === "not_modified" && !previous) throw new Error("models.dev 304 without cached prices");
+      const modelsDev = md.value.kind === "not_modified" ? previous!.modelsDev : parseModelsDev(md.value.body);
       if (Object.keys(modelsDev).length === 0) throw new Error("models.dev returned no prices");
-      const litellm = ll.status === "fulfilled" ? parseLitellm(ll.value) : (this.table?.litellm ?? {});
-      const next: PriceTable = { fetchedAt: now, modelsDev, litellm };
+      const litellm = ll.status === "fulfilled" && ll.value.kind === "data"
+        ? parseLitellm(ll.value.body)
+        : previous?.litellm ?? {};
+      const next: PriceTable = {
+        fetchedAt: md.value.kind === "not_modified" ? previous!.fetchedAt : now,
+        checkedAt: now,
+        modelsDev,
+        litellm,
+        etags: {
+          ...((md.value.kind === "not_modified" ? md.value.etag ?? previous?.etags?.modelsDev : md.value.etag)
+            ? { modelsDev: md.value.kind === "not_modified" ? md.value.etag ?? previous?.etags?.modelsDev : md.value.etag } : {}),
+          ...((ll.status === "fulfilled"
+            ? (ll.value.kind === "not_modified" ? ll.value.etag ?? previous?.etags?.litellm : ll.value.etag)
+            : previous?.etags?.litellm)
+            ? { litellm: ll.status === "fulfilled" ? ll.value.etag ?? (ll.value.kind === "not_modified" ? previous?.etags?.litellm : undefined) : previous?.etags?.litellm }
+            : {}),
+        },
+      };
+      // Publish valid prices immediately even if persistence fails.
       this.table = next;
       try {
         await mkdir(join(this.file, ".."), { recursive: true });

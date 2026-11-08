@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { run } from "../exec.ts";
 import { codexHome as defaultCodexHome, findBin, findOpencode } from "./local-tools.ts";
-import type { AgentProcessRule, AgentSnapshot, AgentStatus, HostConfig, HostProcess } from "../types.ts";
+import type { AgentProcessRule, AgentSnapshot, AgentSourceSnapshot, AgentStatus, HostConfig, HostProcess } from "../types.ts";
 
 const TOOL_LABELS: Record<string, string> = {
   claude: "Claude Code",
@@ -13,6 +13,9 @@ const TOOL_LABELS: Record<string, string> = {
   omp: "Pi",
   gemini: "Gemini CLI",
   grok: "Grok",
+  dsh: "DSH",
+  "dsh-tui": "DSH TUI",
+  pi: "Pi",
 };
 
 /** Agent CLIs looked for on remote hosts, where only the process table is visible. */
@@ -22,6 +25,15 @@ export const REMOTE_RULES: AgentProcessRule[] = [
   { tool: "opencode", label: "OpenCode", match: "(^|/)opencode( (run|mini|-)|$)" },
 ];
 
+/** Generic process-level detection, without guessing session state from idle CPU. */
+export const EXTRA_RULES: AgentProcessRule[] = [
+  { tool: "omp", label: "Pi", match: "(^|/)(omp|pi)( |$)" },
+  { tool: "dsh", label: "DSH", match: "(^|/)dsh( |$)" },
+  { tool: "dsh-tui", label: "DSH TUI", match: "(^|/)dsh-tui( |$)" },
+  { tool: "gemini", label: "Gemini CLI", match: "(^|/)gemini( |$)" },
+  { tool: "grok", label: "Grok", match: "(^|/)grok( |$)" },
+];
+
 const RECENT_MS = 12 * 3600 * 1000;
 /** Finished sessions kept per tool, so a burst of one-shot runs cannot bury the live ones. */
 const IDLE_PER_TOOL = 3;
@@ -29,7 +41,7 @@ const TITLE_MAX = 90;
 
 /** One POSIX extended regex (evaluated by awk on each host) covering every rule. */
 export function procRegex(rules: AgentProcessRule[]): string {
-  return [...REMOTE_RULES, ...rules].map((r) => `(${r.match})`).join("|");
+  return [...REMOTE_RULES, ...EXTRA_RULES, ...rules].map((r) => `(${r.match})`).join("|");
 }
 
 function clip(text: string | null | undefined): string | null {
@@ -294,13 +306,16 @@ export function parseOrca(body: unknown): Partial[] {
   return out;
 }
 
-async function orcaAgents(bin: string): Promise<Partial[]> {
+async function orcaAgents(bin: string): Promise<{ items: Partial[]; ok: boolean }> {
   const res = await run(bin, ["worktree", "ps", "--json"], { timeoutMs: 8000 });
-  if (res.code !== 0) return [];
+  if (res.code !== 0) return { items: [], ok: false };
   try {
-    return parseOrca(JSON.parse(res.stdout));
+    const raw = JSON.parse(res.stdout) as Record<string, unknown>;
+    const body = raw.result as Record<string, unknown> | undefined;
+    if (raw.ok !== true || !Array.isArray(body?.worktrees)) return { items: [], ok: false };
+    return { items: parseOrca(raw), ok: true };
   } catch {
-    return [];
+    return { items: [], ok: false };
   }
 }
 
@@ -317,8 +332,9 @@ export function processAgents(procs: HostProcess[], rules: AgentProcessRule[], n
       tool: hit.rule.tool,
       title: null,
       cwd: normalizePath(p.cwd) ?? null,
-      // Without a session log, sustained CPU is the only sign of work.
-      status: p.cpuPct >= 5 ? "working" : "idle",
+      // The process table proves existence, not task activity. High CPU
+      // can mean internal work, startup or background polling.
+      status: "unknown",
       pid: p.pid,
       startedAt: now - p.elapsedSec * 1000,
       lastActivity: null,
@@ -338,14 +354,21 @@ export function processAgents(procs: HostProcess[], rules: AgentProcessRule[], n
  * title when the tool has none.
  */
 export function mergeAgents(own: Partial[], orca: Partial[]): Partial[] {
-  const merged = [...own];
+  // A shared cwd is not a session identity. Only merge when each side has
+  // exactly one candidate; otherwise keep all records rather than hiding work.
+  const merged = own.map((a) => ({ ...a }));
   for (const o of orca) {
-    const twin = merged.find((m) => m.tool === o.tool && m.cwd !== null && m.cwd === o.cwd && !m.id.startsWith("orca:"));
-    if (twin) {
-      twin.title = twin.title ?? o.title;
-      twin.detail = twin.detail ?? o.detail;
-      if (twin.status === "unknown") twin.status = o.status;
-      continue;
+    const same = (a: Partial) => a.tool === o.tool && a.cwd !== null && a.cwd === o.cwd;
+    const native = own.filter(same);
+    const panes = orca.filter(same);
+    if (native.length === 1 && panes.length === 1) {
+      const twin = merged.find((a) => a.id === native[0]!.id);
+      if (twin) {
+        twin.title = twin.title ?? o.title;
+        twin.detail = twin.detail ?? o.detail;
+        if (twin.status === "unknown") twin.status = o.status;
+        continue;
+      }
     }
     merged.push(o);
   }
@@ -373,6 +396,7 @@ const STATUS_ORDER: Record<AgentStatus, number> = { waiting: 0, working: 1, idle
 
 export class AgentCollector {
   private current: AgentSnapshot[] = [];
+  private sourceStates: AgentSourceSnapshot[] = [];
   private busy = false;
   private readonly rules: AgentProcessRule[];
   private readonly home = homedir();
@@ -382,11 +406,15 @@ export class AgentCollector {
   constructor(rules: AgentProcessRule[]) {
     this.rules = rules;
     this.opencodeBin = findOpencode();
-    this.orcaBin = findBin("orca", [join(this.home, ".local", "bin", "orca")]);
+    this.orcaBin = findBin("orca-ide", [join(this.home, ".local", "bin", "orca-ide")]);
   }
 
   snapshots(): AgentSnapshot[] {
     return this.current;
+  }
+
+  sources(): AgentSourceSnapshot[] {
+    return this.sourceStates;
   }
 
   async poll(hosts: { host: HostConfig; procs: HostProcess[]; online: boolean }[]): Promise<void> {
@@ -406,6 +434,8 @@ export class AgentCollector {
             host: host.id,
             hostLabel: host.label,
             toolLabel: custom?.label ?? TOOL_LABELS[item.tool] ?? item.tool,
+            source: item.id.startsWith("orca:") ? "orca" : item.id.startsWith("proc:") ? "process" : item.id.startsWith("codex:") ? "codex-log" : item.id.startsWith("opencode:") ? "opencode-api" : "claude-session",
+            confidence: item.id.startsWith("proc:") ? "detected" : item.id.startsWith("codex:") ? "inferred" : "reported",
           });
         }
       };
@@ -415,15 +445,22 @@ export class AgentCollector {
           claudeSessions(),
           codexThreads(),
           this.opencodeBin ? opencodeSessions(this.opencodeBin) : Promise.resolve([]),
-          this.orcaBin ? orcaAgents(this.orcaBin) : Promise.resolve([]),
+          this.orcaBin ? orcaAgents(this.orcaBin) : Promise.resolve({ items: [], ok: false }),
         ]);
-        const merged = mergeAgents([...claude, ...codex, ...opencode], orca);
+        const checkedAt = Date.now();
+        this.sourceStates = [
+          { source: "claude-session", label: "Claude Code", state: "queried", count: claude.length, checkedAt },
+          { source: "codex-log", label: "Codex", state: "queried", count: codex.length, checkedAt },
+          { source: "opencode-api", label: "OpenCode", state: this.opencodeBin ? "queried" : "unavailable", count: opencode.length, checkedAt },
+          { source: "orca", label: "Orca", state: !this.orcaBin ? "unavailable" : orca.ok ? "queried" : "error", count: orca.items.length, checkedAt },
+        ];
+        const merged = mergeAgents([...claude, ...codex, ...opencode], orca.items);
         attach(local, trimIdle(merged));
       }
       for (const h of hosts) {
         if (!h.online) continue;
         // Locally the tools' own records already cover the built-in CLIs.
-        attach(h.host, processAgents(h.procs, h.host.local ? this.rules : [...this.rules, ...REMOTE_RULES]));
+        attach(h.host, processAgents(h.procs, h.host.local ? [...EXTRA_RULES, ...this.rules] : [...REMOTE_RULES, ...EXTRA_RULES, ...this.rules]));
       }
       out.sort(
         (a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || (b.lastActivity ?? b.startedAt ?? 0) - (a.lastActivity ?? a.startedAt ?? 0),

@@ -1,21 +1,20 @@
 ---
 name: spark-lens-quota
-description: 複数モデル（Spark Lens に登録したクラウドのサブスクリプションとローカルLLM）へ作業を振り分ける前に、各モデルの利用枠と稼働状態を Spark Lens から確認する。実装・E2E・調査・下書きなどの作業を別モデルやサブエージェントに割り当てるときに使う。
+description: 別モデル・エージェントへの作業配分前に、Spark Lens のクラウド利用枠とローカルLLMの稼働状況を確認する。
 ---
 
-作業を振る前に1回だけ確認する。
+作業の割り振り前に1回、観測値専用APIを読む。
 
 ```sh
-curl -s "http://127.0.0.1:8686/api/quota?view=brief"
+curl -fsS "http://127.0.0.1:8686/api/ai/quota"
 ```
 
-`127.0.0.1:8686` は既定の待ち受けの一例。環境のホストとポート（`config/config.json` の `server`）に読み替える。候補は `models[]` にあるものだけ。
-止まっているローカル LLM は brief に出ない。
+`consumed_percent` は **利用済み割合**。0=未使用、100=上限到達。残量、経過率、見込み値ではない。`semantics` を優先する。
+このAPIは見込み値・消費予測・予算計画を一切返さない。
 
-- `state` と、すべての窓の `used_pct`・`resets_at_jst` を見る。`limited`・`loading`・`down`・`unknown` には振らない。
-- `stale: true` が付いたモデルは値が古い。view なしの `fetched_at` で確かめてから振る。
-- 今の使用率が長い窓（1日以上）で85%、短い窓で80%に達したら、そのモデルへの追加を控える。使用率が不明な窓も判断できないものとして扱う。
-- `tickets` は残り枚数と次に使う時刻。券を使うのはオーナーの操作。
-- ローカル LLM は `served_model`、`requests_running`・`requests_waiting`、`max_concurrent` と、あれば `pool_tokens`・`pool_free_tokens` も見る。待ちがあるか同時処理数の上限に達しているときは追加で振らない。共有領域の空きが少ない場合も長い作業を控える。
-
-見込みや推奨は既定では見ない。詳しく見るときだけ `curl -s "http://127.0.0.1:8686/api/quota"` を使う。画面上の入力待ちは検知できない。
+- `subscriptions[]` と `local_models[]` を別々に見る。 `can_assign: false` の候補には作業を割り振らない。`blocked_reason` を確認する。
+- `fresh: false`、`consumed_percent: null`、ウィンドウの期限切れは利用可能と推測しない。サブスクリプションはすべての窓が基準を満たす場合だけ割り振れる。
+- ローカルLLMでは `served_model`、待ち行列、同時実行上限、共有キャッシュの空きを確認する。`can_assign` は空きキャッシュまで保証しない。
+- リセット券は利用可能な枠には数えない。画面上の入力待ちやタスクの進行はこのAPIでは検知できない。
+- `/api/ai` に用途別APIの一覧がある。マシン/LLMの動作は `/api/ai/monitor`、エージェント検出は `/api/ai/agents` を読む。
+- `/api/quota` は旧来の詳細分析APIで予測を含むため、作業配分の判断には使用しない。

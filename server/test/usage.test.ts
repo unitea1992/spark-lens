@@ -93,3 +93,26 @@ test("Codex rollout: token counts are only a fallback for rollouts without usage
   const keys = parseCodexRollout(both, { model: null }).map((e) => e.key[0]);
   assert.deepEqual(keys, ["r", "c"], "both are parsed; the collector keeps the records");
 });
+
+
+test("local cached tokens are separated from billable input without double counting", async () => {
+  const { rows } = await import("../collectors/usage.ts");
+  const tally = { input: 1000, output: 120, cached: 800, cacheMeasuredPrompt: 900,
+    cacheWrite: 0, writeKnown: false, totalOnly: 0 };
+  const list = rows([new Map([["ローカル\0Decision model", tally]])]);
+  assert.equal(list.length, 1);
+  assert.equal(list[0]?.input, 200);
+  assert.equal(list[0]?.cached, 800);
+  assert.equal(list[0]?.output, 120);
+  assert.equal(list[0]?.total, 1120);
+  assert.equal(list[0]?.cacheCoverage, 0.9);
+});
+
+test("cloud cache reads remain separate and local legacy rows report 0% coverage", async () => {
+  const { rows } = await import("../collectors/usage.ts");
+  const tally = { input: 400, output: 50, cached: 150, cacheMeasuredPrompt: 0,
+    cacheWrite: 0, writeKnown: false, totalOnly: 0 };
+  const list = rows([new Map([["Claude Code\0Cloud", tally], ["ローカル\0Legacy", { ...tally, cached: 0 }]])]);
+  assert.deepEqual(list.map((x) => [x.local, x.input, x.cached, x.total, x.cacheCoverage]),
+    [[false, 400, 150, 600, undefined], [true, 400, 0, 450, 0]]);
+});

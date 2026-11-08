@@ -3,13 +3,16 @@
 // the screen never needs to know which engine is running. The collector still
 // picks which endpoints to ask per engine (llm.ts); `metricsSample` reads them.
 
-export type Engine = "vllm" | "sglang" | "tensorfold";
-export const ENGINES: Engine[] = ["vllm", "sglang", "tensorfold"];
+export type Engine = "vllm" | "sglang" | "tensorfold" | "llamacpp" | "lmstudio" | "ollama";
+export const ENGINES: Engine[] = ["vllm", "sglang", "tensorfold", "llamacpp", "lmstudio", "ollama"];
 
 export const ENGINE_LABELS: Record<Engine, string> = {
   vllm: "vLLM",
   sglang: "SGLang",
   tensorfold: "TensorFold",
+  llamacpp: "llama.cpp",
+  lmstudio: "LM Studio",
+  ollama: "Ollama",
 };
 
 interface Series {
@@ -155,9 +158,10 @@ function tensorfold(p: Prom): MetricsSample {
     generationTokens: sum(p, ["tensorfold:generation_tokens_total"]),
     ttftSum: sum(p, ["tensorfold:time_to_first_token_seconds_sum"]),
     ttftCount: sum(p, ["tensorfold:time_to_first_token_seconds_count"]),
-    // Recipes that also export /health's figures count prompt tokens served from kept prompts.
-    prefixHits: sum(p, ["tensorfold_health:cached_tokens_total"]),
-    prefixQueries: sum(p, ["tensorfold_health:cached_tokens_total"]) === null ? null : sum(p, ["tensorfold:prompt_tokens_total"]),
+    // Native TensorFold reports resumed tokens as a monotonic counter.
+    // Older recipes use a health-prefixed metric instead.
+    prefixHits: sum(p, ["tensorfold:prompt_cache_cached_tokens", "tensorfold_health:cached_tokens_total"]),
+    prefixQueries: sum(p, ["tensorfold:prompt_tokens_total"]),
     requests: sum(p, ["tensorfold:request_latency_seconds_count"]),
     draftTokens: sum(p, ["tensorfold:mtp_drafted_total"]),
     acceptedTokens: sum(p, ["tensorfold:mtp_accepted_total"]),
@@ -213,10 +217,12 @@ export function withLiveTensorfoldTokens(metrics: MetricsSample, healthBody: unk
   return live === null ? out : { ...out, generationTokens: live };
 }
 
-const ADAPTERS: Record<Engine, (p: Prom) => MetricsSample> = { vllm, sglang, tensorfold };
+const ADAPTERS: Partial<Record<Engine, (p: Prom) => MetricsSample>> = { vllm, sglang, tensorfold };
 
 export function parseMetrics(text: string, engine: Engine): MetricsSample {
-  return ADAPTERS[engine](parseProm(text));
+  const adapter = ADAPTERS[engine];
+  if (!adapter) throw new Error(`No Prometheus metrics adapter for ${engine}`);
+  return adapter(parseProm(text));
 }
 
 /**
@@ -225,7 +231,7 @@ export function parseMetrics(text: string, engine: Engine): MetricsSample {
  * without /metrics falls back to /health alone. null when there is nothing.
  */
 export function metricsSample(engine: Engine, metricsText: string | null, healthBody: unknown): MetricsSample | null {
-  if (metricsText) return engine === "tensorfold" ? withLiveTensorfoldTokens(parseMetrics(metricsText, engine), healthBody) : parseMetrics(metricsText, engine);
+  if (metricsText && engine !== "llamacpp" && engine !== "lmstudio" && engine !== "ollama") return engine === "tensorfold" ? withLiveTensorfoldTokens(parseMetrics(metricsText, engine), healthBody) : parseMetrics(metricsText, engine);
   return engine === "tensorfold" ? metricsFromTensorfoldHealth(healthBody) : null;
 }
 
@@ -233,6 +239,8 @@ export function metricsSample(engine: Engine, metricsText: string | null, health
 export function engineFromOwner(owner: unknown): Engine | null {
   if (typeof owner !== "string") return null;
   const o = owner.toLowerCase();
+  if (o.includes("llama.cpp") || o.includes("llamacpp")) return "llamacpp";
+  if (o.includes("lm studio") || o.includes("lmstudio")) return "lmstudio";
   return ENGINES.find((e) => o.includes(e)) ?? null;
 }
 

@@ -2,6 +2,7 @@ import type { Snapshot } from "../../../server/types.ts";
 import { LabMap } from "../components/LabMap.tsx";
 import { LlmPanel } from "../components/LlmPanel.tsx";
 import { MachineCard } from "../components/MachineCard.tsx";
+import { HostEditor } from "../components/MonitorEditor.tsx";
 import { RecipeList } from "../components/RecipeList.tsx";
 
 export function LabPage({ snapshot, now }: { snapshot: Snapshot; now: number }) {
@@ -49,6 +50,7 @@ export function LabPage({ snapshot, now }: { snapshot: Snapshot; now: number }) 
             <MachineCard key={h.id} host={h} now={now} />
           ))}
         </div>
+        <HostEditor hosts={snapshot.hosts} />
       </section>
     </>
   );

@@ -161,7 +161,7 @@ export function LabMap({ snapshot, now }: { snapshot: Snapshot; now: number }) {
             <span>Tailscale</span>
           </div>
         )}
-        <div className="stage__clusters">
+        <div className={`stage__clusters${clusters.length === 2 && clusters.some((c) => c.hosts.some((h) => h.kind === "workstation")) ? " stage__clusters--split" : ""}`}>
           {clusters.map((c) => (
             <div key={c.key} className="cluster">
               <div className="cluster__nodes">

@@ -82,13 +82,20 @@ function parseHost(raw: unknown, i: number): HostConfig {
   if (ssh && !SSH_TARGET.test(ssh)) fail(`${where}.ssh contains unsupported characters`);
   const mounts = stringList(o.mounts, `${where}.mounts`);
   for (const m of mounts ?? []) if (!MOUNT.test(m)) fail(`${where}.mounts: "${m}" is not a plain absolute path`);
-  return { id, label: optString(o.label, `${where}.label`) ?? id, kind, local, ssh, mounts };
+  const role = o.role === undefined ? "standalone" : asString(o.role, `${where}.role`);
+  if (role !== "standalone" && role !== "head" && role !== "worker") fail(`${where}.role is invalid`);
+  if (kind !== "spark" && role !== "standalone") fail(`${where}.role requires a Spark host`);
+  const headId = optString(o.headId, `${where}.headId`);
+  if (role === "worker" && !headId) fail(`${where}.headId is required for workers`);
+  if (role !== "worker" && headId) fail(`${where}.headId only applies to workers`);
+  if (headId && headId === id) fail(`${where}.headId cannot point to itself`);
+  return { id, label: optString(o.label, `${where}.label`) ?? id, kind, role, headId, local, ssh, mounts };
 }
 
 function parseEngine(value: unknown, where: string): LlmConfig["engine"] {
   if (value === undefined) return "auto";
-  if (value === "auto" || value === "vllm" || value === "sglang" || value === "tensorfold") return value;
-  fail(`${where} must be auto, vllm, sglang or tensorfold`);
+  if (value === "auto" || value === "vllm" || value === "sglang" || value === "tensorfold" || value === "llamacpp" || value === "lmstudio" || value === "ollama") return value;
+  fail(`${where} must be auto, vllm, sglang, tensorfold, llamacpp, lmstudio or ollama`);
 }
 
 function parseLlm(raw: unknown, i: number, hostIds: Set<string>): LlmConfig {
@@ -106,8 +113,16 @@ function parseLlm(raw: unknown, i: number, hostIds: Set<string>): LlmConfig {
   if (url.protocol !== "http:" && url.protocol !== "https:") fail(`${where}.baseUrl must be http or https`);
   const nodes = stringList(o.nodes, `${where}.nodes`) ?? [];
   for (const n of nodes) if (!hostIds.has(n)) fail(`${where}.nodes: unknown host id "${n}"`);
+  const purpose = o.purpose === undefined ? "generation" : o.purpose;
+  if (purpose !== "generation" && purpose !== "decision") fail(`${where}.purpose must be decision or generation`);
+  const apiPriceAs = optString(o.apiPriceAs, `${where}.apiPriceAs`);
+  if (apiPriceAs && !/^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._:/-]*$/.test(apiPriceAs)) fail(`${where}.apiPriceAs must be provider/model-id`);
+  const apiPriceComparison = o.apiPriceComparison;
+  if (apiPriceComparison !== undefined && apiPriceComparison !== "same_model" && apiPriceComparison !== "proxy") fail(`${where}.apiPriceComparison must be same_model or proxy`);
+  if (apiPriceComparison && !apiPriceAs) fail(`${where}.apiPriceComparison requires apiPriceAs`);
   return {
     id,
+    purpose,
     label: optString(o.label, `${where}.label`) ?? id,
     baseUrl,
     nodes,
@@ -115,6 +130,8 @@ function parseLlm(raw: unknown, i: number, hostIds: Set<string>): LlmConfig {
     apiKeyEnv: optString(o.apiKeyEnv, `${where}.apiKeyEnv`),
     engine: parseEngine(o.engine, `${where}.engine`),
     model: optString(o.model, `${where}.model`),
+    apiPriceAs,
+    apiPriceComparison: apiPriceComparison as "same_model" | "proxy" | undefined,
   };
 }
 
@@ -129,7 +146,10 @@ function optTime(value: unknown, where: string): number | undefined {
 function parseSubscription(raw: unknown, i: number): SubscriptionConfig {
   const where = `subscriptions[${i}]`;
   const o = asObject(raw, where);
+  const id = optString(o.id, `${where}.id`);
+  if (id && !ID.test(id)) fail(`${where}.id must be lowercase letters, digits and dashes`);
   return {
+    ...(id ? { id } : {}),
     type: asString(o.type, `${where}.type`),
     label: optString(o.label, `${where}.label`),
     options: o.options === undefined ? undefined : asObject(o.options, `${where}.options`),
@@ -188,9 +208,21 @@ export function parseConfig(raw: unknown): Config {
     if (hostIds.has(h.id)) fail(`hosts: duplicate id "${h.id}"`);
     hostIds.add(h.id);
   }
+  for (const h of hosts) {
+    if (h.headId && hosts.find((x) => x.id === h.headId)?.role !== "head") fail(`hosts: ${h.id} refers to a missing or non-head node ${h.headId}`);
+  }
   const llms = asArray(o.llms, "llms").map((l, i) => parseLlm(l, i, hostIds));
   const subscriptions =
     o.subscriptions === undefined ? DEFAULT_SUBSCRIPTIONS : asArray(o.subscriptions, "subscriptions").map(parseSubscription);
+  const ids = new Set<string>();
+  const counts = new Map<string, number>();
+  for (const sub of subscriptions) {
+    const n = (counts.get(sub.type) ?? 0) + 1;
+    counts.set(sub.type, n);
+    const id = sub.id ?? (n === 1 ? sub.type : `${sub.type}-${n}`);
+    if (!ID.test(id) || ids.has(id)) fail(`subscriptions: invalid or duplicate id "${id}"`);
+    ids.add(id);
+  }
   const agents = o.agents === undefined ? {} : asObject(o.agents, "agents");
   return {
     server: {

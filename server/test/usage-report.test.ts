@@ -45,12 +45,15 @@ test("each period lists its models with totals, and says when it was collected",
     input_tokens: 100,
     output_tokens: 20,
     cached_tokens: 1000,
+    cache_coverage_pct: null,
     cache_write_tokens: null,
     total_tokens: 1120,
     usd: 0.5,
     usd_estimate: false,
+    price_reference: null,
+    price_comparison: null,
   });
-  assert.deepEqual(r.month, { models: [], total_tokens: 0, total_usd: null, usd_partial: false });
+  assert.deepEqual(r.month, { models: [], total_tokens: 0, total_usd: null, usd_partial: false, local_api_equivalent_usd: null, local_usd_partial: false, local_cache_coverage_pct: null });
 });
 
 test("the model filter is a case-insensitive substring match across all periods", () => {
@@ -106,7 +109,7 @@ test("the report carries nothing beyond the dashboard's usage table", () => {
   const text = JSON.stringify(usageReport(usage(), NOW));
   assert.doesNotMatch(text, /models\.dev|pricesSource|prices_fetched/);
   const keys = Object.keys(usageReport(usage(), NOW)).sort();
-  assert.deepEqual(keys, ["age_sec", "generated_at", "generated_at_jst", "model_filter", "month", "today", "usage_at", "usage_at_jst", "week"]);
+  assert.deepEqual(keys, ["age_sec", "generated_at", "generated_at_jst", "model_filter", "month", "price_checked_at_jst", "price_stale", "today", "usage_at", "usage_at_jst", "week"]);
 });
 
 async function freePort(): Promise<number> {
@@ -142,4 +145,37 @@ test("GET /api/usage serves the report and reads ?model=", async () => {
   } finally {
     server.close();
   }
+});
+
+
+test("local API-equivalent saving is separate, partial, and traceable to a public rate", () => {
+  const local = row("DeepSeek-V4.1 Flash 1017（TensorFold・2 台）", {
+    source: "ローカル", local: true, input: 1_000_000, output: 100_000, cached: 0, total: 1_100_000,
+    usd: 0.26, usdEstimate: true, priceReference: "deepinfra/deepseek-ai/deepseek-v4.1-flash-1017", priceComparison: "same_model",
+  });
+  const unpriced = row("Local unpriced", { source: "ローカル", local: true, usd: null });
+  const p = usageReport(usage({ today: [local, unpriced, row("cloud")] }), NOW).today;
+  assert.equal(p.total_usd, 0.76);
+  assert.equal(p.local_api_equivalent_usd, 0.26);
+  assert.equal(p.local_usd_partial, true);
+  assert.equal(p.usd_partial, true);
+  assert.equal(p.models[0]?.price_reference, "deepinfra/deepseek-ai/deepseek-v4.1-flash-1017");
+  assert.equal(p.models[0]?.price_comparison, "same_model");
+  const onlyUnknown = usageReport(usage({ today: [unpriced] }), NOW).today;
+  assert.equal(onlyUnknown.local_api_equivalent_usd, null);
+  assert.equal(onlyUnknown.local_usd_partial, true);
+});
+
+
+test("API report exposes partial cache coverage and pricing revalidation age", () => {
+  const fresh = usage({ pricesCheckedAt: NOW - 10_000, today: [row("Local", {
+    source: "ローカル", local: true, input: 200, cached: 800,
+    output: 40, total: 1040, cacheCoverage: 0.8, usd: 0.02,
+  })] });
+  const p = usageReport(fresh, NOW);
+  assert.equal(p.price_stale, false);
+  assert.equal(p.price_checked_at_jst, "2026-10-08T09:59:50+09:00");
+  assert.equal(p.today.local_cache_coverage_pct, 80);
+  assert.equal(p.today.models[0]?.cache_coverage_pct, 80);
+  assert.equal(usageReport(fresh, NOW + 8 * 3600_000).price_stale, true);
 });

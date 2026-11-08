@@ -2,11 +2,15 @@
 // file type-only, so nothing here may have a runtime dependency.
 
 export type HostKind = "spark" | "workstation" | "server";
+export type HostRole = "head" | "worker" | "standalone";
 
 export interface HostConfig {
   id: string;
   label: string;
   kind: HostKind;
+  /** Optional cluster relation; only Spark machines can be head/worker. */
+  role?: HostRole;
+  headId?: string;
   /** Probe this machine directly instead of over SSH. */
   local?: boolean;
   /** SSH destination (an ssh_config alias or user@host). */
@@ -17,6 +21,8 @@ export interface HostConfig {
 
 export interface LlmConfig {
   id: string;
+  /** Decision models return classifications, not generated text. */
+  purpose?: "decision" | "generation";
   label: string;
   /** OpenAI-compatible server root, without /v1. */
   baseUrl: string;
@@ -31,11 +37,17 @@ export interface LlmConfig {
    * recipes share one port: only the one actually served counts as up.
    */
   model?: string;
+  /** Public API comparison key: provider/model-id in the models.dev price list. */
+  apiPriceAs?: string;
+  /** Whether this is a directly available model or a base-model proxy. */
+  apiPriceComparison?: "same_model" | "proxy";
   /** Inference engine; "auto" (default) detects it from the server's responses. */
-  engine?: "auto" | "vllm" | "sglang" | "tensorfold";
+  engine?: "auto" | "vllm" | "sglang" | "tensorfold" | "llamacpp" | "lmstudio" | "ollama";
 }
 
 export interface SubscriptionConfig {
+  /** Stable identity independent of its position. */
+  id?: string;
   type: string;
   label?: string;
   /** Provider-specific options (paths, commands). */
@@ -98,6 +110,9 @@ export interface GpuInfo {
 
 export interface DiskInfo {
   mount: string;
+  /** Per physical block device, bytes per second; null on unsupported mounts or first sample. */
+  readBps?: number | null;
+  writeBps?: number | null;
   totalBytes: number;
   usedBytes: number;
 }
@@ -108,10 +123,15 @@ export interface NetInfo {
   speedMbps: number | null;
   rxBps: number | null;
   txBps: number | null;
+  /** Errors that appeared since the previous successful poll; null before the baseline. */
+  errorDelta?: number | null;
 }
 
 export interface FabricPort {
   device: string;
+  /** Link status from the RDMA port's sysfs state. */
+  up?: boolean;
+  errorDelta?: number | null;
   rateGbps: number | null;
   rxBps: number | null;
   txBps: number | null;
@@ -155,6 +175,14 @@ export interface HostHistory {
 
 export interface HostSnapshot {
   id: string;
+  role?: HostRole;
+  headId?: string;
+  /** Timestamp through which recently observed network faults remain visible. */
+  networkIssueUntil?: number | null;
+  /** A previously observed NVIDIA/AMD GPU disappeared from the probe. */
+  gpuReadFailed?: boolean;
+  /** This machine is monitored directly, and cannot be removed from the dashboard. */
+  local?: boolean;
   label: string;
   kind: HostKind;
   online: boolean;
@@ -178,6 +206,10 @@ export interface HostSnapshot {
   memUsedBytes: number | null;
   swapTotalBytes: number | null;
   swapUsedBytes: number | null;
+  /** Kernel memory-stall pressure and recent OOM, not raw memory consumption. */
+  memoryPressure?: { someAvg10: number | null; fullAvg10: number | null; oomKillRecent: boolean };
+  /** Epoch ms until which a confirmed OOM must be shown. */
+  oomIssueUntil?: number | null;
   disks: DiskInfo[];
   gpu: GpuInfo | null;
   /** Hottest sensor on the machine. */
@@ -207,6 +239,7 @@ export interface SpecStats {
 
 export interface LlmSnapshot {
   id: string;
+  purpose?: "decision" | "generation";
   label: string;
   /** Engine name for display, once known. */
   engine: string | null;
@@ -295,10 +328,21 @@ export interface SubscriptionSnapshot {
 
 export type AgentStatus = "working" | "idle" | "waiting" | "unknown";
 
+export interface AgentSourceSnapshot {
+  source: string;
+  label: string;
+  state: "queried" | "error" | "unavailable";
+  count: number;
+  checkedAt: number;
+}
+
 export interface AgentSnapshot {
   id: string;
   tool: string;
   toolLabel: string;
+  /** Actual source and reliability of the reported state. */
+  source?: "claude-session" | "codex-log" | "opencode-api" | "orca" | "process";
+  confidence?: "reported" | "inferred" | "detected";
   host: string;
   hostLabel: string;
   title: string | null;
@@ -320,6 +364,8 @@ export interface ModelUsage {
   input: number | null;
   output: number | null;
   cached: number | null;
+  /** Local input share observed with real cache counters (0..1); absent for cloud. */
+  cacheCoverage?: number;
   /** Cache writes, a part of `input`; null when the tool does not report them (Codex, local LLMs). */
   cacheWrite?: number | null;
   total: number;
@@ -327,12 +373,18 @@ export interface ModelUsage {
   usd: number | null;
   /** The dollar figure is an upper bound (the tool reports only a total). */
   usdEstimate?: boolean;
+  /** Exact public pricing listing used to compare a locally served model. */
+  priceReference?: string;
+  /** Modified checkpoints use their base model only as an approximate proxy. */
+  priceComparison?: "same_model" | "proxy";
 }
 
 export interface UsageSnapshot {
   generatedAt: number;
   /** When the price list was fetched (epoch ms), and where from. */
   pricesFetchedAt: number | null;
+  /** Most recent successful price revalidation, including 304 Not Modified. */
+  pricesCheckedAt?: number | null;
   pricesSource: string | null;
   today: ModelUsage[];
   week: ModelUsage[];
@@ -448,6 +500,7 @@ export interface Snapshot {
   llms: LlmSnapshot[];
   subscriptions: SubscriptionSnapshot[];
   agents: AgentSnapshot[];
+  agentSources?: AgentSourceSnapshot[];
   usage: UsageSnapshot;
   recipes: RecipeSnapshot[];
   /** Benchmark state per llm id. */

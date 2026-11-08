@@ -1,4 +1,5 @@
 import type { HostSnapshot, LlmSnapshot, Snapshot } from "../../server/types.ts";
+import { memoryWarning } from "../../server/host-health.ts";
 import { subscriptionStatus } from "./pace.ts";
 import type { Page } from "./route.ts";
 import type { Tone } from "./tone.ts";
@@ -17,6 +18,16 @@ export function hostStatus(h: HostSnapshot): Status {
   const cpu = h.cpuTempC ?? 0;
   if (gpu >= LIMITS.gpu.critical || cpu >= LIMITS.cpu.critical) return { tone: "critical", text: "高温" };
   if (gpu >= LIMITS.gpu.warn || cpu >= LIMITS.cpu.warn) return { tone: "warn", text: "温度高め" };
+  if (h.gpuReadFailed) return { tone: "warn", text: "GPUの監視情報を取得できません" };
+  if (h.networkIssueUntil && h.networkIssueUntil > Date.now()) return { tone: "warn", text: "ネットワーク異常を検出" };
+  const memory = memoryWarning(h);
+  if (memory) return { tone: memory.severity, text: memory.message };
+  if (h.net.some((n) => (n.errorDelta ?? 0) > 0) || h.fabric.some((f) => (f.errorDelta ?? 0) > 0)) {
+    return { tone: "warn", text: "ネットワークエラー増加" };
+  }
+  const space = h.disks.reduce((max, d) => d.totalBytes > 0 ? Math.max(max, d.usedBytes / d.totalBytes) : max, 0);
+  if (space >= 0.98) return { tone: "critical", text: "ストレージ残量が危険" };
+  if (space >= 0.92) return { tone: "warn", text: "ストレージ残量が少ない" };
   return { tone: "good", text: "オンライン" };
 }
 

@@ -26,6 +26,7 @@ interface Tally {
   writeKnown: boolean;
   /** Tools that only report a total (Codex) leave input/output unknown. */
   totalOnly: number;
+  cacheMeasuredPrompt: number;
 }
 
 type DayModel = Map<string, Map<string, Tally>>; // day -> "source\0model" -> tally
@@ -34,7 +35,7 @@ type DayModel = Map<string, Map<string, Tally>>; // day -> "source\0model" -> ta
 const LOCAL_SOURCE = "ローカル";
 
 function emptyTally(): Tally {
-  return { input: 0, output: 0, cached: 0, cacheWrite: 0, writeKnown: false, totalOnly: 0 };
+  return { input: 0, output: 0, cached: 0, cacheWrite: 0, writeKnown: false, totalOnly: 0, cacheMeasuredPrompt: 0 };
 }
 
 function add(target: DayModel, day: string, source: string, model: string, t: Partial<Omit<Tally, "writeKnown">>): void {
@@ -49,6 +50,7 @@ function add(target: DayModel, day: string, source: string, model: string, t: Pa
     cur.writeKnown = true;
   }
   cur.totalOnly += t.totalOnly ?? 0;
+  cur.cacheMeasuredPrompt += t.cacheMeasuredPrompt ?? 0;
   byModel.set(key, cur);
   target.set(day, byModel);
 }
@@ -298,7 +300,7 @@ export function parseOpencodeStats(stdout: string): { model: string; input: numb
 
 // ------------------------------------------------------------- collector
 
-function rows(tallies: Map<string, Tally>[]): ModelUsage[] {
+export function rows(tallies: Map<string, Tally>[]): ModelUsage[] {
   const merged = new Map<string, Tally>();
   for (const byModel of tallies) {
     for (const [key, t] of byModel) {
@@ -309,6 +311,7 @@ function rows(tallies: Map<string, Tally>[]): ModelUsage[] {
       cur.cacheWrite += t.cacheWrite;
       cur.writeKnown ||= t.writeKnown;
       cur.totalOnly += t.totalOnly;
+      cur.cacheMeasuredPrompt += t.cacheMeasuredPrompt;
       merged.set(key, cur);
     }
   }
@@ -320,11 +323,12 @@ function rows(tallies: Map<string, Tally>[]): ModelUsage[] {
         model,
         source,
         local: source === LOCAL_SOURCE,
-        input: split ? t.input : null,
+        input: split ? (source === LOCAL_SOURCE ? Math.max(0, t.input - t.cached) : t.input) : null,
         output: split ? t.output : null,
         cached: split ? t.cached : null,
+        ...(source === LOCAL_SOURCE ? { cacheCoverage: t.input > 0 ? Math.min(1, t.cacheMeasuredPrompt / t.input) : 1 } : {}),
         cacheWrite: split && t.writeKnown ? t.cacheWrite : null,
-        total: t.input + t.output + t.cached + t.totalOnly,
+        total: t.input + t.output + (source === LOCAL_SOURCE ? 0 : t.cached) + t.totalOnly,
         usd: null,
       };
     })
@@ -366,7 +370,10 @@ export class UsageCollector {
       for (const llm of this.llms) {
         for (const day of recentDays(MONTH_DAYS)) {
           const t = this.store.tokensOn(llm.id, new Date(`${day}T12:00:00`));
-          add(byDay, day, LOCAL_SOURCE, llm.label, { input: t.prompt, output: t.generation });
+          add(byDay, day, LOCAL_SOURCE, llm.label, {
+            input: t.prompt, output: t.generation,
+            cached: t.cached ?? 0, cacheMeasuredPrompt: t.cacheMeasuredPrompt ?? 0,
+          });
         }
       }
       const days = recentDays(MONTH_DAYS);
@@ -407,10 +414,21 @@ export class UsageCollector {
         if (d30?.code === 0) add2(month, d30.stdout);
       }
       const table = this.prices.current();
-      for (const list of [today, week, month, ...daily.map((d) => d.models)]) applyPrices(list, table);
+      const localPrices = new Map(this.llms.filter((l) => l.apiPriceAs).map((l) => [l.label, l]));
+      for (const list of [today, week, month, ...daily.map((d) => d.models)]) {
+        for (const item of list) {
+          const matching = item.local ? localPrices.get(item.model) : undefined;
+          if (matching?.apiPriceAs) {
+            item.priceReference = matching.apiPriceAs;
+            item.priceComparison = matching.apiPriceComparison ?? "proxy";
+          }
+        }
+        applyPrices(list, table);
+      }
       this.current = {
         generatedAt: Date.now(),
         pricesFetchedAt: table?.fetchedAt ?? null,
+        pricesCheckedAt: table?.checkedAt ?? table?.fetchedAt ?? null,
         pricesSource: table ? "models.dev" : null,
         today,
         week,

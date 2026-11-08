@@ -293,3 +293,48 @@
     font-size: 28px;
   }
 }
+
+/* Secondary monitoring details share horizontal space rather than lengthening
+   every machine card when extra telemetry is available. */
+.machine__secondary {
+  border-top: 1px solid var(--line);
+  padding-top: 7px;
+  font-size: 12px;
+}
+.machine__secondary summary {
+  cursor: pointer;
+  color: var(--ink-2);
+  font-weight: 500;
+  line-height: 1.5;
+}
+.machine__secondary summary span { color: var(--ink-3); margin-left: 7px; font-weight: 400; }
+.machine__secondary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+  padding-top: 10px;
+}
+.machine__secondary .minilist { min-width: 0; }
+.machine__secondary .spec li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  padding-block: 3px;
+}
+.machine__secondary .spec li > span:last-child {
+  font-size: 11.5px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bar-row__side small {
+  display: block;
+  color: var(--ink-3);
+  font-size: 10.5px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+@media (max-width: 380px) {
+  .machine__secondary-grid { grid-template-columns: minmax(0, 1fr); }
+}

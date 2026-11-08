@@ -1,6 +1,6 @@
 {
   "name": "spark-lens",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A browser dashboard for a small local-AI lab: DGX Sparks, the dev machine, local LLMs, cloud LLM subscriptions and coding agents.",
   "license": "MIT",
   "private": true,

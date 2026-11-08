@@ -1,9 +1,11 @@
 # Spark Lens
 
+開発版のバージョンは `package.json` に記載しています。公開リリースの履歴は [CHANGELOG.md](CHANGELOG.md)、更新・タグ付けの手順は [docs/RELEASING.md](docs/RELEASING.md) を参照してください。
+
 自宅・小規模のローカル AI 環境を、ブラウザ 1 画面で見渡すためのダッシュボードです。
 
 - 開発機と DGX Spark の GPU・メモリ・CPU・温度・ストレージ・ネットワーク・コンテナ
-- ローカル LLM（vLLM・SGLang・TensorFold）の稼働状態、生成速度、処理中の件数、先読み（投機的デコード）の効き具合、今日のトークン数
+- ローカル LLM（vLLM・SGLang・TensorFold・llama.cpp など）の稼働状態、生成速度、処理中の件数、先読み（投機的デコード）の効き具合、今日のトークン数
 - クラウド利用枠（Claude Code・Codex・OpenCode Go・Grok）の使用率とリセット時刻
 - いま動いている coding agent と、その作業内容、モデル別のトークン利用量
 
@@ -15,7 +17,7 @@
 画面は 3 ページです。
 
 - ローカル AI：ラボの構成図（開発機 → Spark 2 台と、その間の高速回線、2 台にまたがるモデル）を先頭に、モデルの状態と起動・停止、各マシンの詳細を並べます。回線は実際の通信量（RDMA を含む）に応じて流れ、モデルは推論中だけ光ります
-- 利用状況：クラウド利用枠と、ローカル・クラウドを合わせたモデル別のトークン利用量
+- 利用状況：クラウド利用枠と、ローカル・クラウドを合わせたモデル別のトークン利用量、ローカル LLM の API 料金換算・節約相当額
 - エージェント：いま動いている coding agent
 
 各タブには、そのページで注意が必要なこと（黄・赤の点）や作業中の件数が出ます。ほかのページで問題があるときだけ、画面上部に「要確認」の帯が出ます。スマートフォンでは下部のタブで切り替えます。
@@ -106,10 +108,12 @@ tailscale serve --bg --https=8686 http://127.0.0.1:8686
 
 - `baseUrl`: OpenAI 互換サーバーのアドレス（`/v1` は付けない）。`/health`・`/v1/models`・`/metrics` を読みます
 - `model`: サーバーが `/v1/models` で返すモデル名。複数のレシピが同じポートを使う場合に指定すると、実際に動いているモデルだけが「稼働中」になります
-- `engine`: `vllm`・`sglang`・`tensorfold`。省略（`auto`）すると応答から自動で判別します。SGLang は起動時に `--enable-metrics` を付けないと速度などの数値が出ません
+- `engine`: `vllm`・`sglang`・`tensorfold`・`llamacpp`・`lmstudio`・`ollama`。省略（`auto`）すると応答から自動で判別します。SGLang は起動時に `--enable-metrics` を付けないと速度などの数値が出ません
 - `nodes`: そのモデルが載っているマシンの `id`
 - `containers`: モデルを動かすコンテナ名。API がまだ応答しなくてもコンテナが起動していれば「起動中」と表示します。同じモデル名を返す別のレシピと見分けるのにも使います（API が応答していても、このコンテナが動いていなければ「停止中」）
 - `apiKeyEnv`: API キーが必要なサーバーの場合、キーを入れた環境変数の名前（キー自体は設定ファイルに書きません）
+- `apiPriceAs`: 任意。API換算に使う `models.dev` の `provider/model-id`（例：`"deepinfra/deepseek-ai/deepseek-v4.1-flash-1017"`）。明示すると `label` が変わっても比較元を維持できます
+- `apiPriceComparison`: `"same_model"`（同じ公開モデル）か `"proxy"`（改変モデルなどの参考比較）。`apiPriceAs` のみ指定時は保守的に `proxy` と表示します
 
 上の例は [GLM-5.3 Flash EXL3 on DGX Spark](https://github.com/MiaAI-Lab/GLM-5.3-Flash-EXL3-2x-DGX-Sparks) を 2 台構成で動かした場合の値です。
 
@@ -197,6 +201,67 @@ CPU は `scaling_max_freq`、GPU は systemd のユニットに書かれた `nvi
 
 組み込みとして足すなら、[`server/collectors/subscriptions/`](server/collectors/subscriptions) に `Provider` を 1 ファイル追加し、[`index.ts`](server/collectors/subscriptions/index.ts) の一覧に加えます。既存のものがそのまま見本になります。
 
+### d1-2BのDocker常用化
+
+開発機のd1-2Bは、**llama.cppの公式Vulkan Dockerイメージ**で稼働しています。既存の `d1-local-router.service` をsystemdのdrop-inからDocker起動へ切り替えました。既存の `http://127.0.0.1:18991` とモデルIDは不変です。`llms[]` の `containers: ["d1-local-router"]` でコンテナも監視します。
+
+- 起動スクリプト：`ops/d1-local-router-docker.sh`（導入先 `~/.local/bin/d1-local-router-docker`）
+- systemd追加設定：`ops/d1-local-router-docker.conf`（導入先 `~/.config/systemd/user/d1-local-router.service.d/docker.conf`）
+- イメージは検証済みdigestで固定。Vulkan GPUを渡し、モデル・mmprojを読み取り専用でマウント。ホスト側はlocalhost限定でポート公開。CPU上限2、メモリ上限5GiB。
+- 確認：`systemctl --user status d1-local-router.service`、`docker ps --filter name=d1-local-router`、`curl -fsS http://127.0.0.1:18991/health`
+- 戻す場合：`systemctl --user stop d1-local-router.service` → 上記drop-inの `docker.conf` を退避 → `systemctl --user daemon-reload` → `systemctl --user restart d1-local-router.service`。元のネイティブ版サービスは保持しています。
+
+判断モデルは `/v1/chat/completions` で文章を生成せず、`POST /v1/systemone` で判定を返します。Docker比較・切り替え記録は `docs/research/d1-vulkan-docker-20261029.md` を参照してください。
+
+### ローカルLLMとノードの監視精度
+
+Docker を使わない llama.cpp (`llama-server`) も、OpenAI互換の `/v1/models` と `/slots` から監視できます。d1-2Bのような System One 判断専用モデルは `llms[]` に `"purpose": "decision"` を指定します。画面は専用の短いカードとなり、該当しない生成速度・KVキャッシュ・トークン計測・ベンチマーク表示を省きます。通常のモデルには `"purpose": "generation"`（既定）を使います。`llms[]` に `baseUrl`、`nodes`、`engine: "auto"` または `"llamacpp"` を指定すれば、起動中のモデル、同時実行枠、処理中リクエスト数を表示します。LM Studio と Ollama もそれぞれの固有APIで識別します。エンジンが公開しないメトリクスは推測せず `null` として扱います。
+
+マシンの `role` は `head` / `worker` / `standalone`（既定）を指定できます。Workerには `headId` が必要です。役割はマシン欄の折りたたみ編集から変更でき、モデルの `nodes` 関係は従来どおり維持します。SSHで追加するノードは登録前に読み取り専用の接続確認を実施します。
+
+画面ではディスクI/Oをストレージの行内にまとめ、通信・プロセス・コンテナ詳細は折りたたみ、展開時は2カラムで表示します。
+
+Sparkの高いユニファイドメモリ使用率はLLM稼働中の通常状態として扱い、使用率だけでは警告しません。Linux PSI のメモリ圧力（10秒平均）と新たなOOM発生を監視し、重大な実障害の兆候を検知します。AI監視APIにも実測PSIを返します。ワークステーションは従来の空きメモリ警告を維持します。
+
+円形ステータスでは、広い画面で PGX 2台のクラスタと開発機の判断モデルクラスタを左右に並べ、縦方向の余白を縮小します。
+
+LinuxノードではブロックデバイスのディスクI/Oを既存SSHプローブに含め、複数マウントが同一ディスクに属しても合計値を重複加算しません。低メモリ・低空き容量・GPU情報の取得不能・ネットワークエラー・RDMAリンクの直近の切断を表示します。ネットワーク異常は90秒保持して短時間で消えないようにしています。値が取得できない場合は0と見なしません。
+
+### 監視対象の追加・解除
+
+「マシン」欄の **監視ノードを編集** と、「クラウド利用枠」欄の **クラウド枠の監視対象を編集** から、画面を移動せずに監視対象を追加・解除できます。
+ノード追加時は SSH 接続先・表示名・種類を入力します。SSH の鍵や接続設定は開発機で事前に用意してください。既存のノード履歴は監視先を変更しない限り維持されます。モデルやレシピが参照しているノードは先に依存設定を変更する必要があります。
+クラウド枠の追加は組み込み4サービスに対応し、任意の `command` プロバイダは設定ファイル経由です。削除は監視登録の解除だけで、認証情報や履歴は削除しません。プロバイダのIDは編集時に固定されるため、既存エントリの並び替えで履歴が混線しません。
+設定変更はファイルに保存して監視処理へ即時反映します。外部で設定ファイルが変更されたときは競合防止のため再起動を求めます。
+
+### 開発補助用の用途別API（JSON）
+
+画面用の `/api/state` とは別に、AIが必要な情報だけ受け取る経路を用意しています。
+
+| 経路 | 目的 |
+| --- | --- |
+| `GET /api/ai` | APIの用途一覧（最初に読む） |
+| `GET /api/ai/monitor` | 開発機・Spark・ローカルLLMの実測状況 |
+| `GET /api/ai/quota` | クラウド枠の利用済み割合と保守的な配分可否 |
+| `GET /api/ai/agents` | 検出したエージェント、取得元と精度 |
+| `GET /api/usage` | トークン利用量・参考料金換算 |
+| `GET /api/history` | 指定した稼働指標の時系列 |
+
+すべて読み取り専用のJSONで、取得できない値は `null`。AI向けAPIの数値は観測値のみで、予測は混ぜません。詳細な予測とリセット券の計画は旧 `/api/quota` に分離して残しています。
+
+### AI専用の観測値API（`/api/ai/quota`）
+
+作業配分のAIは **こちらを使用** してください。予測値・残り割合・経過率・リセット券の計画を返しません。
+
+```sh
+curl -fsS 'http://127.0.0.1:8686/api/ai/quota'
+```
+
+`subscriptions[].windows[].consumed_percent` は **利用済み割合** です（0=未使用、100=上限）。`null` は未取得です。
+`can_assign` は観測値の鮮度と全ウィンドウの上限を保守的に検査する判断補助であり、作業完了や将来の空きを保証しません。古い値、利用枠不明、期限切れは不可。短期は80%、長期は85%に達した時点で追加を控えます。リセット券の未使用分は追加可能枠には数えません。
+ローカルLLMは `local_models[]` に分離し、状態・実行数・待ち行列・キャッシュプールを参照します。
+古い `/api/quota`（詳細分析）および `?view=brief`（旧短縮版）は互換性のため残しますが、AIへの新規組み込みには使用しないでください。
+
 ### 作業の振り分けに使う（`/api/quota`）
 
 Claude Code や Codex のようなエージェントが、作業を振る前に「どのモデルにあと何を任せられるか」を確かめるための API です。`/api/state` と同じ情報から、判断に必要な分だけを返します。
@@ -251,14 +316,24 @@ curl -s 'http://127.0.0.1:8686/api/usage?model=haiku'   # モデル名に含ま�
 
 `today`（今日）、`week`（直近 7 日）、`month`（直近 30 日）のそれぞれに、次の項目が入ります。
 
-- `models[]`: モデルごとの `model`、`source`（使った場所。Claude Code・Codex・OpenCode・ローカル）、`local`、`input_tokens`・`output_tokens`・`cached_tokens`（キャッシュの読み直し。合計しか記録しないツールでは `null`）、`cache_write_tokens`（キャッシュの書き込み。`input_tokens` の内数で、記録するのは Claude Code と OpenCode だけ。ほかは `null`）、`total_tokens`、`usd`（API 料金に換算した額で、請求額ではありません。単価が分からないモデルは `null`）、`usd_estimate`（合計しか記録しないため、額が上限の見積もりのとき `true`）
+- `models[]`: モデルごとの `model`、`source`（使った場所。Claude Code・Codex・OpenCode・ローカル）、`local`、`input_tokens`・`output_tokens`・`cached_tokens`（キャッシュ読み取り。ローカルLLMは計測できたキャッシュ済み入力を `input_tokens` から分離します）、`cache_coverage_pct`（ローカル入力のうちキャッシュカウンターで実測できた割合。クラウドは `null`）、`cache_write_tokens`（キャッシュ書き込み。`input_tokens` の内数で記録するのは Claude Code と OpenCode だけ）、`total_tokens`、`usd`（請求額ではなくAPI料金換算。比較できないモデルは `null`）、`usd_estimate`（換算額が概算なら `true`）、`price_reference`（比較元の `provider/model-id`）、`price_comparison`（`same_model` または未検閲版などの `proxy`）
 - `total_tokens`、`total_usd`: 期間の合計。`usd_partial` が `true` のときは、単価の分からないモデルが `total_usd` に入っていません
+- `local_api_equivalent_usd`: ローカルLLMを公開APIで同量処理したと仮定した参考額。対象のローカルモデルがすべて未価格なら `null`。`local_usd_partial` が `true` なら、比較価格が見つからないローカルモデルは除外されています
+- `local_cache_coverage_pct`: その期間のローカル入力トークンのうち、キャッシュカウンターで観測できた割合（0〜100）。過去の未記録分があれば値は低くなります
+- ルートの `price_checked_at_jst` と `price_stale`: 無料価格表の最終確認日時と、6時間を超えて再確認できていないかの状態。取得不能でも直近の有効な単価を保持します
 
 `days`（1〜30）を付けると、`daily[]` に 1 日ごとの集計が新しい順に入ります。項目は各期間と同じものに、日付の `day` を加えた形です。OpenCode は期間ごとの合計しか出さないため日ごとの集計には含めず、`daily_excludes` にその名前を挙げます。
 
 ```sh
 curl -s 'http://127.0.0.1:8686/api/usage?days=7'
 ```
+
+#### 価格換算と節約相当額の注意
+
+- **実際の利益や電気代込みの純節約額ではありません。** ローカル推論エンジンが実測のキャッシュ済み入力トークン数を提供する場合、比較先APIの `cache_read` 単価で換算し、通常入力から差し引きます。同じキャッシュが比較先APIでも利用可能になるとは限らず、比較は概算です。
+- 過去に保存された入力数にはキャッシュ内訳がありません。記録開始以降の実測分のみ割引し、**未実測の入力は通常単価で換算**します。過去分のキャッシュヒット率を推測して埋め戻すことはしません。`cache_coverage_pct` を確認してください。
+- 比較単価は `models.dev` を**6時間ごと**に無料で再確認します（ETagの条件付き取得・失敗時のバックオフ・最終確認表示）。比較先APIに `cache_read` 価格がない場合は通常入力単価を用います。時間帯割引・バッチ料金は未反映です。未検閲版など公開APIの同一重みがない場合は元モデルの価格で `proxy` として近似します。未価格のローカルモデルを `$0` と表示することはありません。
+- 主要モデルの比較先は `server/pricing.ts` の `LOCAL_PRICE_AS` に明示しています。新しいローカルモデルの比較元はコードを変更せず `llms[].apiPriceAs` と `llms[].apiPriceComparison` でも指定できます。異なるモデルを自動で類推して価格を補完しません。
 
 #### 使い方の注意
 
@@ -284,7 +359,10 @@ curl -s 'http://127.0.0.1:8686/api/history?key=host:spark-1:gpu'    # [{"t": ...
 | Claude Code | `~/.claude/sessions/` のセッション記録 |
 | Codex | `~/.codex/` のスレッド記録 |
 | OpenCode | 常駐サーバーへの問い合わせ（`opencode api`） |
-| Orca | `orca worktree ps`（Orca 上で動くエージェント全般） |
+| Orca | `orca-ide worktree ps --json`（Orca 上で動くエージェント全般） |
+| Pi・DSH・Gemini CLI・Grok | Orca が管理するペイン、またはプロセスの存在検出（実行状態は推定不可） |
+
+エージェント画面では、状態を報告するセッションと、PIDから存在だけを確認できたプロセスを分けます。後者は「起動のみ確認できたプロセス」に折りたたんで表示し、作業中・入力待ち・アイドルを推測しません。Orca のペインとプロセス検出が同じ作業を重複して示す場合があります。AI向け `/api/ai/agents` は元データを保持し、`source: "process"` と `state_confidence: "detected"` で識別できます。
 
 「モデル別の利用量」は、Claude Code（`~/.claude/projects/`）、Codex（`~/.codex/` のスレッド記録）、OpenCode（`opencode stats`）の記録と、ローカル LLM のトークン数を合わせて、今日と直近 7 日間で集計します。Codex は合計トークンしか記録していないため内訳は出ません。
 
