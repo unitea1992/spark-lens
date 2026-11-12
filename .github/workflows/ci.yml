@@ -27,8 +27,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      # Betterleaks is the successor to Gitleaks by the same maintainers. Pinned to
-      # the stable v1 line until v2 is released as stable. Running as the runner's
-      # user keeps git from refusing the checkout as "dubious ownership".
+      # Betterleaks is the successor to Gitleaks by the same maintainers. Uses the
+      # v2 line; the image has no floating v2 tag yet, so the release candidate is
+      # pinned and bumped by hand. Running as the runner's user keeps git from
+      # refusing the checkout as "dubious ownership".
       - name: Scan the full history for committed secrets
-        run: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/repo:ro" ghcr.io/betterleaks/betterleaks:v1 git /repo --no-banner --redact
+        run: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/repo:ro" ghcr.io/betterleaks/betterleaks:v2.0.0-rc.7 git /repo --no-banner --redact
