@@ -118,6 +118,13 @@ function intelGpuName(raw: string | undefined): string {
   return /^intel\b/i.test(name) ? name : `Intel ${name}`;
 }
 
+/** The warmest of an integrated GPU's parts (render, media), in whole degrees; null when the machine keeps them to root. */
+function hottestGpuPart(raw: string | undefined): number | null {
+  // An unpowered or absent sensor reads 0 or below.
+  const temps = (raw ?? "").split(" ").map(num).filter((t): t is number => t !== null && t > 0 && t < 127);
+  return temps.length > 0 ? Math.max(...temps) : null;
+}
+
 function parseGpu(rows: string[]): { gpu: GpuInfo | null; counters: IntelGpuCounters | null } {
   let nvidia: GpuInfo | null = null;
   let amd: GpuInfo | null = null;
@@ -166,7 +173,7 @@ function parseGpu(rows: string[]): { gpu: GpuInfo | null; counters: IntelGpuCoun
         name: intelGpuName(f[1]),
         // Usage and power are rates: filled in from two readings, like the CPU's.
         utilPct: null,
-        tempC: null,
+        tempC: hottestGpuPart(f[6]),
         powerW: null,
         memUsedBytes: null,
         memTotalBytes: null,

@@ -227,7 +227,7 @@ Sparkの高いユニファイドメモリ使用率はLLM稼働中の通常状態
 
 円形ステータスのモデルの帯は、応答中か起動中のモデルだけを、それが動くマシンの下に出します。動いているモデルがないマシンには帯を出しません（停止中のモデルは下の一覧で確認できます）。
 
-GPU の使用率は、NVIDIA は `nvidia-smi`、AMD は `gpu_busy_percent` の値です。Intel（xe ドライバ）には使用率の値がないため、GPU が休止していなかった時間の割合を使用率として表示します（軽い負荷では実際の稼働率より 3 割ほど高く出ます）。Intel の温度とクロックは表示せず、i915 ドライバの Intel GPU には未対応です。GPU の名前はカードの下部に表示します。
+GPU の使用率は、NVIDIA は `nvidia-smi`、AMD は `gpu_busy_percent` の値です。Intel（xe ドライバ）には使用率の値がないため、GPU が休止していなかった時間の割合を使用率として表示します（軽い負荷では実際の稼働率より 3 割ほど高く出ます）。Intel のクロックは表示せず、i915 ドライバの Intel GPU には未対応です。GPU の名前はカードの下部に表示します。
 
 Intel の内蔵 GPU の電力は、CPU の電力カウンタ（RAPL の `uncore`）から出します。このカウンタは既定で root しか読めないため、そのままでは「GPU 電力」の行は出ません。表示するには、監視される側のマシンで、probe を流すユーザーが入っているグループ（下の例は `adm`）にこのファイルだけを読めるようにします。電力の値から他のプロセスの処理を推測する攻撃（PLATYPUS）への対策として閉じられている値なので、全ユーザーには開けないでください。
 
@@ -237,6 +237,16 @@ ACTION=="add", SUBSYSTEM=="powercap", ATTR{name}=="uncore", RUN+="/bin/sh -c 'ch
 RULE
 sudo udevadm control --reload
 sudo udevadm trigger --action=add --subsystem-match=powercap
+```
+
+Intel の内蔵 GPU の温度は、CPU の計測値の領域（Intel PMT）から出します。内蔵 GPU には hwmon の温度センサーがないためです。値の位置は CPU の世代ごとに違うので、Intel が配置を公開していて（[intel/Intel-PMT](https://github.com/intel/Intel-PMT)）、実機で確かめた世代だけを読みます。今は Panther Lake（領域の ID `0x3086000`）だけです。この領域も root しか読めないので、表示するには同じグループに開けます。開くのは温度だけでなく、電力や各部の稼働時間を含む領域全体（約 3 KB）です。
+
+```sh
+sudo tee /etc/udev/rules.d/70-spark-lens-gpu-temp.rules >/dev/null <<'RULE'
+ACTION=="add", SUBSYSTEM=="intel_pmt", ATTR{guid}=="0x3086000", RUN+="/bin/sh -c 'chgrp adm /sys%p/telem && chmod 0440 /sys%p/telem'"
+RULE
+sudo udevadm control --reload
+sudo udevadm trigger --action=add --subsystem-match=intel_pmt
 ```
 
 LinuxノードではブロックデバイスのディスクI/Oを既存SSHプローブに含め、複数マウントが同一ディスクに属しても合計値を重複加算しません。低メモリ・低空き容量・GPU情報の取得不能・ネットワークエラー・RDMAリンクの直近の切断を表示します。ネットワーク異常は90秒保持して短時間で消えないようにしています。値が取得できない場合は0と見なしません。

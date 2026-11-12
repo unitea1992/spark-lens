@@ -209,9 +209,16 @@ test("an Intel GPU reports idle time per GT, not a busy percentage", () => {
   assert.equal(s?.gpu?.powerW, null);
   // The energy counter is root's until the machine opens it: no power then, the rest as usual.
   assert.deepEqual(s?.gpuCounters, { atMs: 1700000005000, idleMs: { "tile0.gt0": 4000, "tile0.gt1": 4900 }, energyUj: null, energyRangeUj: null });
-  const open = probe("intel|Panther Lake [Arc B390]|1700000005000|tile0.gt0=4000|432386954|262143328850");
+  assert.equal(s?.gpu?.tempC, null);
+  const open = probe("intel|Panther Lake [Arc B390]|1700000005000|tile0.gt0=4000|432386954|262143328850|35 35 36");
   assert.equal(open?.gpuCounters?.energyUj, 432386954);
   assert.equal(open?.gpuCounters?.energyRangeUj, 262143328850);
+  // Media, coolest and warmest graphics part: the warmest one is the GPU's temperature.
+  assert.equal(open?.gpu?.tempC, 36);
+  assert.equal(probe("intel|Arc|1700000005000|tile0.gt0=4000|||61 35 36")?.gpu?.tempC, 61);
+  // A sensor that is off reads 0 or below; with none left there is no temperature.
+  assert.equal(probe("intel|Arc|1700000005000|tile0.gt0=4000|||0 -128 44")?.gpu?.tempC, 44);
+  assert.equal(probe("intel|Arc|1700000005000|tile0.gt0=4000|||0 0 0")?.gpu?.tempC, null);
 
   // Without lspci on the machine the row carries no name.
   assert.equal(probe("intel||1700000005000|tile0.gt0=4000")?.gpu?.name, "Intel GPU");
