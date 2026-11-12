@@ -225,6 +225,20 @@ Sparkの高いユニファイドメモリ使用率はLLM稼働中の通常状態
 
 円形ステータスでは、広い画面で PGX 2台のクラスタと開発機の判断モデルクラスタを左右に並べ、縦方向の余白を縮小します。
 
+円形ステータスのモデルの帯は、応答中か起動中のモデルだけを、それが動くマシンの下に出します。動いているモデルがないマシンには帯を出しません（停止中のモデルは下の一覧で確認できます）。
+
+GPU の使用率は、NVIDIA は `nvidia-smi`、AMD は `gpu_busy_percent` の値です。Intel（xe ドライバ）には使用率の値がないため、GPU が休止していなかった時間の割合を使用率として表示します（軽い負荷では実際の稼働率より 3 割ほど高く出ます）。Intel の温度とクロックは表示せず、i915 ドライバの Intel GPU には未対応です。GPU の名前はカードの下部に表示します。
+
+Intel の内蔵 GPU の電力は、CPU の電力カウンタ（RAPL の `uncore`）から出します。このカウンタは既定で root しか読めないため、そのままでは「GPU 電力」の行は出ません。表示するには、監視される側のマシンで、probe を流すユーザーが入っているグループ（下の例は `adm`）にこのファイルだけを読めるようにします。電力の値から他のプロセスの処理を推測する攻撃（PLATYPUS）への対策として閉じられている値なので、全ユーザーには開けないでください。
+
+```sh
+sudo tee /etc/udev/rules.d/70-spark-lens-gpu-power.rules >/dev/null <<'RULE'
+ACTION=="add", SUBSYSTEM=="powercap", ATTR{name}=="uncore", RUN+="/bin/sh -c 'chgrp adm /sys%p/energy_uj && chmod 0440 /sys%p/energy_uj'"
+RULE
+sudo udevadm control --reload
+sudo udevadm trigger --action=add --subsystem-match=powercap
+```
+
 LinuxノードではブロックデバイスのディスクI/Oを既存SSHプローブに含め、複数マウントが同一ディスクに属しても合計値を重複加算しません。低メモリ・低空き容量・GPU情報の取得不能・ネットワークエラー・RDMAリンクの直近の切断を表示します。ネットワーク異常は90秒保持して短時間で消えないようにしています。値が取得できない場合は0と見なしません。
 
 ### 監視対象の追加・解除

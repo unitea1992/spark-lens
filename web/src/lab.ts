@@ -40,3 +40,7 @@ export function layout(s: Snapshot): { observers: HostSnapshot[]; clusters: Clus
   return { observers, clusters };
 }
 
+/** The models to draw under their machines: the ones answering or loading right now. */
+export function liveModels(llms: LlmSnapshot[]): LlmSnapshot[] {
+  return llms.filter((l) => l.state !== "down");
+}

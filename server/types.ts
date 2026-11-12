@@ -97,8 +97,9 @@ export interface Config {
 // ---------------------------------------------------------------- snapshot
 
 export interface GpuInfo {
-  vendor: "nvidia" | "amd";
+  vendor: "nvidia" | "amd" | "intel";
   name: string;
+  /** Intel reports no busy figure: there this is the share of time the GPU was powered up. */
   utilPct: number | null;
   tempC: number | null;
   powerW: number | null;

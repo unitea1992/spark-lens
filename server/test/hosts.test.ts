@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { counterRate, cpuPercent, parseProbe } from "../collectors/hosts.ts";
+import { counterRate, cpuPercent, gpuAwakePercent, gpuPowerWatts, parseProbe } from "../collectors/hosts.ts";
 import { pushRecent, RECENT_POINTS } from "../collectors/recent.ts";
 
 const SPARK = `@@host
@@ -196,4 +196,65 @@ test("pressure telemetry is optional on older kernels and rejects unusable sampl
   const s = parseProbe("@@host\nhostname=dev\n@@pressure\nsome avg10=150.00 avg60=0.0 total=0\nfull avg10=4.75 avg60=0 total=0\n@@end\n");
   assert.deepEqual(s?.pressure, { someAvg10: null, fullAvg10: 4.75, oomKills: null });
   assert.deepEqual(parseProbe("@@host\nhostname=dev\n@@end\n")?.pressure, { someAvg10: null, fullAvg10: null, oomKills: null });
+});
+
+test("an Intel GPU reports idle time per GT, not a busy percentage", () => {
+  const probe = (row: string) => parseProbe(`@@host\nhostname=dev\n@@gpu\n${row}\n@@end\n`);
+  const s = probe("intel|Panther Lake [Arc B390]|1700000005000|tile0.gt0=4000 tile0.gt1=4900");
+  assert.equal(s?.gpu?.vendor, "intel");
+  assert.equal(s?.gpu?.name, "Intel Arc B390");
+  // A rate needs two readings: the GPU is there, its usage not yet known.
+  assert.equal(s?.gpu?.utilPct, null);
+  assert.equal(s?.gpu?.clockMhz, null);
+  assert.equal(s?.gpu?.powerW, null);
+  // The energy counter is root's until the machine opens it: no power then, the rest as usual.
+  assert.deepEqual(s?.gpuCounters, { atMs: 1700000005000, idleMs: { "tile0.gt0": 4000, "tile0.gt1": 4900 }, energyUj: null, energyRangeUj: null });
+  const open = probe("intel|Panther Lake [Arc B390]|1700000005000|tile0.gt0=4000|432386954|262143328850");
+  assert.equal(open?.gpuCounters?.energyUj, 432386954);
+  assert.equal(open?.gpuCounters?.energyRangeUj, 262143328850);
+
+  // Without lspci on the machine the row carries no name.
+  assert.equal(probe("intel||1700000005000|tile0.gt0=4000")?.gpu?.name, "Intel GPU");
+  assert.equal(probe("intel|Device b082|1700000005000|tile0.gt0=4000")?.gpu?.name, "Intel GPU");
+  assert.equal(probe("intel|Intel UHD Graphics|1700000005000|tile0.gt0=4000")?.gpu?.name, "Intel UHD Graphics");
+});
+
+test("a discrete GPU is shown rather than the Intel one beside it", () => {
+  const s = parseProbe(
+    "@@host\nhostname=dev\n@@gpu\nnvidia|RTX|7|50|30.0|100|8000|900|2100\nintel|Arc|1700000005000|tile0.gt0=4000\n@@end\n",
+  );
+  assert.equal(s?.gpu?.vendor, "nvidia");
+  assert.equal(s?.gpuCounters, null);
+});
+
+test("Intel GPU usage is the awake share of its busiest GT", () => {
+  const at = (atMs: number, gt0: number, gt1: number) => ({ atMs, idleMs: { "tile0.gt0": gt0, "tile0.gt1": gt1 }, energyUj: null, energyRangeUj: null });
+  // 5 s apart: the render GT slept 4 s of them, the media GT all 5.
+  assert.equal(gpuAwakePercent(at(0, 1000, 1000), at(5000, 5000, 6000)), 20);
+  // The media GT counts when it is the one working.
+  assert.equal(gpuAwakePercent(at(0, 1000, 1000), at(5000, 6000, 2000)), 80);
+  // The counter and the clock are read a moment apart: never below 0 or above 100.
+  assert.equal(gpuAwakePercent(at(0, 1000, 1000), at(5000, 6010, 6010)), 0);
+  // No earlier reading, a clock that did not move, or a counter that restarted: no figure.
+  assert.equal(gpuAwakePercent(null, at(5000, 5000, 6000)), null);
+  assert.equal(gpuAwakePercent(at(5000, 1000, 1000), at(5000, 5000, 6000)), null);
+  assert.equal(gpuAwakePercent(at(0, 9000, 9000), at(5000, 10, 10)), null);
+  assert.equal(gpuAwakePercent(at(0, 9000, 1000), at(5000, 10, 6000)), 0);
+});
+
+test("Intel GPU power is the energy counter's growth over the time between readings", () => {
+  const at = (atMs: number, energyUj: number | null, energyRangeUj: number | null = 1_000_000_000) => ({ atMs, idleMs: {}, energyUj, energyRangeUj });
+  // 76.8 J in 5 s.
+  assert.equal(gpuPowerWatts(at(0, 1_000_000), at(5000, 77_800_000)), 15.36);
+  assert.equal(gpuPowerWatts(at(0, 1_000_000), at(5000, 1_000_000)), 0);
+  // The counter wrapped past its range.
+  assert.equal(gpuPowerWatts(at(0, 999_000_000), at(5000, 4_000_000)), 1);
+  // A counter that went backwards with no known range, or further than the range allows, was reset.
+  assert.equal(gpuPowerWatts(at(0, 999_000_000), at(5000, 4_000_000, null)), null);
+  assert.equal(gpuPowerWatts(at(0, 2_000_000_000), at(5000, 4_000_000)), null);
+  // Unreadable on either side, no earlier reading, or no time passed: no figure.
+  assert.equal(gpuPowerWatts(at(0, null), at(5000, 4_000_000)), null);
+  assert.equal(gpuPowerWatts(at(0, 1_000_000), at(5000, null)), null);
+  assert.equal(gpuPowerWatts(null, at(5000, 4_000_000)), null);
+  assert.equal(gpuPowerWatts(at(5000, 1_000_000), at(5000, 4_000_000)), null);
 });
