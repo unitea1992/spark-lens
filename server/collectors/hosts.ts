@@ -143,7 +143,6 @@ function parseGpu(rows: string[]): { gpu: GpuInfo | null; idle: GpuIdleSample | 
         const v = num(ms);
         if (gt && v !== null && v >= 0) idleMs[gt] = v;
       }
-      const max = num(f[5]);
       intel = {
         vendor: "intel",
         name: intelGpuName(f[1]),
@@ -153,8 +152,8 @@ function parseGpu(rows: string[]): { gpu: GpuInfo | null; idle: GpuIdleSample | 
         powerW: null,
         memUsedBytes: null,
         memTotalBytes: null,
-        clockMhz: num(f[4]),
-        clockMaxMhz: max !== null && max > 0 ? max : null,
+        clockMhz: null,
+        clockMaxMhz: null,
       };
       intelIdle = atMs !== null && Object.keys(idleMs).length > 0 ? { atMs, idleMs } : null;
     }

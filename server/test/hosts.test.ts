@@ -200,25 +200,24 @@ test("pressure telemetry is optional on older kernels and rejects unusable sampl
 
 test("an Intel GPU reports idle time per GT, not a busy percentage", () => {
   const probe = (row: string) => parseProbe(`@@host\nhostname=dev\n@@gpu\n${row}\n@@end\n`);
-  const s = probe("intel|Panther Lake [Arc B390]|1700000005000|tile0.gt0=4000 tile0.gt1=4900|1750|2500");
+  const s = probe("intel|Panther Lake [Arc B390]|1700000005000|tile0.gt0=4000 tile0.gt1=4900");
   assert.equal(s?.gpu?.vendor, "intel");
   assert.equal(s?.gpu?.name, "Intel Arc B390");
   // A rate needs two readings: the GPU is there, its usage not yet known.
   assert.equal(s?.gpu?.utilPct, null);
-  assert.equal(s?.gpu?.clockMhz, 1750);
-  assert.equal(s?.gpu?.clockMaxMhz, 2500);
+  assert.equal(s?.gpu?.clockMhz, null);
   assert.equal(s?.gpu?.powerW, null);
   assert.deepEqual(s?.gpuIdle, { atMs: 1700000005000, idleMs: { "tile0.gt0": 4000, "tile0.gt1": 4900 } });
 
   // Without lspci on the machine the row carries no name.
-  assert.equal(probe("intel||1700000005000|tile0.gt0=4000|0|2500")?.gpu?.name, "Intel GPU");
-  assert.equal(probe("intel|Device b082|1700000005000|tile0.gt0=4000|0|2500")?.gpu?.name, "Intel GPU");
-  assert.equal(probe("intel|Intel UHD Graphics|1700000005000|tile0.gt0=4000|0|2500")?.gpu?.name, "Intel UHD Graphics");
+  assert.equal(probe("intel||1700000005000|tile0.gt0=4000")?.gpu?.name, "Intel GPU");
+  assert.equal(probe("intel|Device b082|1700000005000|tile0.gt0=4000")?.gpu?.name, "Intel GPU");
+  assert.equal(probe("intel|Intel UHD Graphics|1700000005000|tile0.gt0=4000")?.gpu?.name, "Intel UHD Graphics");
 });
 
 test("a discrete GPU is shown rather than the Intel one beside it", () => {
   const s = parseProbe(
-    "@@host\nhostname=dev\n@@gpu\nnvidia|RTX|7|50|30.0|100|8000|900|2100\nintel|Arc|1700000005000|tile0.gt0=4000|0|2500\n@@end\n",
+    "@@host\nhostname=dev\n@@gpu\nnvidia|RTX|7|50|30.0|100|8000|900|2100\nintel|Arc|1700000005000|tile0.gt0=4000\n@@end\n",
   );
   assert.equal(s?.gpu?.vendor, "nvidia");
   assert.equal(s?.gpuIdle, null);

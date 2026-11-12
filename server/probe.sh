@@ -123,13 +123,15 @@ for card in /sys/class/drm/card[0-9]*; do
     total="$(cat "$dev/mem_info_vram_total" 2>/dev/null)"
     echo "amd|$(basename "$card")|$busy|$temp|$power|$used|$total"
 done
-# intel|<name>|<clock ms>|<gt>=<idle ms> ...|<clock MHz>|<max clock MHz>
+# intel|<name>|<epoch ms>|<gt>=<idle ms> ...
 # Intel's xe driver has no busy percentage. Each GT counts the time it spent
 # powered down instead, so the server takes the share of time it was not.
-# The clock is read next to the counters: the rate is only as good as the pair.
+# The time is read next to the counters: the rate is only as good as the pair.
+# The GT's frequency is left out: the actual one reads 0 whenever the GT is
+# powered down at that instant, and the requested one stays at its last peak.
 for card in /sys/class/drm/card[0-9]*; do
     dev="$card/device"
-    idle=""; act=""; max=""; at=""
+    idle=""; at=""
     for gt in "$dev"/tile*/gt*; do
         [ -r "$gt/gtidle/idle_residency_ms" ] || continue
         [ -n "$at" ] || at="$(date +%s%3N)"
@@ -137,11 +139,6 @@ for card in /sys/class/drm/card[0-9]*; do
         [ -n "$ms" ] || continue
         tile="${gt%/*}"
         idle="$idle ${tile##*/}.${gt##*/}=$ms"
-        # The first GT is the render one; the media GT runs at a lower clock.
-        if [ -z "$max" ] && [ -r "$gt/freq0/max_freq" ]; then
-            act="$(cat "$gt/freq0/act_freq" 2>/dev/null)"
-            max="$(cat "$gt/freq0/max_freq" 2>/dev/null)"
-        fi
     done
     [ -n "$idle" ] || continue
     name=""
@@ -149,7 +146,7 @@ for card in /sys/class/drm/card[0-9]*; do
         slot="$(basename "$(readlink -f "$dev")")"
         name="$(lspci -mm -s "$slot" 2>/dev/null | awk -F'"' 'NR == 1 {print $6}')"
     fi
-    echo "intel|$name|$at|${idle# }|$act|$max"
+    echo "intel|$name|$at|${idle# }"
 done
 
 echo "@@gpucap"
