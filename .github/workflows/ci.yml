@@ -32,4 +32,4 @@ jobs:
       # pinned and bumped by hand. Running as the runner's user keeps git from
       # refusing the checkout as "dubious ownership".
       - name: Scan the full history for committed secrets
-        run: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/repo:ro" ghcr.io/betterleaks/betterleaks:v2.0.0-rc.7 git /repo --no-banner --redact
+        run: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/repo:ro" ghcr.io/betterleaks/betterleaks:v2.0.0-rc.7 git /repo --include=merges --no-banner --redact
