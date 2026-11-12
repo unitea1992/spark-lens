@@ -123,12 +123,15 @@ for card in /sys/class/drm/card[0-9]*; do
     total="$(cat "$dev/mem_info_vram_total" 2>/dev/null)"
     echo "amd|$(basename "$card")|$busy|$temp|$power|$used|$total"
 done
-# intel|<name>|<epoch ms>|<gt>=<idle ms> ...
+# intel|<name>|<epoch ms>|<gt>=<idle ms> ...|<energy uJ>|<energy counter range uJ>
 # Intel's xe driver has no busy percentage. Each GT counts the time it spent
 # powered down instead, so the server takes the share of time it was not.
 # The time is read next to the counters: the rate is only as good as the pair.
 # The GT's frequency is left out: the actual one reads 0 whenever the GT is
 # powered down at that instant, and the requested one stays at its last peak.
+# Power is the CPU's own energy counter for its graphics part (the RAPL domain
+# named "uncore"), cumulative too. The kernel lets only root read it, so the
+# fields stay empty until the machine opens that one file to the probe's user.
 for card in /sys/class/drm/card[0-9]*; do
     dev="$card/device"
     idle=""; at=""
@@ -141,12 +144,19 @@ for card in /sys/class/drm/card[0-9]*; do
         idle="$idle ${tile##*/}.${gt##*/}=$ms"
     done
     [ -n "$idle" ] || continue
+    energy=""; range=""
+    for zone in /sys/class/powercap/intel-rapl:*; do
+        [ "$(cat "$zone/name" 2>/dev/null)" = uncore ] || continue
+        energy="$(cat "$zone/energy_uj" 2>/dev/null)"
+        range="$(cat "$zone/max_energy_range_uj" 2>/dev/null)"
+        break
+    done
     name=""
     if command -v lspci >/dev/null 2>&1; then
         slot="$(basename "$(readlink -f "$dev")")"
         name="$(lspci -mm -s "$slot" 2>/dev/null | awk -F'"' 'NR == 1 {print $6}')"
     fi
-    echo "intel|$name|$at|${idle# }"
+    echo "intel|$name|$at|${idle# }|$energy|$range"
 done
 
 echo "@@gpucap"
