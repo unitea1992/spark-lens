@@ -2,7 +2,7 @@ import type { CSSProperties } from "react";
 import type { HostSnapshot, LlmSnapshot, RecipeSnapshot, Snapshot } from "../../../server/types.ts";
 import { ago, pct, rate, ratioPct } from "../format.ts";
 import { hostStatus, llmStatus } from "../status.ts";
-import { layout } from "../lab.ts";
+import { layout, liveModels } from "../lab.ts";
 import { LensDial } from "./LensDial.tsx";
 
 /**
@@ -95,7 +95,8 @@ function Fabric({ a, b }: { a: HostSnapshot; b: HostSnapshot }) {
 function Band({ llm, now, progress }: { llm: LlmSnapshot; now: number; progress: RecipeSnapshot["progress"] }) {
   const st = llmStatus(llm);
   const running = (llm.requestsRunning ?? 0) > 0;
-  const kind = llm.state === "down" ? "down" : llm.state === "starting" ? "starting" : running ? "busy" : "idle";
+  // Only models that answer or load are drawn (see Bands).
+  const kind = llm.state === "starting" ? "starting" : running ? "busy" : "idle";
   return (
     <div className={`band band--${kind}`}>
       <span
@@ -140,6 +141,23 @@ function Band({ llm, now, progress }: { llm: LlmSnapshot; now: number; progress:
 }
 
 /**
+ * The models answering or loading on a group of machines. Machines where none is get no model area at all:
+ * a model that is only configured there is listed further down the page, not drawn as if it belonged to them.
+ */
+function Bands({ llms, now, recipes }: { llms: LlmSnapshot[]; now: number; recipes: RecipeSnapshot[] }) {
+  const live = liveModels(llms);
+  if (live.length === 0) return null;
+  return (
+    <div className="cluster__bands">
+      {live.map((l) => (
+        <Band key={l.id} llm={l} now={now} progress={recipes.find((r) => r.llm === l.id && r.progress)?.progress ?? null} />
+      ))}
+      {live.length < llms.length && <p className="cluster__more">ほか {llms.length - live.length} モデルは停止中</p>}
+    </div>
+  );
+}
+
+/**
  * The lab drawn the way it is built: the machine this dashboard runs on,
  * then each group of machines with the models they serve and the cables
  * between them. Always on a dark stage, like an instrument.
@@ -172,20 +190,7 @@ export function LabMap({ snapshot, now }: { snapshot: Snapshot; now: number }) {
                   </div>
                 ))}
               </div>
-              {c.llms.length > 0 && (
-                <div className="cluster__bands">
-                  {c.llms
-                    .filter((l, i) => l.state !== "down" || (i === 0 && c.llms.every((x) => x.state === "down")))
-                    .map((l) => (
-                      <Band key={l.id} llm={l} now={now} progress={snapshot.recipes.find((r) => r.llm === l.id && r.progress)?.progress ?? null} />
-                    ))}
-                  {c.llms.filter((l) => l.state === "down").length > (c.llms.every((x) => x.state === "down") ? 1 : 0) && (
-                    <p className="cluster__more">
-                      ほか {c.llms.filter((l) => l.state === "down").length - (c.llms.every((x) => x.state === "down") ? 1 : 0)} モデルは停止中
-                    </p>
-                  )}
-                </div>
-              )}
+              <Bands llms={c.llms} now={now} recipes={snapshot.recipes} />
             </div>
           ))}
         </div>

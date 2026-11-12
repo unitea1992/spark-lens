@@ -140,7 +140,7 @@ export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) 
 
       <ul className="spec">
         <Spec label="稼働時間" value={duration(host.uptimeSec)} />
-        {gpu && <Spec label="GPU 電力" value={gpu.powerW !== null ? `${gpu.powerW.toFixed(1)} W` : "–"} />}
+        {gpu && gpu.powerW !== null && <Spec label="GPU 電力" value={`${gpu.powerW.toFixed(1)} W`} />}
         {gpu && gpu.clockMhz !== null && <Spec label="GPU クロック / 上限" value={clock(gpu.clockMhz, gpu.clockMaxMhz)} />}
         <Spec label="CPU クロック / 上限" value={clock(host.clockMhz, host.clockMaxMhz)} />
         <Spec label="スワップ" value={host.swapTotalBytes ? `${bytes(host.swapUsedBytes)} / ${bytes(host.swapTotalBytes)}` : "なし"} />
@@ -216,6 +216,8 @@ export function MachineCard({ host, now }: { host: HostSnapshot; now: number }) 
       <p className="machine__foot">
         {host.os && <span>{host.os}</span>}
         {host.cpuModel && <span>{host.cpuModel}</span>}
+        {/* An integrated GPU the CPU's name already spells out is not repeated. */}
+        {gpu && !host.cpuModel?.toLowerCase().includes(gpu.name.toLowerCase()) && <span>{gpu.name}</span>}
         {/* Round trip of the dashboard's last check of this machine. */}
         {host.latencyMs !== null && <span>遅延 {host.latencyMs} ms</span>}
       </p>

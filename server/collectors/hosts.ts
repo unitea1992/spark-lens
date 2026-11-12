@@ -26,6 +26,8 @@ export interface ProbeSample {
   diskIo: { mount: string; device: string; readSectors: number; writeSectors: number }[];
   temps: TempReading[];
   gpu: GpuInfo | null;
+  /** Intel only: how long each GT has been powered down, and the probe's clock at that reading. */
+  gpuIdle: GpuIdleSample | null;
   gpuProcesses: { pid: number; name: string; memBytes: number | null }[];
   net: { iface: string; rx: number; tx: number; up: boolean; speedMbps: number | null; errors: number | null }[];
   ib: { device: string; rx: number; tx: number; rateGbps: number | null; up: boolean; errors: number | null }[];
@@ -65,9 +67,44 @@ function splitSections(text: string): Map<string, string[]> | null {
   return ended ? sections : null;
 }
 
-function parseGpu(rows: string[]): GpuInfo | null {
+export interface GpuIdleSample {
+  atMs: number;
+  /** Cumulative powered-down milliseconds per GT ("tile0.gt0"). */
+  idleMs: Record<string, number>;
+}
+
+/**
+ * Share of time an Intel GPU was awake between two probes, 0..100: its busiest GT, so video work on the media GT
+ * counts as much as rendering. The driver reports no busy figure, only how long each GT was powered down. Measured
+ * against the driver's per-client engine time, this reads about a third higher under light load and agrees at both ends.
+ */
+export function gpuAwakePercent(prev: GpuIdleSample | null | undefined, next: GpuIdleSample | null): number | null {
+  if (!prev || !next) return null;
+  const dt = next.atMs - prev.atMs;
+  if (dt <= 0) return null;
+  let busiest: number | null = null;
+  for (const [gt, idle] of Object.entries(next.idleMs)) {
+    const before = prev.idleMs[gt];
+    // A counter that went backwards restarted with the driver.
+    if (before === undefined || idle < before) continue;
+    const awake = Math.min(100, Math.max(0, ((dt - (idle - before)) / dt) * 100));
+    if (busiest === null || awake > busiest) busiest = awake;
+  }
+  return busiest;
+}
+
+/** "Panther Lake [Arc B390]" names the product in the brackets; without lspci there is no name at all. */
+function intelGpuName(raw: string | undefined): string {
+  const name = (/\[([^\]]+)\]/.exec(raw ?? "")?.[1] ?? raw ?? "").trim();
+  if (name === "" || /^device\b/i.test(name)) return "Intel GPU";
+  return /^intel\b/i.test(name) ? name : `Intel ${name}`;
+}
+
+function parseGpu(rows: string[]): { gpu: GpuInfo | null; idle: GpuIdleSample | null } {
   let nvidia: GpuInfo | null = null;
   let amd: GpuInfo | null = null;
+  let intel: GpuInfo | null = null;
+  let intelIdle: GpuIdleSample | null = null;
   for (const row of rows) {
     const f = row.split("|");
     if (f[0] === "nvidia" && !nvidia) {
@@ -98,9 +135,33 @@ function parseGpu(rows: string[]): GpuInfo | null {
         clockMhz: null,
         clockMaxMhz: null,
       };
+    } else if (f[0] === "intel" && !intel) {
+      const atMs = num(f[2]);
+      const idleMs: Record<string, number> = {};
+      for (const pair of (f[3] ?? "").split(" ")) {
+        const [gt, ms] = pair.split("=");
+        const v = num(ms);
+        if (gt && v !== null && v >= 0) idleMs[gt] = v;
+      }
+      const max = num(f[5]);
+      intel = {
+        vendor: "intel",
+        name: intelGpuName(f[1]),
+        // A rate: filled in from two readings, like the CPU's.
+        utilPct: null,
+        tempC: null,
+        powerW: null,
+        memUsedBytes: null,
+        memTotalBytes: null,
+        clockMhz: num(f[4]),
+        clockMaxMhz: max !== null && max > 0 ? max : null,
+      };
+      intelIdle = atMs !== null && Object.keys(idleMs).length > 0 ? { atMs, idleMs } : null;
     }
   }
-  return nvidia ?? amd;
+  // A discrete card beside an integrated one is the one doing the work.
+  const gpu = nvidia ?? amd ?? intel;
+  return { gpu, idle: gpu !== null && gpu === intel ? intelIdle : null };
 }
 
 export function parseProbe(text: string): ProbeSample | null {
@@ -232,11 +293,11 @@ export function parseProbe(text: string): ProbeSample | null {
     ];
   });
 
-  const gpu = parseGpu(s.get("gpu") ?? []);
+  const { gpu, idle: gpuIdle } = parseGpu(s.get("gpu") ?? []);
   const cap = num((s.get("gpucap") ?? [])[0]);
   if (gpu && cap !== null && cap > 0 && (gpu.clockMaxMhz === null || cap < gpu.clockMaxMhz)) gpu.clockMaxMhz = cap;
 
-  return { host, cpu, freq, mem, pressure, disks, diskIo, temps, gpu, gpuProcesses, net, ib, containers, containersKnown, procs };
+  return { host, cpu, freq, mem, pressure, disks, diskIo, temps, gpu, gpuIdle, gpuProcesses, net, ib, containers, containersKnown, procs };
 }
 
 /** Busy share of CPU time between two /proc/stat readings, 0..100. */
@@ -507,7 +568,9 @@ export class HostCollector {
           writeBps: io ? counterRate(io.writeSectors * 512, previous?.writeSectors === undefined ? undefined : previous.writeSectors * 512, dt) : null,
         };
       }),
-      gpu: sample.gpu,
+      gpu: sample.gpu && sample.gpuIdle
+        ? { ...sample.gpu, utilPct: gpuAwakePercent(prev?.sample.gpuIdle, sample.gpuIdle) }
+        : sample.gpu,
       maxTemp: hottest,
       cpuTempC: cpuTemp(sample.temps),
       temps: sample.temps,

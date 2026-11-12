@@ -512,38 +512,6 @@
   color: var(--warn);
 }
 
-/* A stopped model is only a dashed outline: present, but clearly not running. */
-.band--down {
-  color: var(--ink-3);
-}
-
-.band--down .band__name {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--ink-2);
-}
-
-.band--down .band__rail {
-  height: 2px;
-  background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--ink-3) 60%, transparent) 0 6px, transparent 6px 11px);
-}
-
-.band--down .band__rail::before,
-.band--down .band__rail::after {
-  height: 8px;
-  width: 2px;
-  background: color-mix(in srgb, var(--ink-3) 60%, transparent);
-}
-
-.band--down .band__state::before {
-  content: "○ ";
-  color: var(--ink-3);
-}
-
-.band--down .band__row {
-  padding-top: 6px;
-}
-
 @media (max-width: 720px) {
   .stage {
     padding: 14px 10px 12px;

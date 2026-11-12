@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { HostSnapshot, LlmSnapshot, Snapshot } from "../../server/types.ts";
-import { layout } from "./lab.ts";
+import { layout, liveModels } from "./lab.ts";
 
 const host = (id: string, kind: HostSnapshot["kind"]) => ({ id, label: id, kind }) as HostSnapshot;
 const llm = (id: string, nodes: string[], state: LlmSnapshot["state"]) => ({ id, label: id, nodes, state }) as LlmSnapshot;
@@ -33,4 +33,10 @@ test("a model on one of the machines joins that cluster; separate machines get t
       [["d"], []],
     ],
   );
+});
+
+test("only models that answer or load are drawn under their machines", () => {
+  const llms = [llm("stopped", ["a"], "down"), llm("loading", ["a"], "starting"), llm("serving", ["a"], "up")];
+  assert.deepEqual(liveModels(llms).map((l) => l.id), ["loading", "serving"]);
+  assert.deepEqual(liveModels([llm("stopped", ["a"], "down")]), []);
 });
