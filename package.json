@@ -20,18 +20,18 @@
     "bench": "node scripts/bench.ts"
   },
   "devDependencies": {
-    "@types/node": "^26.6.3",
+    "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
-    "@vitejs/plugin-react": "^6.1.1",
+    "@vitejs/plugin-react": "^6.3.0",
     "typescript": "^7.0.2",
-    "vite": "^8.3.1"
+    "vite": "^8.3.8"
   },
   "dependencies": {
     "@fontsource/ibm-plex-sans-condensed": "^5.3.0",
-    "@fontsource/ibm-plex-sans-jp": "^5.3.0",
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "@fontsource/ibm-plex-sans-jp": "^5.3.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
   },
-  "packageManager": "pnpm@12.6.0"
+  "packageManager": "pnpm@12.18.0"
 }
