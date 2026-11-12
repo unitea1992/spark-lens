@@ -144,16 +144,22 @@ for card in /sys/class/drm/card[0-9]*; do
         idle="$idle ${tile##*/}.${gt##*/}=$ms"
     done
     [ -n "$idle" ] || continue
+    slot="$(basename "$(readlink -f "$dev")")"
     energy=""; range=""
-    for zone in /sys/class/powercap/intel-rapl:*; do
-        [ "$(cat "$zone/name" 2>/dev/null)" = uncore ] || continue
-        energy="$(cat "$zone/energy_uj" 2>/dev/null)"
-        range="$(cat "$zone/max_energy_range_uj" 2>/dev/null)"
-        break
-    done
+    # That counter belongs to the GPU inside the CPU, which is always PCI device
+    # 00:02.0. A discrete Intel card must not be given the CPU's figure.
+    case "$slot" in
+        *:00:02.0)
+            for zone in /sys/class/powercap/intel-rapl:*; do
+                [ "$(cat "$zone/name" 2>/dev/null)" = uncore ] || continue
+                energy="$(cat "$zone/energy_uj" 2>/dev/null)"
+                range="$(cat "$zone/max_energy_range_uj" 2>/dev/null)"
+                break
+            done
+            ;;
+    esac
     name=""
     if command -v lspci >/dev/null 2>&1; then
-        slot="$(basename "$(readlink -f "$dev")")"
         name="$(lspci -mm -s "$slot" 2>/dev/null | awk -F'"' 'NR == 1 {print $6}')"
     fi
     echo "intel|$name|$at|${idle# }|$energy|$range"
