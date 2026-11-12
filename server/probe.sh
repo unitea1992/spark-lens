@@ -123,7 +123,7 @@ for card in /sys/class/drm/card[0-9]*; do
     total="$(cat "$dev/mem_info_vram_total" 2>/dev/null)"
     echo "amd|$(basename "$card")|$busy|$temp|$power|$used|$total"
 done
-# intel|<name>|<epoch ms>|<gt>=<idle ms> ...|<energy uJ>|<energy counter range uJ>
+# intel|<name>|<epoch ms>|<gt>=<idle ms> ...|<energy uJ>|<energy counter range uJ>|<temp C> ...
 # Intel's xe driver has no busy percentage. Each GT counts the time it spent
 # powered down instead, so the server takes the share of time it was not.
 # The time is read next to the counters: the rate is only as good as the pair.
@@ -132,6 +132,10 @@ done
 # Power is the CPU's own energy counter for its graphics part (the RAPL domain
 # named "uncore"), cumulative too. The kernel lets only root read it, so the
 # fields stay empty until the machine opens that one file to the probe's user.
+# Temperature comes from the CPU's telemetry block (Intel PMT), root's as well:
+# an integrated GPU has no sensor of its own in hwmon. Where each value sits in
+# the block differs per CPU generation, so only blocks whose layout Intel has
+# published (github.com/intel/Intel-PMT) and that were checked are read.
 for card in /sys/class/drm/card[0-9]*; do
     dev="$card/device"
     idle=""; at=""
@@ -145,11 +149,19 @@ for card in /sys/class/drm/card[0-9]*; do
     done
     [ -n "$idle" ] || continue
     slot="$(basename "$(readlink -f "$dev")")"
-    energy=""; range=""
-    # That counter belongs to the GPU inside the CPU, which is always PCI device
-    # 00:02.0. A discrete Intel card must not be given the CPU's figure.
+    energy=""; range=""; temps=""
+    # Both belong to the GPU inside the CPU, which is always PCI device 00:02.0.
+    # A discrete Intel card must not be given the CPU's figures.
     case "$slot" in
         *:00:02.0)
+            for telem in /sys/class/intel_pmt/telem*; do
+                case "$(cat "$telem/guid" 2>/dev/null)" in
+                    # Panther Lake: Media_TEMP, GT_MIN, GT_MAX, one signed byte each.
+                    0x3086000) temps="$(od -An -td1 -j125 -N3 "$telem/telem" 2>/dev/null | tr -s ' \n' ' ')" ;;
+                    *) continue ;;
+                esac
+                break
+            done
             for zone in /sys/class/powercap/intel-rapl:*; do
                 [ "$(cat "$zone/name" 2>/dev/null)" = uncore ] || continue
                 energy="$(cat "$zone/energy_uj" 2>/dev/null)"
@@ -162,7 +174,8 @@ for card in /sys/class/drm/card[0-9]*; do
     if command -v lspci >/dev/null 2>&1; then
         name="$(lspci -mm -s "$slot" 2>/dev/null | awk -F'"' 'NR == 1 {print $6}')"
     fi
-    echo "intel|$name|$at|${idle# }|$energy|$range"
+    temps="${temps# }"
+    echo "intel|$name|$at|${idle# }|$energy|$range|${temps% }"
 done
 
 echo "@@gpucap"
