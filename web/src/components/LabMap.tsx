@@ -2,7 +2,7 @@ import type { CSSProperties } from "react";
 import type { HostSnapshot, LlmSnapshot, RecipeSnapshot, Snapshot } from "../../../server/types.ts";
 import { ago, pct, rate, ratioPct } from "../format.ts";
 import { hostStatus, llmStatus } from "../status.ts";
-import { layout, liveModels } from "../lab.ts";
+import { layout, liveModels, type Cluster } from "../lab.ts";
 import { LensDial } from "./LensDial.tsx";
 
 /**
@@ -157,43 +157,53 @@ function Bands({ llms, now, recipes }: { llms: LlmSnapshot[]; now: number; recip
   );
 }
 
+/** One group of machines with the models running on them. Only the inference machines are cabled to each other. */
+function Group({ cluster, cabled, snapshot, now }: { cluster: Cluster; cabled: boolean; snapshot: Snapshot; now: number }) {
+  return (
+    <div className="cluster">
+      <div className="cluster__nodes">
+        {cluster.hosts.map((h, j) => (
+          <div key={h.id} className="cluster__cell">
+            {cabled && j > 0 && cluster.llms.length > 0 && <Fabric a={cluster.hosts[j - 1]!} b={h} />}
+            <Node host={h} />
+          </div>
+        ))}
+      </div>
+      <Bands llms={cluster.llms} now={now} recipes={snapshot.recipes} />
+    </div>
+  );
+}
+
 /**
- * The lab drawn the way it is built: the machine this dashboard runs on,
- * then each group of machines with the models they serve and the cables
- * between them. Always on a dark stage, like an instrument.
+ * The lab drawn the way it is built: the dev machines on the left, then the
+ * machines they watch on the right, each group with the models it serves and
+ * the cables between its machines. Always on a dark stage, like an instrument.
  */
 export function LabMap({ snapshot, now }: { snapshot: Snapshot; now: number }) {
-  const { observers, clusters } = layout(snapshot);
+  const { devs, clusters } = layout(snapshot);
+  const twoSides = devs.length > 0 && clusters.length > 0;
   return (
     <section className="stage" aria-label="ラボの構成">
-      <div className={`stage__map${observers.length > 0 ? " stage__map--with-side" : ""}`}>
-        {observers.length > 0 && (
+      <div className={`stage__map${twoSides ? " stage__map--with-side" : ""}`}>
+        {devs.length > 0 && (
           <div className="stage__side">
-            {observers.map((h) => (
-              <Node key={h.id} host={h} />
+            {devs.map((c) => (
+              <Group key={c.key} cluster={c} cabled={false} snapshot={snapshot} now={now} />
             ))}
           </div>
         )}
-        {observers.length > 0 && clusters.length > 0 && (
+        {twoSides && (
           <div className="stage__tether" aria-hidden="true">
             <span>Tailscale</span>
           </div>
         )}
-        <div className={`stage__clusters${clusters.length === 2 && clusters.some((c) => c.hosts.some((h) => h.kind === "workstation")) ? " stage__clusters--split" : ""}`}>
-          {clusters.map((c) => (
-            <div key={c.key} className="cluster">
-              <div className="cluster__nodes">
-                {c.hosts.map((h, j) => (
-                  <div key={h.id} className="cluster__cell">
-                    {j > 0 && c.llms.length > 0 && <Fabric a={c.hosts[j - 1]!} b={h} />}
-                    <Node host={h} />
-                  </div>
-                ))}
-              </div>
-              <Bands llms={c.llms} now={now} recipes={snapshot.recipes} />
-            </div>
-          ))}
-        </div>
+        {clusters.length > 0 && (
+          <div className="stage__clusters">
+            {clusters.map((c) => (
+              <Group key={c.key} cluster={c} cabled snapshot={snapshot} now={now} />
+            ))}
+          </div>
+        )}
       </div>
       <div className="stage__legend" aria-hidden="true">
         <span className="legend-key legend-key--1">GPU</span>

@@ -7,6 +7,8 @@
  * page's own theme. Machines are rings, cables are lines, models are rails.
  */
 .stage {
+  /* Diameter of a machine's ring; the cables and the monitoring link sit at its centre. */
+  --dial: clamp(112px, 11.5vw, 150px);
   position: relative;
   margin-top: 14px;
   padding: 18px clamp(12px, 2.5vw, 34px) 14px;
@@ -28,17 +30,32 @@
   grid-template-columns: auto minmax(60px, 1fr) auto;
 }
 
+/* The dev machines, side by side. */
 .stage__side {
   display: flex;
-  flex-direction: column;
-  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 12px clamp(10px, 1.6vw, 22px);
 }
 
-/* The monitoring link runs all the way from the dev machine to the lab. */
+/*
+ * A dev machine with a model running gets room for its band under the ring, but the band's text wraps
+ * inside that room: left to its natural width, one long model name would push the next machine off the row.
+ */
+.stage__side .cluster:has(.cluster__bands) {
+  min-width: 260px;
+}
+
+.stage__side .cluster__bands {
+  contain: inline-size;
+}
+
+/* The monitoring link runs from the dev machines to the lab, at the height of the rings' centres. */
 .stage__tether {
   position: relative;
   height: 0;
-  margin: 102px 0 0;
+  margin: calc(var(--dial) / 2 + 3px) 0 0;
   border-top: 1.5px dashed color-mix(in srgb, var(--ink-3) 70%, transparent);
 }
 
@@ -59,16 +76,40 @@
   min-width: 0;
 }
 
-/* The workstation decision model must not push the Spark cluster down. */
-@media (min-width: 760px) {
-  .stage__clusters--split {
-    display: grid;
-    grid-template-columns: minmax(0, 1.85fr) minmax(0, 0.9fr);
-    align-items: start;
-    column-gap: clamp(10px, 2vw, 30px);
+/* Beside the dev machines, a group keeps its machines and cables on one row: when room runs out the dev side wraps. */
+.stage__map--with-side .stage__clusters .cluster__nodes {
+  flex-wrap: nowrap;
+}
+
+/* Too narrow for both sides: the dev machines go above the lab, the monitoring link runs down. */
+@media (max-width: 900px) {
+  .stage__map--with-side {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
   }
-  .stage__clusters--split .cluster { min-width: 0; }
-  .stage__clusters--split .cluster__nodes { flex-wrap: nowrap; }
+
+  .stage__map--with-side .stage__clusters .cluster__nodes {
+    flex-wrap: wrap;
+  }
+
+  .stage__tether {
+    width: 0;
+    height: 26px;
+    margin: 2px 0;
+    border-top: 0;
+    border-left: 1.5px dashed color-mix(in srgb, var(--ink-3) 70%, transparent);
+  }
+
+  .stage__tether span {
+    left: 10px;
+    bottom: auto;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+
+  .stage__clusters {
+    width: 100%;
+  }
 }
 
 .cluster__nodes {
@@ -230,7 +271,7 @@
 }
 
 .node .dial {
-  width: clamp(112px, 11.5vw, 150px);
+  width: var(--dial);
 }
 
 .node .dial svg {
@@ -260,6 +301,8 @@
 .node__figures {
   display: flex;
   gap: 9px;
+  /* A squeezed row must wrap whole machines, not break a figure off its label. */
+  white-space: nowrap;
   font-family: var(--font-figure);
   font-size: 15px;
   font-weight: 600;
@@ -315,7 +358,8 @@
 .fabric {
   position: relative;
   width: clamp(55px, 7vw, 105px);
-  height: 145px;
+  /* The ring's height plus the node's padding above it, so the line meets the rings' centres. */
+  height: calc(var(--dial) + 6px);
   display: flex;
   align-items: center;
 }
@@ -514,40 +558,13 @@
 
 @media (max-width: 720px) {
   .stage {
+    --dial: 118px;
     padding: 14px 10px 12px;
     border-radius: 22px;
   }
 
-  .stage__map--with-side {
-    grid-template-columns: minmax(0, 1fr);
-    justify-items: center;
-  }
-
-  .stage__tether {
-    width: 0;
-    height: 26px;
-    margin: 2px 0;
-    border-top: 0;
-    border-left: 1.5px dashed color-mix(in srgb, var(--ink-3) 70%, transparent);
-  }
-
-  .stage__tether span {
-    left: 10px;
-    bottom: auto;
-    top: 50%;
-    transform: translateY(-50%);
-  }
-
-  .stage__clusters {
-    width: 100%;
-  }
-
   .node {
     padding: 4px 2px 8px;
-  }
-
-  .node .dial {
-    width: 118px;
   }
 
   .node .dial__value {
@@ -566,7 +583,7 @@
 
   .fabric {
     width: 44px;
-    height: 125px;
+    height: calc(var(--dial) + 8px);
   }
 
   .fabric__label {
