@@ -1,9 +1,10 @@
 import { run, sshBashArgs } from "./exec.ts";
+import { DEFAULT_GPU_ARBITRATION } from "./config.ts";
 import { shDir } from "./recipes-shell.ts";
 import { checkScript, parseCheck, pullScript } from "./upstream.ts";
 import { externalProgress, parseDockerTime, parseMemoryPlan, parseProgress, startedAt, type MemoryPlan } from "./progress.ts";
-import type { HostConfig, LlmSnapshot, RecipeConfig, RecipeSnapshot, UpstreamStatus } from "./types.ts";
-import { cleanLog, externalStartScript, launcherCheckScript, logPath, memoryScript, pidPath, recoverScript, startScript, stopScript } from "./recipe-scripts.ts";
+import type { Config, HostConfig, LlmSnapshot, RecipeConfig, RecipeSnapshot, UpstreamStatus } from "./types.ts";
+import { cleanLog, externalStartScript, gpuArbitrationScript, launcherCheckScript, logPath, memoryScript, pidPath, recoverScript, startScript, stopScript } from "./recipe-scripts.ts";
 
 // Starting, stopping and reading the logs of model "recipes" — upstream
 // launchers such as start.sh, run unchanged on the machine they belong to.
@@ -37,6 +38,7 @@ interface Action {
   ok: boolean | null;
   message: string | null;
   pid: number | null;
+  preparing?: boolean;
 }
 
 export class RecipeManager {
@@ -50,6 +52,7 @@ export class RecipeManager {
   private readonly memory = new Map<string, MemoryPlan & { readAt: number }>();
   private readonly progress = new Map<string, { pct: number | null; stage: string; startedAt: number | null }>();
   private readonly durations: { get(id: string): number | null; set(id: string, sec: number): void } | null;
+  private readonly arbitration: Config["gpuArbitration"];
   private llms: LlmSnapshot[] = [];
   /** Recipes whose host has been asked, since this dashboard started, for a launcher still running. */
   private readonly recovered = new Set<string>();
@@ -59,8 +62,10 @@ export class RecipeManager {
     hosts: HostConfig[],
     controlDir: string,
     durations: { get(id: string): number | null; set(id: string, sec: number): void } | null = null,
+    arbitration = DEFAULT_GPU_ARBITRATION,
   ) {
     this.durations = durations;
+    this.arbitration = arbitration;
     this.recipes = recipes;
     this.hosts = new Map(hosts.map((h) => [h.id, h]));
     this.controlDir = controlDir;
@@ -181,7 +186,7 @@ export class RecipeManager {
           if (since === null) return null;
           return {
             pct: p ? p.pct : 3,
-            stage: p?.stage ?? "準備しています",
+            stage: a?.preparing ? a.message ?? "準備しています" : p?.stage ?? "準備しています",
             startedAt: since,
             expectedSec: this.durations?.get(r.id) ?? null,
           };
@@ -261,6 +266,7 @@ export class RecipeManager {
           }
           return;
         }
+        if (a.preparing) return;
         // The model answering is success, even while the launcher still warms up.
         if (this.llmState(r) === "up") {
           Object.assign(a, { finishedAt: Date.now(), ok: true, message: "起動しました" });
@@ -310,9 +316,33 @@ export class RecipeManager {
     if (afterOwnStop ? snap.blockedBy !== null : !snap.canStart) {
       return { ok: false, message: snap.blockedBy ? `${snap.blockedBy} が動いているため起動できません` : "すでに動いているか、操作中です" };
     }
-    const action: Action = { kind: "start", startedAt: Date.now(), finishedAt: null, ok: null, message: "起動しています", pid: null };
+    const action: Action = { kind: "start", startedAt: Date.now(), finishedAt: null, ok: null, message: "起動しています", pid: null, preparing: true };
     this.actions.set(id, action);
-    const res = await this.exec(this.hosts.get(r.host)!, startScript(r), 30_000);
+    const { enabled, comfyPorts, waitTimeoutSeconds } = this.arbitration;
+    const arbitrationLog: string[] = [];
+    if (enabled && comfyPorts.length > 0) {
+      action.message = "ComfyUIの生成キューを確認しています";
+      const nodeIds = r.llm ? (this.llms.find((l) => l.id === r.llm)?.nodes ?? []) : [];
+      const hosts = [...new Set([r.host, ...nodeIds])].map((node) => this.hosts.get(node)).filter((h): h is HostConfig => h !== undefined);
+      const script = gpuArbitrationScript(comfyPorts, waitTimeoutSeconds);
+      const timeout = (waitTimeoutSeconds + 10 * comfyPorts.length + 10) * 1000;
+      const results = await Promise.all(hosts.map((host) => this.exec(host, script, timeout)));
+      for (const [index, gate] of results.entries()) {
+        const host = hosts[index]!;
+        if (gate.code !== 0 || gate.timedOut) {
+          const details = gate.timedOut ? "タイムアウトしました" : cleanLog(gate.stderr || gate.stdout).trim().split("\n").slice(-2).join(" / ");
+          const reason = `${host.label}: ${details || "GPU仲裁に失敗しました"}`;
+          Object.assign(action, { finishedAt: Date.now(), ok: false, message: reason });
+          return { ok: false, message: reason };
+        }
+        const summary = cleanLog(gate.stdout).split("\n").filter((line) => line.includes("GPU仲裁:")).at(-1);
+        if (summary) arbitrationLog.push(`${host.label}: ${summary}`);
+      }
+    }
+    action.message = "起動しています";
+    action.startedAt = Date.now();
+    const res = await this.exec(this.hosts.get(r.host)!, startScript(r, arbitrationLog), 30_000);
+    action.preparing = false;
     const pid = Number(res.stdout.trim().split("\n").pop());
     // SSH dropped (255) or timed out: the launcher may well be running. Keep
     // the start in flight; the next ticks find it through the pid file.

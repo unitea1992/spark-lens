@@ -58,7 +58,7 @@ async function main(): Promise<void> {
   const recipes = new RecipeManager(config.recipes, config.hosts, runtimeDir, {
     get: (id) => store.startSeconds(id),
     set: (id, sec) => store.setStartSeconds(id, sec),
-  });
+  }, config.gpuArbitration);
 
   const snapshot = (): Snapshot => ({
     generatedAt: Date.now(),
