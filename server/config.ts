@@ -9,6 +9,8 @@ const DEFAULT_SUBSCRIPTIONS: SubscriptionConfig[] = [
   { type: "opencode-go" },
 ];
 
+export const DEFAULT_GPU_ARBITRATION = { enabled: true, comfyPorts: [8188, 8189], waitTimeoutSeconds: 900 };
+
 export function configPath(): string {
   if (process.env.SPARK_LENS_CONFIG) return process.env.SPARK_LENS_CONFIG;
   const base = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
@@ -246,6 +248,24 @@ export function parseConfig(raw: unknown): Config {
         ids.add(r.id);
       }
       return recipes;
+    })(),
+    gpuArbitration: (() => {
+      const settings = asObject(o.gpuArbitration === undefined ? {} : o.gpuArbitration, "gpuArbitration");
+      const { enabled = DEFAULT_GPU_ARBITRATION.enabled } = settings;
+      if (typeof enabled !== "boolean") fail("gpuArbitration.enabled must be a boolean");
+      const ports = settings.comfyPorts === undefined
+        ? [...DEFAULT_GPU_ARBITRATION.comfyPorts]
+        : asArray(settings.comfyPorts, "gpuArbitration.comfyPorts").map((port, i) => {
+            if (typeof port !== "number" || !Number.isInteger(port) || port < 1 || port > 65535) {
+              fail(`gpuArbitration.comfyPorts[${i}] must be an integer between 1 and 65535`);
+            }
+            return port;
+          });
+      return {
+        enabled,
+        comfyPorts: [...new Set(ports)],
+        waitTimeoutSeconds: asNumber(settings.waitTimeoutSeconds, "gpuArbitration.waitTimeoutSeconds", 1, 3600, DEFAULT_GPU_ARBITRATION.waitTimeoutSeconds),
+      };
     })(),
   };
 }

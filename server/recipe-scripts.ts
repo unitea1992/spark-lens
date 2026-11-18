@@ -16,7 +16,7 @@ export function pidPath(id: string): string {
   return `${LOG_DIR}/recipe-${id}.pid`;
 }
 
-export function startScript(r: RecipeConfig): string {
+export function startScript(r: RecipeConfig, arbitrationLog: string[] = []): string {
   const log = logPath(r.id);
   // The exit marker lets the dashboard tell a finished launcher from a failed one.
   // A subshell, so an `exit` inside the command cannot skip the marker.
@@ -26,11 +26,85 @@ export function startScript(r: RecipeConfig): string {
     "set -e",
     `mkdir -p "${LOG_DIR}"`,
     `echo "=== spark-lens: start $(date '+%F %T')" > "${log}"`,
+    ...arbitrationLog.map((message) => `printf '%s\\n' ${shq(`=== ${message}`)} >> "${log}"`),
     `nohup setsid bash -c ${shq(body)} >> "${log}" 2>&1 < /dev/null &`,
     // Kept on the host, so a restarted dashboard can find a launcher still preparing.
     `echo $! > "${pidPath(r.id)}"`,
     "echo $!",
   ].join("\n");
+}
+
+/** Wait for local ComfyUI queues to drain, then unload models on active ports. */
+export function gpuArbitrationScript(ports: number[], timeoutSeconds: number): string {
+  return `exec python3 - ${timeoutSeconds} ${ports.join(" ")} <<'PY'
+import http.client
+import json
+import sys
+import time
+
+start = time.monotonic()
+wait_limit = float(sys.argv[1])
+deadline = start + wait_limit
+ports = [int(port) for port in sys.argv[2:]]
+active = set()
+free_body = '{"unload_models":true,"free_memory":true}'
+
+def request(port, timeout, method, path, body=None):
+    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=timeout)
+    try:
+        headers = {"Content-Type": "application/json"} if body else {}
+        connection.request(method, path, body, headers)
+        response = connection.getresponse()
+        if not 200 <= response.status < 300:
+            raise ValueError(f"HTTP {response.status}")
+        if method == "GET":
+            return json.load(response)
+    finally:
+        connection.close()
+
+def fail(message):
+    sys.exit(f"GPU仲裁: {message}")
+
+def remaining():
+    seconds = deadline - time.monotonic()
+    if seconds <= 0:
+        fail(f"生成ジョブ待機が上限{wait_limit:g}秒を超過")
+    return seconds
+
+while ports:
+    busy = False
+    for port in ports:
+        try:
+            status = request(port, min(3, remaining()), "GET", "/queue")
+            running, pending = status["queue_running"], status["queue_pending"]
+            if not isinstance(running, list) or not isinstance(pending, list):
+                raise ValueError("不正なキュー形式")
+        except ConnectionRefusedError:
+            if port in active:
+                fail(f"ComfyUI :{port} への接続が切断されました")
+            continue
+        except (OSError, http.client.HTTPException, ValueError, KeyError, TypeError) as error:
+            fail(f"ComfyUI :{port} のキュー確認に失敗 ({error})")
+        active.add(port)
+        busy = busy or bool(running or pending)
+    seconds = remaining()
+    if not busy:
+        break
+    time.sleep(min(5, seconds))
+
+if not active:
+    print("GPU仲裁: 稼働中のComfyUIなし")
+    sys.exit(0)
+
+waited = int(time.monotonic() - start)
+for port in sorted(active):
+    try:
+        request(port, 10, "POST", "/free", free_body)
+    except (OSError, http.client.HTTPException, ValueError) as error:
+        fail(f"ComfyUI :{port} のアンロード要求に失敗 ({error})")
+targets = ", ".join(f":{port}" for port in sorted(active))
+print(f"GPU仲裁: 待機 {waited}秒、アンロード要求 {targets}")
+PY`;
 }
 
 /**

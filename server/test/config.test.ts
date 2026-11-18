@@ -92,3 +92,16 @@ test("local API price reference is configurable and validated without cloud cred
   assert.throws(() => parseConfig({ hosts, llms: [{ ...item, apiPriceComparison: "unknown" }] }), /apiPriceComparison/);
   assert.throws(() => parseConfig({ hosts, llms: [{ id: "m", baseUrl: "http://127.0.0.1:8888", apiPriceComparison: "same_model" }] }), /requires apiPriceAs/);
 });
+
+test("GPU arbitration defaults on and validates overrides", () => {
+  assert.deepEqual(parseConfig({}).gpuArbitration, {
+    enabled: true,
+    comfyPorts: [8188, 8189],
+    waitTimeoutSeconds: 900,
+  });
+  assert.deepEqual(parseConfig({
+    gpuArbitration: { enabled: false, comfyPorts: [9000, 9000], waitTimeoutSeconds: 12 },
+  }).gpuArbitration, { enabled: false, comfyPorts: [9000], waitTimeoutSeconds: 12 });
+  assert.throws(() => parseConfig({ gpuArbitration: { enabled: "false" } }), /enabled/);
+  assert.throws(() => parseConfig({ gpuArbitration: { comfyPorts: [8188.5] } }), /comfyPorts/);
+});

@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { createServer } from "node:http";
+import { once } from "node:events";
 import { cleanLog, launcherCheckScript } from "../recipe-scripts.ts";
 import { RecipeManager, shDir, shq, withoutLocale } from "../recipes.ts";
 import type { LlmSnapshot } from "../types.ts";
@@ -23,6 +25,8 @@ test("cleanLog drops colour codes and keeps the last redraw of a progress line",
   const bars = "Loading: 10% | 1G\nLoading: 55% | 9G\nLoading: 90% | 15G\nother 5% line\ndone\n";
   assert.equal(cleanLog(bars), "Loading: 90% | 15G\nother 5% line\ndone\n");
 });
+
+const arbitrationDisabled = { enabled: false, comfyPorts: [], waitTimeoutSeconds: 900 };
 
 function llm(state: LlmSnapshot["state"]): LlmSnapshot {
   return { id: "m", state } as LlmSnapshot;
@@ -45,6 +49,8 @@ test("a recipe starts detached, finishes, stops, blocks its group and shows logs
       ],
       [{ id: "local", label: "Local", kind: "server", local: true }],
       join(home, "ctl"),
+      null,
+      arbitrationDisabled,
     );
     await m.update([llm("down")]);
     assert.equal(m.snapshots()[0]?.canStart, true);
@@ -91,6 +97,8 @@ test("a failing launcher is reported as failed", async () => {
       [{ id: "x", label: "X", host: "local", dir: home, start: "echo boom; exit 3", stop: "true", llm: "m" }],
       [{ id: "local", label: "Local", kind: "server", local: true }],
       join(home, "ctl"),
+      null,
+      arbitrationDisabled,
     );
     await m.start("x");
     for (let i = 0; i < 40 && m.snapshots()[0]?.status === "starting"; i++) {
@@ -118,6 +126,8 @@ test("switching stops the recipe holding the machines, then starts the requested
       ],
       [{ id: "local", label: "Local", kind: "server", local: true }],
       join(home, "ctl"),
+      null,
+      arbitrationDisabled,
     );
     await m.update([{ id: "ma", state: "up" } as LlmSnapshot, { id: "mb", state: "down" } as LlmSnapshot]);
     assert.equal(m.snapshots()[1]?.blockedBy, "A");
@@ -148,12 +158,12 @@ test("a restarted dashboard adopts a launcher that is still preparing and keeps 
   ];
   const hosts = [{ id: "local", label: "Local", kind: "server" as const, local: true }];
   try {
-    const first = new RecipeManager(recipes, hosts, join(home, "ctl"));
+    const first = new RecipeManager(recipes, hosts, join(home, "ctl"), null, arbitrationDisabled);
     await first.update([llm("down")]);
     assert.equal((await first.start("a")).ok, true);
 
     // No container or API yet: only the launcher is alive.
-    const second = new RecipeManager(recipes, hosts, join(home, "ctl"));
+    const second = new RecipeManager(recipes, hosts, join(home, "ctl"), null, arbitrationDisabled);
     await second.update([llm("down")]);
     const [a, b] = second.snapshots();
     assert.equal(a?.status, "starting");
@@ -189,6 +199,8 @@ test("a failed SSH check keeps a starting launcher holding its machines", async 
       ],
       [{ id: "local", label: "Local", kind: "server", local: true }],
       join(home, "ctl"),
+      null,
+      arbitrationDisabled,
     );
     await m.update([llm("down")]);
     assert.equal((await m.start("a")).ok, true);
@@ -225,7 +237,7 @@ test("a lost start reply keeps the start in flight, and an unreachable host afte
   const hosts = [{ id: "local", label: "Local", kind: "server" as const, local: true }];
   type Exec = (...args: unknown[]) => Promise<{ code: number | null; stdout: string; stderr: string; timedOut: boolean }>;
   try {
-    const m = new RecipeManager(recipes, hosts, join(home, "ctl"));
+    const m = new RecipeManager(recipes, hosts, join(home, "ctl"), null, arbitrationDisabled);
     await m.update([llm("down")]);
     const target = m as unknown as { exec: Exec };
     const real = target.exec.bind(m);
@@ -242,7 +254,7 @@ test("a lost start reply keeps the start in flight, and an unreachable host afte
     assert.equal((await m.start("b")).ok, false);
 
     // A dashboard restarted while the host is unreachable may not start anything in that group.
-    const second = new RecipeManager(recipes, hosts, join(home, "ctl"));
+    const second = new RecipeManager(recipes, hosts, join(home, "ctl"), null, arbitrationDisabled);
     const t2 = second as unknown as { exec: Exec };
     const real2 = t2.exec.bind(second);
     t2.exec = async () => ({ code: 255, stdout: "", stderr: "", timedOut: false });
@@ -276,6 +288,8 @@ test("a failed stop of a starting launcher keeps its machines held", async () =>
       ],
       [{ id: "local", label: "Local", kind: "server", local: true }],
       join(home, "ctl"),
+      null,
+      arbitrationDisabled,
     );
     await m.update([llm("down")]);
     assert.equal((await m.start("a")).ok, true);
@@ -332,4 +346,66 @@ test("the host-side scripts read the recipe's own log and pid files", async () =
     memoryScript("r1"),
     `grep -aoE "Model loading took [0-9.]+ ?GiB|Available KV cache memory: [0-9.]+ ?GiB|kv-cache-memory-bytes[ =][0-9]+|Load weight end\\.[^\\r]*mem usage=[0-9.]+ ?GB|KV Cache is allocated\\.[^\\r]*V size: [0-9.]+ ?GB" "${log}" 2>/dev/null | tail -n 5`,
   );
+});
+
+test("ComfyUI arbitration holds the recipe through monitor ticks and prevents launch on failure", async (t) => {
+  const home = mkdtempSync(join(tmpdir(), "sl-arbitration-"));
+  const oldHome = process.env.HOME;
+  process.env.HOME = home;
+  t.after(() => {
+    process.env.HOME = oldHome;
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  let queue = { queue_running: [], queue_pending: [[0, "pending"]] } as Record<string, unknown>;
+  let freeStatus = 500;
+  const freeRequests: unknown[] = [];
+  const firstQueue = Promise.withResolvers<void>();
+  const comfy = createServer(async (req, res) => {
+    if (req.method === "GET" && req.url === "/queue") {
+      res.end(JSON.stringify(queue, null, 2));
+      firstQueue.resolve();
+    } else if (req.method === "POST" && req.url === "/free") {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(chunk);
+      freeRequests.push(JSON.parse(Buffer.concat(chunks).toString()));
+      res.writeHead(freeStatus).end();
+    } else {
+      res.writeHead(404).end();
+    }
+  }).listen(0, "127.0.0.1");
+  t.after(() => new Promise<void>((resolve) => comfy.close(() => resolve())));
+  await once(comfy, "listening");
+  const address = comfy.address();
+  assert.ok(address && typeof address === "object");
+
+  const launcherLog = join(home, ".local", "state", "spark-lens", "recipe-a.log");
+  const manager = new RecipeManager(
+    [{ id: "a", label: "A", host: "local", dir: home, start: "true", stop: "true" }],
+    [{ id: "local", label: "Local", kind: "server", local: true }],
+    join(home, "ctl"),
+    null,
+    { enabled: true, comfyPorts: [address.port], waitTimeoutSeconds: 1 },
+  );
+  const waiting = manager.start("a");
+  await Promise.race([firstQueue.promise, waiting.then(({ message }) => assert.fail(message))]);
+  await manager.update([]);
+  assert.equal(manager.snapshots()[0]?.status, "starting");
+  assert.equal(existsSync(launcherLog), false);
+  assert.match((await waiting).message, /待機が上限/);
+  assert.equal(manager.snapshots()[0]?.status, "failed");
+  assert.deepEqual(freeRequests, []);
+
+  queue = { queue_running: [], queue_pending: null };
+  assert.match((await manager.start("a")).message, /キュー確認に失敗/);
+  assert.deepEqual(freeRequests, []);
+
+  queue = { queue_running: [], queue_pending: [] };
+  assert.match((await manager.start("a")).message, /アンロード要求に失敗/);
+  assert.equal(existsSync(launcherLog), false);
+
+  freeStatus = 200;
+  assert.equal((await manager.start("a")).ok, true);
+  assert.match((await manager.logs("a", "launcher")).text, /GPU仲裁:.*アンロード要求/);
+  assert.deepEqual(freeRequests, Array(2).fill({ unload_models: true, free_memory: true }));
 });
