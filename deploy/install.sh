@@ -43,7 +43,7 @@ Wants=network-online.target
 [Service]
 WorkingDirectory=$ROOT
 ExecStart=$NODE $ROOT/server/main.ts
-# The collectors call ssh and the agent CLIs (opencode, orca) found on PATH.
+# The collectors call ssh and supported agent CLIs found on PATH.
 Environment=PATH=$PATH
 Restart=on-failure
 RestartSec=5

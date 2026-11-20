@@ -33,8 +33,8 @@ export function AgentsPage({ snapshot, now }: { snapshot: Snapshot; now: number 
               <span>{source.state === "queried" ? "取得を実行" : source.state === "unavailable" ? "未検出" : "取得失敗"}</span>
             </li>)}
           </ul>}
-          <p>Claude Code はセッション記録、Codex は実行ログ、OpenCode はセッションAPI、Orca は管理ペインの情報を読みます。</p>
-          <p>Pi・DSH・Gemini CLI・Grok などは、Orca管理下ならペインの状態、それ以外はプロセスの存在だけを確認します。状態を持たないプロセスは通常のセッションと分けて下部に表示します。</p>
+          <p>Claude Code はセッション記録、Codex は実行ログ、OpenCode はセッションAPIから状態を読みます。</p>
+          <p>Pi・DSH・Gemini CLI・Grok などはプロセスの存在だけを確認します。状態を持たないプロセスは通常のセッションと分けて下部に表示します。</p>
           <p>検出元が応答しない場合、画面に出ないセッションもあります。数値は管理可能な全エージェント数を保証しません。</p>
         </div>
       </details>

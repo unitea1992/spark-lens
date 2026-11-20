@@ -26,7 +26,6 @@ for r in s["recipes"]:
     u = r.get("upstream")
     if u and u.get("state") != "current":
         u.update({"state": "current", "behind": 0, "latest": u.get("head"), "latestDate": u.get("headDate"), "commits": []})
-s["agentSources"] = [x for x in s["agentSources"] if x["source"] != "orca"]
 counts = {"claude-session": 2, "codex-log": 1, "opencode-api": 1}
 for x in s["agentSources"]: x["count"] = counts.get(x["source"], x["count"])
 text = json.dumps(s, ensure_ascii=False)

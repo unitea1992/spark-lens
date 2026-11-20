@@ -6,9 +6,7 @@ import { test } from "node:test";
 import {
   claudeSessions,
   codexTurnState,
-  mergeAgents,
   parseOpencodeSessions,
-  parseOrca,
   processAgents,
   procRegex,
   REMOTE_RULES,
@@ -58,45 +56,6 @@ test("OpenCode: active sessions are working, stale idle ones are dropped", () =>
   assert.deepEqual(parseOpencodeSessions(null, {}, now), []);
 });
 
-test("Orca: maps pane agents and falls back through title fields", () => {
-  const out = parseOrca({
-    result: {
-      worktrees: [
-        {
-          path: "/w/app/",
-          agents: [
-            { paneKey: "p1", agentType: "claude", state: "working", prompt: "  add   tests  ", toolName: "Bash", updatedAt: 9 },
-            { paneKey: "p2", agentType: "omp", state: "done", taskTitle: "Merge", prompt: "ignored" },
-            { paneKey: "p3", agentType: "codex", state: "something-new" },
-            { paneKey: "p4", agentType: "claude", state: "working", interrupted: true },
-          ],
-        },
-        { path: "/w/none" },
-      ],
-    },
-  });
-  assert.deepEqual(out.map((a) => a.status), ["working", "idle", "unknown", "idle"]);
-  assert.equal(out[0]?.title, "add tests");
-  assert.equal(out[0]?.detail, "Bash");
-  assert.equal(out[0]?.cwd, "/w/app");
-  assert.equal(out[1]?.title, "Merge");
-  assert.deepEqual(parseOrca({}), []);
-});
-
-test("merge: Orca fills in a tool's own record instead of duplicating it", () => {
-  const base = { pid: null, startedAt: null, lastActivity: null, cpuPct: null, detail: null };
-  const own = [{ ...base, id: "claude:a", tool: "claude", title: null, cwd: "/w/app", status: "working" as const, pid: 1 }];
-  const orca = [
-    { ...base, id: "orca:p1", tool: "claude", title: "add tests", cwd: "/w/app", status: "idle" as const },
-    { ...base, id: "orca:p2", tool: "omp", title: "merge", cwd: "/w/app", status: "idle" as const },
-  ];
-  const merged = mergeAgents(own, orca);
-  assert.deepEqual(merged.map((a) => a.id), ["claude:a", "orca:p2"]);
-  assert.equal(merged[0]?.title, "add tests");
-  // The tool's own status wins over Orca's.
-  assert.equal(merged[0]?.status, "working");
-});
-
 test("trimIdle keeps live work and only a few recent finished sessions per tool", () => {
   const now = 1_000_000_000_000;
   const mk = (id: string, status: "working" | "idle", ageMin: number, pid: number | null = null) => ({
@@ -133,14 +92,4 @@ test("process rules: built-in patterns match agent CLIs but not their helpers", 
   const out = processAgents(procs, [...REMOTE_RULES, { tool: "hermes", label: "Hermes", match: "^hermes " }], 1_000_000);
   assert.deepEqual(out.map((a) => [a.tool, a.status, a.cwd]), [["codex", "unknown", "/w/x"], ["hermes", "unknown", null]]);
   assert.equal(out[0]?.startedAt, 1_000_000 - 60_000);
-});
-
-test("merge never hides simultaneous sessions sharing the same worktree", () => {
-  const base = { pid: null, startedAt: null, lastActivity: null, cpuPct: null, detail: null };
-  const own = [
-    { ...base, id: "claude:1", tool: "claude", cwd: "/w/app", title: "Task A", status: "working" as const },
-    { ...base, id: "claude:2", tool: "claude", cwd: "/w/app", title: "Task B", status: "working" as const },
-  ];
-  const orca = [{ ...base, id: "orca:p1", tool: "claude", cwd: "/w/app", title: "Task C", status: "working" as const }];
-  assert.deepEqual(mergeAgents(own, orca).map((a) => a.id), ["claude:1", "claude:2", "orca:p1"]);
 });

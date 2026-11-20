@@ -385,10 +385,9 @@ curl -s 'http://127.0.0.1:8686/api/history?key=host:spark-1:gpu'    # [{"t": ...
 | Claude Code | `~/.claude/sessions/` のセッション記録 |
 | Codex | `~/.codex/` のスレッド記録 |
 | OpenCode | 常駐サーバーへの問い合わせ（`opencode api`） |
-| Orca | `orca-ide worktree ps --json`（Orca 上で動くエージェント全般） |
-| Pi・DSH・Gemini CLI・Grok | Orca が管理するペイン、またはプロセスの存在検出（実行状態は推定不可） |
+| Pi・DSH・Gemini CLI・Grok | プロセスの存在検出（実行状態は推定不可） |
 
-エージェント画面では、状態を報告するセッションと、PIDから存在だけを確認できたプロセスを分けます。後者は「起動のみ確認できたプロセス」に折りたたんで表示し、作業中・入力待ち・アイドルを推測しません。Orca のペインとプロセス検出が同じ作業を重複して示す場合があります。AI向け `/api/ai/agents` は元データを保持し、`source: "process"` と `state_confidence: "detected"` で識別できます。
+エージェント画面では、状態を報告するセッションと、PIDから存在だけを確認できたプロセスを分けます。後者は「起動のみ確認できたプロセス」に折りたたんで表示し、作業中・入力待ち・アイドルを推測しません。AI向け `/api/ai/agents` は元データを保持し、`source: "process"` と `state_confidence: "detected"` で識別できます。
 
 「モデル別の利用量」は、Claude Code（`~/.claude/projects/`）、Codex（`~/.codex/` のスレッド記録）、OpenCode（`opencode stats`）の記録と、ローカル LLM のトークン数を合わせて、今日と直近 7 日間で集計します。Codex は合計トークンしか記録していないため内訳は出ません。
 

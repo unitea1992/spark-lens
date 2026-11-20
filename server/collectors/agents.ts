@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { run } from "../exec.ts";
-import { codexHome as defaultCodexHome, findBin, findOpencode } from "./local-tools.ts";
+import { codexHome as defaultCodexHome, findOpencode } from "./local-tools.ts";
 import type { AgentProcessRule, AgentSnapshot, AgentSourceSnapshot, AgentStatus, HostConfig, HostProcess } from "../types.ts";
 
 const TOOL_LABELS: Record<string, string> = {
@@ -265,60 +265,6 @@ async function opencodeSessions(bin: string): Promise<Partial[]> {
   return parseOpencodeSessions(list, active);
 }
 
-// ------------------------------------------------------------------- Orca
-
-const ORCA_STATE: Record<string, AgentStatus> = {
-  working: "working",
-  running: "working",
-  done: "idle",
-  idle: "idle",
-  waiting: "waiting",
-  blocked: "waiting",
-  permission: "waiting",
-  "needs-input": "waiting",
-};
-
-export function parseOrca(body: unknown): Partial[] {
-  const result = (body as Record<string, unknown> | null)?.result as Record<string, unknown> | undefined;
-  if (!result || !Array.isArray(result.worktrees)) return [];
-  const out: Partial[] = [];
-  for (const raw of result.worktrees) {
-    const w = raw as Record<string, unknown>;
-    if (!Array.isArray(w.agents)) continue;
-    for (const rawAgent of w.agents) {
-      const a = rawAgent as Record<string, unknown>;
-      const tool = typeof a.agentType === "string" && a.agentType ? a.agentType : "agent";
-      const str = (k: string) => (typeof a[k] === "string" ? (a[k] as string) : null);
-      out.push({
-        id: `orca:${a.paneKey ?? `${w.path}:${tool}`}`,
-        tool,
-        title: clip(str("taskTitle") ?? str("displayName") ?? str("prompt")),
-        cwd: normalizePath(typeof w.path === "string" ? w.path : null),
-        status: a.interrupted === true ? "idle" : (ORCA_STATE[String(a.state)] ?? "unknown"),
-        pid: null,
-        startedAt: null,
-        lastActivity: typeof a.updatedAt === "number" ? a.updatedAt : null,
-        cpuPct: null,
-        detail: a.state === "working" ? str("toolName") : null,
-      });
-    }
-  }
-  return out;
-}
-
-async function orcaAgents(bin: string): Promise<{ items: Partial[]; ok: boolean }> {
-  const res = await run(bin, ["worktree", "ps", "--json"], { timeoutMs: 8000 });
-  if (res.code !== 0) return { items: [], ok: false };
-  try {
-    const raw = JSON.parse(res.stdout) as Record<string, unknown>;
-    const body = raw.result as Record<string, unknown> | undefined;
-    if (raw.ok !== true || !Array.isArray(body?.worktrees)) return { items: [], ok: false };
-    return { items: parseOrca(raw), ok: true };
-  } catch {
-    return { items: [], ok: false };
-  }
-}
-
 // ---------------------------------------------------------- process rules
 
 export function processAgents(procs: HostProcess[], rules: AgentProcessRule[], now = Date.now()): Partial[] {
@@ -347,34 +293,6 @@ export function processAgents(procs: HostProcess[], rules: AgentProcessRule[], n
 
 // ------------------------------------------------------------------ merge
 
-/**
- * Orca watches the panes its agents run in, so the same Claude Code session
- * can arrive both from its own session file and from Orca. Keep the tool's own
- * record (it has the pid and the authoritative status) and borrow Orca's
- * title when the tool has none.
- */
-export function mergeAgents(own: Partial[], orca: Partial[]): Partial[] {
-  // A shared cwd is not a session identity. Only merge when each side has
-  // exactly one candidate; otherwise keep all records rather than hiding work.
-  const merged = own.map((a) => ({ ...a }));
-  for (const o of orca) {
-    const same = (a: Partial) => a.tool === o.tool && a.cwd !== null && a.cwd === o.cwd;
-    const native = own.filter(same);
-    const panes = orca.filter(same);
-    if (native.length === 1 && panes.length === 1) {
-      const twin = merged.find((a) => a.id === native[0]!.id);
-      if (twin) {
-        twin.title = twin.title ?? o.title;
-        twin.detail = twin.detail ?? o.detail;
-        if (twin.status === "unknown") twin.status = o.status;
-        continue;
-      }
-    }
-    merged.push(o);
-  }
-  return merged;
-}
-
 export function trimIdle(agents: Partial[], now = Date.now()): Partial[] {
   const kept: Partial[] = [];
   const idleCount = new Map<string, number>();
@@ -401,12 +319,10 @@ export class AgentCollector {
   private readonly rules: AgentProcessRule[];
   private readonly home = homedir();
   private readonly opencodeBin: string | null;
-  private readonly orcaBin: string | null;
 
   constructor(rules: AgentProcessRule[]) {
     this.rules = rules;
     this.opencodeBin = findOpencode();
-    this.orcaBin = findBin("orca-ide", [join(this.home, ".local", "bin", "orca-ide")]);
   }
 
   snapshots(): AgentSnapshot[] {
@@ -434,28 +350,25 @@ export class AgentCollector {
             host: host.id,
             hostLabel: host.label,
             toolLabel: custom?.label ?? TOOL_LABELS[item.tool] ?? item.tool,
-            source: item.id.startsWith("orca:") ? "orca" : item.id.startsWith("proc:") ? "process" : item.id.startsWith("codex:") ? "codex-log" : item.id.startsWith("opencode:") ? "opencode-api" : "claude-session",
+            source: item.id.startsWith("proc:") ? "process" : item.id.startsWith("codex:") ? "codex-log" : item.id.startsWith("opencode:") ? "opencode-api" : "claude-session",
             confidence: item.id.startsWith("proc:") ? "detected" : item.id.startsWith("codex:") ? "inferred" : "reported",
           });
         }
       };
 
       if (local) {
-        const [claude, codex, opencode, orca] = await Promise.all([
+        const [claude, codex, opencode] = await Promise.all([
           claudeSessions(),
           codexThreads(),
           this.opencodeBin ? opencodeSessions(this.opencodeBin) : Promise.resolve([]),
-          this.orcaBin ? orcaAgents(this.orcaBin) : Promise.resolve({ items: [], ok: false }),
         ]);
         const checkedAt = Date.now();
         this.sourceStates = [
           { source: "claude-session", label: "Claude Code", state: "queried", count: claude.length, checkedAt },
           { source: "codex-log", label: "Codex", state: "queried", count: codex.length, checkedAt },
           { source: "opencode-api", label: "OpenCode", state: this.opencodeBin ? "queried" : "unavailable", count: opencode.length, checkedAt },
-          { source: "orca", label: "Orca", state: !this.orcaBin ? "unavailable" : orca.ok ? "queried" : "error", count: orca.items.length, checkedAt },
         ];
-        const merged = mergeAgents([...claude, ...codex, ...opencode], orca.items);
-        attach(local, trimIdle(merged));
+        attach(local, trimIdle([...claude, ...codex, ...opencode]));
       }
       for (const h of hosts) {
         if (!h.online) continue;
