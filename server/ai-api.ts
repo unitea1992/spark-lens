@@ -50,7 +50,7 @@ export function aiAgents(snapshot: Pick<Snapshot, "agents" | "agentSources">, no
   return {
     schema_version: 1,
     observed_at: new Date(now).toISOString(),
-    caveat: "Sources may omit sessions. source=process proves only a running process, not task activity; it may duplicate an Orca pane. An idle or unknown state is not proof of completion or a user-input prompt.",
+    caveat: "Sources may omit sessions. source=process proves only a running process, not task activity. An idle or unknown state is not proof of completion or a user-input prompt.",
     sources: snapshot.agentSources ?? [],
     agents: snapshot.agents.map((a) => ({
       id: a.id, harness: a.tool, host: a.host, project_path: a.cwd,

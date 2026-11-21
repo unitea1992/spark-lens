@@ -343,7 +343,7 @@ export interface AgentSnapshot {
   tool: string;
   toolLabel: string;
   /** Actual source and reliability of the reported state. */
-  source?: "claude-session" | "codex-log" | "opencode-api" | "orca" | "process";
+  source?: "claude-session" | "codex-log" | "opencode-api" | "process";
   confidence?: "reported" | "inferred" | "detected";
   host: string;
   hostLabel: string;

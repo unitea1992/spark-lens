@@ -37,7 +37,7 @@ function Row({ a, now, multiHost }: { a: AgentSnapshot; now: number; multiHost: 
         <span>
           {multiHost ? `${a.hostLabel} / ` : ""}
           {a.detail ? `${a.detail} / ` : ""}
-          {a.source ? `${({ "claude-session": "Claude記録", "codex-log": "Codexログ", "opencode-api": "OpenCode API", orca: "Orca", process: "プロセス" } as Record<string, string>)[a.source]} / ` : ""}
+          {a.source ? `${({ "claude-session": "Claude記録", "codex-log": "Codexログ", "opencode-api": "OpenCode API", process: "プロセス" } as Record<string, string>)[a.source]} / ` : ""}
           {a.confidence === "inferred" ? "状態は推定 / " : a.confidence === "detected" ? "起動のみ検出 / " : ""}
           {activity ? ago(activity, now) : ""}
         </span>
@@ -60,7 +60,7 @@ export function AgentList({ agents, now, multiHost }: { agents: AgentSnapshot[];
       {current.length === 0 ? (
         <div className="card empty">
           <p>いま動いているエージェントはありません。</p>
-          <p className="muted">Claude Code・Codex・OpenCode・Orca の記録、その他ツールのプロセス検出から表示します。</p>
+          <p className="muted">Claude Code・Codex・OpenCode の記録と、その他ツールのプロセス検出から表示します。</p>
         </div>
       ) : (
         <ul className="card agents">
