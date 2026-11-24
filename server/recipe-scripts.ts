@@ -45,6 +45,7 @@ export function gpuArbitrationScript(ports: number[], timeoutSeconds: number, se
   return `exec python3 - ${timeoutSeconds} ${settleSeconds} ${ports.join(" ")} <<'PY'
 import http.client
 import json
+import socket
 import sys
 import time
 
@@ -54,10 +55,33 @@ deadline = start + wait_limit
 settle_limit = float(sys.argv[2])
 ports = [int(port) for port in sys.argv[3:]]
 active = set()
+
+def bound_hosts(port):
+    # ComfyUI may listen on a non-loopback address only (a worker's :8188 on its tailnet address), so ask
+    # the kernel where the port is bound instead of assuming 127.0.0.1.
+    found = set()
+    try:
+        with open("/proc/net/tcp") as table:
+            next(table)
+            for row in table:
+                fields = row.split()
+                address, _, listen_port = fields[1].partition(":")
+                if fields[3] == "0A" and int(listen_port, 16) == port:
+                    ip = socket.inet_ntoa(bytes.fromhex(address)[::-1])
+                    found.add("127.0.0.1" if ip == "0.0.0.0" else ip)
+    except (OSError, ValueError, IndexError):
+        pass
+    return sorted(found) or ["127.0.0.1"]
+
+targets = [(host, port) for port in ports for host in bound_hosts(port)]
+
+def label(target):
+    host, port = target
+    return f":{port}" if host == "127.0.0.1" else f"{host}:{port}"
 free_body = '{"unload_models":true,"free_memory":true}'
 
-def request(port, timeout, method, path, body=None):
-    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=timeout)
+def request(target, timeout, method, path, body=None):
+    connection = http.client.HTTPConnection(target[0], target[1], timeout=timeout)
     try:
         headers = {"Content-Type": "application/json"} if body else {}
         connection.request(method, path, body, headers)
@@ -78,21 +102,21 @@ def remaining():
         fail(f"生成ジョブ待機が上限{wait_limit:g}秒を超過")
     return seconds
 
-while ports:
+while targets:
     busy = False
-    for port in ports:
+    for target in targets:
         try:
-            status = request(port, min(3, remaining()), "GET", "/queue")
+            status = request(target, min(3, remaining()), "GET", "/queue")
             running, pending = status["queue_running"], status["queue_pending"]
             if not isinstance(running, list) or not isinstance(pending, list):
                 raise ValueError("不正なキュー形式")
         except ConnectionRefusedError:
-            if port in active:
-                fail(f"ComfyUI :{port} への接続が切断されました")
+            if target in active:
+                fail(f"ComfyUI {label(target)} への接続が切断されました")
             continue
         except (OSError, http.client.HTTPException, ValueError, KeyError, TypeError) as error:
-            fail(f"ComfyUI :{port} のキュー確認に失敗 ({error})")
-        active.add(port)
+            fail(f"ComfyUI {label(target)} のキュー確認に失敗 ({error})")
+        active.add(target)
         busy = busy or bool(running or pending)
     seconds = remaining()
     if not busy:
@@ -104,12 +128,12 @@ if not active:
     sys.exit(0)
 
 waited = int(time.monotonic() - start)
-for port in sorted(active):
+for target in sorted(active):
     try:
-        request(port, 10, "POST", "/free", free_body)
+        request(target, 10, "POST", "/free", free_body)
     except (OSError, http.client.HTTPException, ValueError) as error:
-        fail(f"ComfyUI :{port} のアンロード要求に失敗 ({error})")
-targets = ", ".join(f":{port}" for port in sorted(active))
+        fail(f"ComfyUI {label(target)} のアンロード要求に失敗 ({error})")
+unloaded = ", ".join(label(target) for target in sorted(active))
 
 def mem_available_gib():
     with open("/proc/meminfo") as meminfo:
@@ -131,7 +155,7 @@ if settle_limit > 0 and mem_available_gib() is not None:
             break
     settled = time.monotonic() - settle_start < settle_limit
     released = f"、空き {first:.0f}→{samples[-1]:.0f} GiB（{int(time.monotonic() - settle_start)}秒{'' if settled else '、上限まで増加中'}）"
-print(f"GPU仲裁: 待機 {waited}秒、アンロード要求 {targets}{released}")
+print(f"GPU仲裁: 待機 {waited}秒、アンロード要求 {unloaded}{released}")
 PY`;
 }
 
