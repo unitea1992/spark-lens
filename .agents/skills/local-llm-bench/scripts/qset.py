@@ -2,7 +2,7 @@
 
 使い方: python3 -I qset.py <BASE（…/v1）> <提供名> <並列数>
 環境変数: EFFORT（既定 low。空で省略）、THINK（1 で思考あり）、STEP（N 問おきに間引く）、QN（先頭から N 問）、
-          TEMP・TOPP・SEED（温度・top_p・seed を固定）
+          TEMP・TOPP・TOPK・SEED（温度・top_p・top_k・seed を固定）
 点数は 1 回で ±4 問ほど揺れる。構成の優劣は所要時間・トークン数と合わせ、複数回で見ること。
 """
 import json, os, sys, time, random, re, threading, urllib.request
@@ -50,8 +50,8 @@ def one(q, a, out, i):
     body = {"model": model, "max_tokens": 8000, "temperature": 0.7, "messages": [{"role": "user", "content": q}],
             "chat_template_kwargs": {"enable_thinking": THINK}}
     if EFFORT: body["reasoning_effort"] = EFFORT
-    for k, env in (("top_p", "TOPP"), ("temperature", "TEMP"), ("seed", "SEED")):
-        if os.environ.get(env): body[k] = float(os.environ[env]) if k != "seed" else int(os.environ[env])
+    for k, env in (("top_p", "TOPP"), ("temperature", "TEMP"), ("top_k", "TOPK"), ("seed", "SEED")):
+        if os.environ.get(env): body[k] = float(os.environ[env]) if k not in ("seed", "top_k") else int(os.environ[env])
     req = urllib.request.Request(base + "/chat/completions", json.dumps(body).encode(), {"Content-Type": "application/json"})
     t0 = time.time()
     try:
@@ -74,4 +74,4 @@ t0 = time.time(); ths = [threading.Thread(target=worker) for _ in range(workers)
 [t.start() for t in ths]; [t.join() for t in ths]
 wall = time.time() - t0
 print(json.dumps({"n": len(qs), "correct": sum(v[0] for v in res.values()), "wall_s": round(wall), "completion_tokens": sum(v[1] for v in res.values()),
-                  "tok_per_wall_s": round(sum(v[1] for v in res.values()) / wall, 1), "sum_request_s": round(sum(v[2] for v in res.values())), "errors": errs[0], "reasoning_chars": rch[0], "content_chars": cch[0], "effort": EFFORT, "think": THINK}))
+                  "tok_per_wall_s": round(sum(v[1] for v in res.values()) / wall, 1), "sum_request_s": round(sum(v[2] for v in res.values())), "errors": errs[0], "capped": sum(1 for v in res.values() if v[1] >= 7990), "max_tokens_seen": max((v[1] for v in res.values()), default=0), "reasoning_chars": rch[0], "content_chars": cch[0], "effort": EFFORT, "think": THINK}))
