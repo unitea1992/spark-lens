@@ -34,9 +34,15 @@ export function startScript(r: RecipeConfig, arbitrationLog: string[] = []): str
   ].join("\n");
 }
 
-/** Wait for local ComfyUI queues to drain, then unload models on active ports. */
-export function gpuArbitrationScript(ports: number[], timeoutSeconds: number): string {
-  return `exec python3 - ${timeoutSeconds} ${ports.join(" ")} <<'PY'
+/**
+ * Wait for local ComfyUI queues to drain, unload models on active ports, then
+ * wait (up to `settleSeconds`, 0 = not at all) until the host's MemAvailable
+ * stops rising: ComfyUI frees its models asynchronously, and a recipe that
+ * starts before that sees a smaller room (a GLM prompt cache of 3.2 GiB
+ * instead of 12 when its worker's ComfyUI still held ~12 GiB).
+ */
+export function gpuArbitrationScript(ports: number[], timeoutSeconds: number, settleSeconds = 0): string {
+  return `exec python3 - ${timeoutSeconds} ${settleSeconds} ${ports.join(" ")} <<'PY'
 import http.client
 import json
 import sys
@@ -45,7 +51,8 @@ import time
 start = time.monotonic()
 wait_limit = float(sys.argv[1])
 deadline = start + wait_limit
-ports = [int(port) for port in sys.argv[2:]]
+settle_limit = float(sys.argv[2])
+ports = [int(port) for port in sys.argv[3:]]
 active = set()
 free_body = '{"unload_models":true,"free_memory":true}'
 
@@ -103,7 +110,28 @@ for port in sorted(active):
     except (OSError, http.client.HTTPException, ValueError) as error:
         fail(f"ComfyUI :{port} のアンロード要求に失敗 ({error})")
 targets = ", ".join(f":{port}" for port in sorted(active))
-print(f"GPU仲裁: 待機 {waited}秒、アンロード要求 {targets}")
+
+def mem_available_gib():
+    with open("/proc/meminfo") as meminfo:
+        for line in meminfo:
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) / 1048576
+    return None
+
+released = ""
+if settle_limit > 0 and mem_available_gib() is not None:
+    settle_start = time.monotonic()
+    first = mem_available_gib()
+    samples = [first]
+    while time.monotonic() - settle_start < settle_limit:
+        time.sleep(1)
+        samples.append(mem_available_gib())
+        # at least 4 s, then 3 s without the free memory moving by 0.25 GiB
+        if time.monotonic() - settle_start >= 4 and len(samples) >= 4 and max(samples[-4:]) - min(samples[-4:]) < 0.25:
+            break
+    settled = time.monotonic() - settle_start < settle_limit
+    released = f"、空き {first:.0f}→{samples[-1]:.0f} GiB（{int(time.monotonic() - settle_start)}秒{'' if settled else '、上限まで増加中'}）"
+print(f"GPU仲裁: 待機 {waited}秒、アンロード要求 {targets}{released}")
 PY`;
 }
 

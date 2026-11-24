@@ -318,14 +318,14 @@ export class RecipeManager {
     }
     const action: Action = { kind: "start", startedAt: Date.now(), finishedAt: null, ok: null, message: "起動しています", pid: null, preparing: true };
     this.actions.set(id, action);
-    const { enabled, comfyPorts, waitTimeoutSeconds } = this.arbitration;
+    const { enabled, comfyPorts, waitTimeoutSeconds, memorySettleSeconds } = this.arbitration;
     const arbitrationLog: string[] = [];
     if (enabled && comfyPorts.length > 0) {
       action.message = "ComfyUIの生成キューを確認しています";
       const nodeIds = r.llm ? (this.llms.find((l) => l.id === r.llm)?.nodes ?? []) : [];
       const hosts = [...new Set([r.host, ...nodeIds])].map((node) => this.hosts.get(node)).filter((h): h is HostConfig => h !== undefined);
-      const script = gpuArbitrationScript(comfyPorts, waitTimeoutSeconds);
-      const timeout = (waitTimeoutSeconds + 10 * comfyPorts.length + 10) * 1000;
+      const script = gpuArbitrationScript(comfyPorts, waitTimeoutSeconds, memorySettleSeconds);
+      const timeout = (waitTimeoutSeconds + 10 * comfyPorts.length + memorySettleSeconds + 10) * 1000;
       const results = await Promise.all(hosts.map((host) => this.exec(host, script, timeout)));
       for (const [index, gate] of results.entries()) {
         const host = hosts[index]!;

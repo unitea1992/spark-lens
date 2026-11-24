@@ -98,10 +98,12 @@ test("GPU arbitration defaults on and validates overrides", () => {
     enabled: true,
     comfyPorts: [8188, 8189],
     waitTimeoutSeconds: 900,
+    memorySettleSeconds: 45,
   });
   assert.deepEqual(parseConfig({
-    gpuArbitration: { enabled: false, comfyPorts: [9000, 9000], waitTimeoutSeconds: 12 },
-  }).gpuArbitration, { enabled: false, comfyPorts: [9000], waitTimeoutSeconds: 12 });
+    gpuArbitration: { enabled: false, comfyPorts: [9000, 9000], waitTimeoutSeconds: 12, memorySettleSeconds: 0 },
+  }).gpuArbitration, { enabled: false, comfyPorts: [9000], waitTimeoutSeconds: 12, memorySettleSeconds: 0 });
+  assert.throws(() => parseConfig({ gpuArbitration: { memorySettleSeconds: 301 } }), /memorySettleSeconds/);
   assert.throws(() => parseConfig({ gpuArbitration: { enabled: "false" } }), /enabled/);
   assert.throws(() => parseConfig({ gpuArbitration: { comfyPorts: [8188.5] } }), /comfyPorts/);
 });

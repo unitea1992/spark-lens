@@ -9,7 +9,7 @@ const DEFAULT_SUBSCRIPTIONS: SubscriptionConfig[] = [
   { type: "opencode-go" },
 ];
 
-export const DEFAULT_GPU_ARBITRATION = { enabled: true, comfyPorts: [8188, 8189], waitTimeoutSeconds: 900 };
+export const DEFAULT_GPU_ARBITRATION = { enabled: true, comfyPorts: [8188, 8189], waitTimeoutSeconds: 900, memorySettleSeconds: 45 };
 
 export function configPath(): string {
   if (process.env.SPARK_LENS_CONFIG) return process.env.SPARK_LENS_CONFIG;
@@ -265,6 +265,7 @@ export function parseConfig(raw: unknown): Config {
         enabled,
         comfyPorts: [...new Set(ports)],
         waitTimeoutSeconds: asNumber(settings.waitTimeoutSeconds, "gpuArbitration.waitTimeoutSeconds", 1, 3600, DEFAULT_GPU_ARBITRATION.waitTimeoutSeconds),
+        memorySettleSeconds: asNumber(settings.memorySettleSeconds, "gpuArbitration.memorySettleSeconds", 0, 300, DEFAULT_GPU_ARBITRATION.memorySettleSeconds),
       };
     })(),
   };
