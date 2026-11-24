@@ -409,3 +409,42 @@ test("ComfyUI arbitration holds the recipe through monitor ticks and prevents la
   assert.match((await manager.logs("a", "launcher")).text, /GPU仲裁:.*アンロード要求.*空き \d+→\d+ GiB/);
   assert.deepEqual(freeRequests, Array(2).fill({ unload_models: true, free_memory: true }));
 });
+
+test("ComfyUI arbitration finds an instance bound to an address other than 127.0.0.1", async (t) => {
+  const home = mkdtempSync(join(tmpdir(), "sl-arbitration-bound-"));
+  const oldHome = process.env.HOME;
+  process.env.HOME = home;
+  t.after(() => {
+    process.env.HOME = oldHome;
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  const freeRequests: unknown[] = [];
+  const comfy = createServer(async (req, res) => {
+    if (req.method === "GET" && req.url === "/queue") {
+      res.end(JSON.stringify({ queue_running: [], queue_pending: [] }));
+    } else if (req.method === "POST" && req.url === "/free") {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(chunk);
+      freeRequests.push(JSON.parse(Buffer.concat(chunks).toString()));
+      res.writeHead(200).end();
+    } else {
+      res.writeHead(404).end();
+    }
+  }).listen(0, "127.0.0.2");
+  t.after(() => new Promise<void>((resolve) => comfy.close(() => resolve())));
+  await once(comfy, "listening");
+  const address = comfy.address();
+  assert.ok(address && typeof address === "object");
+
+  const manager = new RecipeManager(
+    [{ id: "a", label: "A", host: "local", dir: home, start: "true", stop: "true" }],
+    [{ id: "local", label: "Local", kind: "server", local: true }],
+    join(home, "ctl"),
+    null,
+    { enabled: true, comfyPorts: [address.port], waitTimeoutSeconds: 1, memorySettleSeconds: 0 },
+  );
+  assert.equal((await manager.start("a")).ok, true);
+  assert.match((await manager.logs("a", "launcher")).text, new RegExp(`GPU仲裁:.*アンロード要求 127\\.0\\.0\\.2:${address.port}`));
+  assert.deepEqual(freeRequests, [{ unload_models: true, free_memory: true }]);
+});
