@@ -92,7 +92,7 @@ export interface Config {
   subscriptions: SubscriptionConfig[];
   agents: { processes: AgentProcessRule[] };
   recipes: RecipeConfig[];
-  gpuArbitration: { enabled: boolean; comfyPorts: number[]; waitTimeoutSeconds: number };
+  gpuArbitration: { enabled: boolean; comfyPorts: number[]; waitTimeoutSeconds: number; memorySettleSeconds: number };
 }
 
 // ---------------------------------------------------------------- snapshot

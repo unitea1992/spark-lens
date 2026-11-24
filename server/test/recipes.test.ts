@@ -26,7 +26,7 @@ test("cleanLog drops colour codes and keeps the last redraw of a progress line",
   assert.equal(cleanLog(bars), "Loading: 90% | 15G\nother 5% line\ndone\n");
 });
 
-const arbitrationDisabled = { enabled: false, comfyPorts: [], waitTimeoutSeconds: 900 };
+const arbitrationDisabled = { enabled: false, comfyPorts: [], waitTimeoutSeconds: 900, memorySettleSeconds: 0 };
 
 function llm(state: LlmSnapshot["state"]): LlmSnapshot {
   return { id: "m", state } as LlmSnapshot;
@@ -385,7 +385,7 @@ test("ComfyUI arbitration holds the recipe through monitor ticks and prevents la
     [{ id: "local", label: "Local", kind: "server", local: true }],
     join(home, "ctl"),
     null,
-    { enabled: true, comfyPorts: [address.port], waitTimeoutSeconds: 1 },
+    { enabled: true, comfyPorts: [address.port], waitTimeoutSeconds: 1, memorySettleSeconds: 6 },
   );
   const waiting = manager.start("a");
   await Promise.race([firstQueue.promise, waiting.then(({ message }) => assert.fail(message))]);
@@ -406,6 +406,6 @@ test("ComfyUI arbitration holds the recipe through monitor ticks and prevents la
 
   freeStatus = 200;
   assert.equal((await manager.start("a")).ok, true);
-  assert.match((await manager.logs("a", "launcher")).text, /GPU仲裁:.*アンロード要求/);
+  assert.match((await manager.logs("a", "launcher")).text, /GPU仲裁:.*アンロード要求.*空き \d+→\d+ GiB/);
   assert.deepEqual(freeRequests, Array(2).fill({ unload_models: true, free_memory: true }));
 });
