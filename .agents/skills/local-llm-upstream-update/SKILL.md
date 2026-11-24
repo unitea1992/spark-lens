@@ -24,6 +24,6 @@ description: Spark のローカル LLM レシピの上流更新が、個別調�
 - 2 台構成の起動前は、**head だけでなく worker の ComfyUI（8188・8189）も `/free` で解放する**。`free-comfyui.sh` は head だけを外す。worker の ComfyUI が約 12 GiB を載せたまま GLM を起動すると、プロンプトキャッシュが 12 → 3.2 GiB に黙って縮む（2026-11-25）。Spark Lens の起動ボタンは両方を解放する（`gpuArbitration`）。手動で起動したら、rank 0 のログの `prompt cache` の行で確かめる。
 - モデルの能力のスイッチ（動画・PDF・画像枚数など）が上流で opt-in に変わっていないかを `config.sh` の差分で見る。Qwen 単機は v1.2.7 で `VIDEO`・`PDF` が既定 0 になった。「モデルの能力は全部有効に」の方針なので、`.env` に置いて実機で確かめる（性能の調整とは別扱い）。
 - Nemotron（`nemotron-super-vl/`）は git ではなく、GLM のイメージ（`tensorfold-glm53-spark:*` の最新）を流用する。GLM のエンジンが上がると Nemotron も黙って新しいエンジンで動くので、GLM の更新のたびに Nemotron の起動も確かめる。
-- Inkling 2 Mini（`inkling-2-mini-tensorfold/`、1 台、イメージ `tensorfold-inkling2:*`）は動画・音声に非対応。`.env` は絶対パスだけ（展開されない）。`conc.py` は思考の先頭トークンも数えて測る（思考オフでも少し考えるので、本文だけ数えると TTFT が取れず落ちる）。
+- Inkling 2 Mini（`inkling-2-mini-tensorfold/`、1 台、イメージ `tensorfold-inkling2:*`）は動画・音声に非対応。通常版と未検閲版（`RERISKED=1`、重みは `hf/Inkling-2-Mini-Derisked/`）は同じコンテナを共有する。effort は none を避け low〜medium を使う（none は逆に長く出す。記録は `bench-data/runs/2026-11-25-inkling-6061fa8/`）。`.env` は絶対パスだけ（展開されない）。`conc.py` は思考の先頭トークンも数えて測る（思考オフでも少し考えるので、本文だけ数えると TTFT が取れず落ちる）。
 - 新しいモデルや構成を入れるときは、`local-llm-bench` の `battery.sh`（モデルどうしを比べる節）で、速さと品質を既存のモデルと並べてから既定にするか決める。
 
