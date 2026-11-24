@@ -18,8 +18,12 @@ def one(i, out):
             line = line.decode().strip()
             if not line.startswith("data: ") or line.endswith("[DONE]"): continue
             d = json.loads(line[6:])
-            if d.get("choices") and d["choices"][0]["delta"].get("content"):
-                if first is None: first = time.time()
+            # 思考が先に流れるモデル（Inkling など、思考オフでも少し考える）は、最初の本文までに予算を使い切る。
+            # 先頭の 1 トークンは思考でも本文でも数える。
+            if d.get("choices"):
+                delta = d["choices"][0]["delta"]
+                if (delta.get("content") or delta.get("reasoning_content") or delta.get("reasoning")) and first is None:
+                    first = time.time()
             if d.get("usage"): n = d["usage"]["completion_tokens"]
     out[i] = (first - t0 if first else None, n, time.time() - (first or t0))
 for N in levels:
@@ -28,4 +32,4 @@ for N in levels:
     wall = time.time() - t0
     tot = sum(v[1] for v in res.values()); per = [round(v[1] / v[2], 1) for v in res.values()]
     print(json.dumps({"streams": N, "total_tokens": tot, "total_tps_decode": round(sum(per), 1), "per_stream_tps": per,
-                      "ttft_s": [round(v[0], 2) for v in res.values()], "wall_s": round(wall, 1)}))
+                      "ttft_s": [round(v[0], 2) if v[0] is not None else None for v in res.values()], "wall_s": round(wall, 1)}))

@@ -26,7 +26,7 @@ description: Spark のローカル LLM（GLM・Qwen・DeepSeek）を同じ手順
 
 - 結果は、サービスが動いているチェックアウトの `bench-data/spark-lens-bench/runs.jsonl` に自動で追記される（別の worktree から動いているときは、そちらに溜まる。`compare.py` が読むこのチェックアウトの分へ、足りない行を追記して統合する。`SPARK_LENS_BENCH_DIR` で場所を揃える手もある）。加えて `bench-data/runs/<日付>-<名前>/results/` に JSON と起動ログを置き、`NOTES.md` に上流のコミットと `.env` の違いを書く（置き方は `bench-data/README.md`）。
 - 前回との比較：`python3 -I .agents/skills/local-llm-bench/scripts/compare.py`（モデルごとに TTFT・prose・code・プレフィルの最新と1つ前、増減％）。
-- 目安（既定設定、TTFT ms / prose / code / プレフィル tok/s）：DeepSeek 149 / 58 / 102 / 1,952（2026-11-06）、GLM 約 190 / 34 / 62 / 1,565（2026-11-05 に切り替えた新レシピ 1104、DENSE=q8。旧 EXL3・q4 は 143 / 46 / 73 / 1,569）、Qwen 二機 95 / 36 / 83 / 3,122、Qwen 単機 266 / 30 / 76 / 2,102（この 2 つは 2026-11-02）。大きく下回るときは `.env` の違いと同時稼働を疑う。
+- 目安（既定設定、TTFT ms / prose / code / プレフィル tok/s）：DeepSeek 149 / 58 / 102 / 1,952（2026-11-06）、GLM 170 / 33.5 / 61 / 1,246（2026-11-25、新レシピ 1104 の TensorFold 1.3.0。11/19 の 1.1.9 系は 197 / 35.8 / 68 / 1,579 で、1.3.0 は上流も退行を認めている。旧 EXL3・q4 は 143 / 46 / 73 / 1,569）、Qwen 二機 95 / 36 / 83 / 3,122（2026-11-02）、Qwen 単機 124 / 29 / 78 / 2,214（2026-11-25、v1.2.7）、Inkling 2 Mini 143 / 40 / 55 / 3,153（2026-11-25、1 台）、Nemotron 191 / 43 / 58 / 2,299（2026-11-25）。大きく下回るときは `.env` の違いと同時稼働を疑う。2 台構成で GLM が 11/19 の 12 GiB より小さいプロンプトキャッシュで起動したときは、worker の ComfyUI がメモリを載せたままだった（`upstream-update` のスキル参照）。
 
 ## API の同等性確認（Responses と Chat）
 
